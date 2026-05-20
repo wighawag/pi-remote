@@ -12,6 +12,8 @@ layout {
 	}
 
 	pane split_direction="vertical" {
-	
+		pane name="extension" command="pnpm"  {
+			args "--filter" "./extension" "dev"
+		}
 	}
 }

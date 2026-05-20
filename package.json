@@ -20,6 +20,7 @@
     "---------------------- INSTALL ----------------------": "",
     "sync-deps": "syncpack fix-mismatches",
     "---------------------- DEV ----------------------": "",
+    "ext:dev": "ldenv pnpm --filter ./extension dev",
     "web:dev": "ldenv pnpm --filter ./web dev",
     "web:build": "ldenv pnpm --filter ./web build",
     "---------------------- DEPLOY ----------------------": "",
