@@ -12,8 +12,11 @@ layout {
 	}
 
 	pane split_direction="vertical" {
-		pane name="extension" command="pnpm"  {
-			args "--filter" "./extension" "dev"
+		// pane name="extension" command="pnpm"  {
+		// 	args "--filter" "./extension" "dev"
+		// }
+		pane name="extension" command="pi"  {
+			args "--extension" "./extension/dist/index.js" "--remote-port" "8765" 
 		}
 	}
 }

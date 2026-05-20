@@ -4,12 +4,6 @@
   "description": "Remote control extension for pi coding agent with HTTP/WebSocket API",
   "type": "module",
   "main": "dist/index.js",
-  "scripts": {
-    "build": "tsc",
-    "dev": "tsx src/index.ts",
-    "client": "tsx src/client.ts",
-    "start": "node dist/index.js"
-  },
   "keywords": [
     "pi",
     "coding-agent",
@@ -33,5 +27,11 @@
     "extensions": [
       "./dist/index.js"
     ]
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "client": "tsx src/client.ts",
+    "start": "node dist/index.js"
   }
 }
