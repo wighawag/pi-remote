@@ -1,35 +1,33 @@
 {
-  "name": "pi-remote",
-  "version": "0.1.0",
-  "description": "Remote control extension for pi coding agent with HTTP/WebSocket API",
+  "name": "pi-remote-monorepo",
+  "version": "0.0.0",
+  "private": true,
   "type": "module",
-  "main": "dist/index.js",
-  "scripts": {
-    "build": "tsc",
-    "dev": "tsx src/index.ts",
-    "client": "tsx src/client.ts",
-    "start": "node dist/index.js"
-  },
-  "keywords": [
-    "pi",
-    "coding-agent",
-    "remote",
-    "websocket",
-    "http"
-  ],
-  "author": "",
-  "license": "MIT",
-  "dependencies": {
-    "ws": "^8.18.0"
-  },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "file:~/.volta/tools/image/packages/@earendil-works/pi-coding-agent",
-    "@types/node": "^22.0.0",
-    "@types/ws": "^8.5.13",
-    "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "ldenv": "^0.3.16",
+    "set-defaults": "^0.0.5",
+    "syncpack": "^13.0.4",
+    "zellij-launcher": "^0.0.1"
   },
-  "pi": {
-    "extensions": ["./dist/index.js"]
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "scripts": {
+    "prepare": "set-defaults .vscode",
+    "preinstall": "npx only-allow pnpm",
+    "---------------------- INSTALL ----------------------": "",
+    "sync-deps": "syncpack fix-mismatches",
+    "---------------------- DEV ----------------------": "",
+    "web:dev": "ldenv pnpm --filter ./web dev",
+    "web:build": "ldenv pnpm --filter ./web build",
+    "---------------------- DEPLOY ----------------------": "",
+    "build": "pnpm web:build",
+    "serve": "pnpm run --filter ./web serve",
+    "---------------------- RUN FULL LOCAL SETUP ----------------------": "",
+    "stop": "zellij kill-session $npm_package_name",
+    "start:pnpm": "pnpm -r dev",
+    "start": "zellij-launcher a $npm_package_name || zellij -n zellij.kdl -s $npm_package_name"
   }
 }

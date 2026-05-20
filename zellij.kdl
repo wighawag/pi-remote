@@ -1,0 +1,17 @@
+layout {
+	pane split_direction="vertical" {
+		
+	}
+	pane split_direction="vertical" {
+		pane name="web" command="pnpm"  {
+			args "web:dev"
+		}
+		pane name="svelte-check" command="pnpm"  {
+			args "--filter" "./web" "check:watch"
+		}
+	}
+
+	pane split_direction="vertical" {
+	
+	}
+}

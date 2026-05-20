@@ -1,0 +1,18 @@
+############################################
+# .gitignore
+#############################################
+node_modules
+
+# Output
+/.svelte-kit
+/build
+
+# pwag
+static/pwa
+src/app.html
+
+# Env
+*.local
+############################################
+
+pnpm-lock.yaml

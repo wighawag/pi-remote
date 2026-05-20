@@ -3,3 +3,12 @@ dist/
 *.log
 .env
 .DS_Store
+
+# environment variables
+.env*.local
+
+# node modules
+node_modules/
+
+.vscode/*
+!.vscode/*.default

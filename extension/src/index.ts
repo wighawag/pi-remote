@@ -25,19 +25,8 @@
 
 import { createServer, type Server, IncomingMessage, type ServerResponse } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type {
-	AgentEndEvent,
-	AgentStartEvent,
-	ExtensionCommandContext,
-	ExtensionContext,
-	MessageEndEvent,
-	MessageUpdateEvent,
-	SessionShutdownEvent,
-	SessionStartEvent,
-	ToolExecutionEndEvent,
-	ToolExecutionStartEvent,
-} from "@earendil-works/pi-coding-agent/dist/core/extensions/index.js";
+import type { ExtensionAPI, AgentEndEvent, AgentStartEvent, ExtensionCommandContext, ExtensionContext, SessionShutdownEvent, SessionStartEvent, } from "@earendil-works/pi-coding-agent";
+import type { MessageEndEvent, MessageUpdateEvent, ToolExecutionEndEvent, ToolExecutionStartEvent, } from "@earendil-works/pi-coding-agent/dist/core/extensions/index.js";
 
 interface RemoteConfig {
 	port: number;
