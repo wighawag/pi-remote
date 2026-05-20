@@ -17,13 +17,13 @@ Control pi from anywhere while maintaining full access to all local folders and 
 
 ```bash
 # Install dependencies
-npm install
+pnpm install
 
 # Build
-npm run build
+pnpm run build
 
 # Start pi with remote server
-npm run dev -- --remote-port 8765 --remote-token YOUR_TOKEN
+pnpm run dev -- --remote-port 8765 --remote-token YOUR_TOKEN
 
 # Or use directly with pi
 pi --extension ./dist/index.js --remote-port 8765 --remote-token YOUR_TOKEN
@@ -52,6 +52,7 @@ pi-remote/
 ## Security
 
 ⚠️ **Important:**
+
 - Always use `--remote-token` when exposing pi remotely
 - By default, binds to `127.0.0.1` (localhost only)
 - Use `--remote-host 0.0.0.0` only with strong authentication

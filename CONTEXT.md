@@ -16,11 +16,9 @@ Pi Remote is a TypeScript extension for the [pi coding agent](https://pi.dev) th
   - WebSocket server for real-time streaming
   - Token-based authentication
   - Event broadcasting (agent lifecycle, tool execution, messages)
-  
 - **`src/client.ts`** - Reference WebSocket client
   - Command-line client for testing
   - Demonstrates WebSocket protocol usage
-  
 - **`docs/USAGE.md`** - Complete API documentation
   - WebSocket API reference
   - HTTP API reference
@@ -34,7 +32,6 @@ Pi Remote is a TypeScript extension for the [pi coding agent](https://pi.dev) th
   - Runtime: `ws` (WebSocket library)
   - Dev: TypeScript, tsx, @types/node, @types/ws
   - Pi package config for auto-discovery
-  
 - **`tsconfig.json`** - TypeScript configuration
   - ES2022 target, ESNext modules
   - Strict mode enabled
@@ -65,11 +62,13 @@ Pi Remote is a TypeScript extension for the [pi coding agent](https://pi.dev) th
 ### Server Endpoints
 
 **WebSocket:** `ws://host:port/ws?token=XXX`
+
 - Real-time bidirectional communication
 - Streams agent responses, tool events
 - Accepts messages, abort commands
 
 **HTTP REST:**
+
 - `POST /message` - Send message to agent
 - `GET /session` - Get session info
 - `POST /session/new` - Start new session
@@ -97,6 +96,7 @@ Pi Remote is a TypeScript extension for the [pi coding agent](https://pi.dev) th
 ## Current Status
 
 ✅ **Completed:**
+
 - Core extension with HTTP/WebSocket server
 - Reference client implementation
 - Complete API documentation
@@ -105,6 +105,7 @@ Pi Remote is a TypeScript extension for the [pi coding agent](https://pi.dev) th
 - Initial commit made
 
 ⏳ **Next Steps:**
+
 1. Install dependencies and test locally
 2. Push to GitHub
 3. Build web frontend (mobile-friendly)
@@ -116,14 +117,14 @@ Pi Remote is a TypeScript extension for the [pi coding agent](https://pi.dev) th
 ```bash
 # Development
 cd /home/wighawag/dev/github/wighawag/pi-remote
-npm install
-npm run build
+pnpm install
+pnpm run build
 
 # Test the extension
 pi --extension ./dist/index.js --remote-port 8765 --remote-token test123
 
 # Test the client
-npm run client -- --url ws://localhost:8765 --token test123
+pnpm run client -- --url ws://localhost:8765 --token test123
 
 # Push to GitHub
 git remote add origin git@github.com:wighawag/pi-remote.git
@@ -133,6 +134,7 @@ git push -u origin main
 ## Security Considerations
 
 ⚠️ **Important:**
+
 - Always use `--remote-token` for remote access
 - Default binding is localhost only (`127.0.0.1`)
 - For remote access, use SSH tunneling:
@@ -188,6 +190,7 @@ pi-remote/
 ## Future Enhancements
 
 Potential additions:
+
 - [ ] Web frontend (mobile-optimized)
 - [ ] Multiple WebSocket rooms/sessions
 - [ ] Rate limiting middleware
