@@ -24,8 +24,20 @@
  */
 
 import { createServer, type Server, IncomingMessage, type ServerResponse } from "node:http";
-import { WebSocketServer, type WebSocket } from "ws";
+import { WebSocketServer, WebSocket } from "ws";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+	AgentEndEvent,
+	AgentStartEvent,
+	ExtensionCommandContext,
+	ExtensionContext,
+	MessageEndEvent,
+	MessageUpdateEvent,
+	SessionShutdownEvent,
+	SessionStartEvent,
+	ToolExecutionEndEvent,
+	ToolExecutionStartEvent,
+} from "@earendil-works/pi-coding-agent/dist/core/extensions/index.js";
 
 interface RemoteConfig {
 	port: number;
@@ -45,11 +57,14 @@ interface ServerMessage {
 	[key: string]: unknown;
 }
 
+let currentWs: WebSocket | null = null;
+let messageQueue: ServerMessage[] = [];
+
 export default async function (pi: ExtensionAPI) {
 	// Register flags
 	pi.registerFlag("remote-port", {
 		description: "Port for remote server (default: disabled)",
-		type: "number",
+		type: "string",
 	});
 
 	pi.registerFlag("remote-host", {
@@ -65,11 +80,9 @@ export default async function (pi: ExtensionAPI) {
 
 	let server: Server | null = null;
 	let wss: WebSocketServer | null = null;
-	let currentWs: WebSocket | null = null;
 	let isStreaming = false;
-	let messageQueue: ServerMessage[] = [];
 
-	pi.on("session_start", async (event, ctx) => {
+	pi.on("session_start", async (event: SessionStartEvent, ctx: ExtensionContext) => {
 		const port = pi.getFlag("remote-port") as number | undefined;
 		if (!port) return;
 
@@ -150,7 +163,7 @@ export default async function (pi: ExtensionAPI) {
 		});
 	});
 
-	pi.on("session_shutdown", async () => {
+	pi.on("session_shutdown", async (event: SessionShutdownEvent) => {
 		// Cleanup on shutdown
 		if (wss) {
 			wss.clients.forEach((client) => client.close());
@@ -165,12 +178,12 @@ export default async function (pi: ExtensionAPI) {
 	});
 
 	// Agent lifecycle events for streaming
-	pi.on("agent_start", async () => {
+	pi.on("agent_start", async (event: AgentStartEvent) => {
 		isStreaming = true;
 		broadcast({ type: "agent_start", timestamp: Date.now() });
 	});
 
-	pi.on("message_update", async (event) => {
+	pi.on("message_update", async (event: MessageUpdateEvent) => {
 		if (event.message.role !== "assistant") return;
 		const evt = event.assistantMessageEvent;
 		if (evt?.type === "text_delta") {
@@ -182,12 +195,12 @@ export default async function (pi: ExtensionAPI) {
 		}
 	});
 
-	pi.on("message_end", async (event) => {
+	pi.on("message_end", async (event: MessageEndEvent) => {
 		if (event.message.role === "assistant") {
 			const content =
 				event.message.content
-					?.filter((c) => c.type === "text")
-					.map((c) => c.text)
+					?.filter((c: { type: string; text?: string }) => c.type === "text")
+					.map((c: { type: string; text?: string }) => c.text)
 					.join("\n") || "";
 
 			broadcast({
@@ -199,22 +212,22 @@ export default async function (pi: ExtensionAPI) {
 		}
 	});
 
-	pi.on("agent_end", async () => {
+	pi.on("agent_end", async (event: AgentEndEvent) => {
 		isStreaming = false;
 		broadcast({ type: "agent_end", timestamp: Date.now() });
 	});
 
-	pi.on("tool_execution_start", async (event) => {
+	pi.on("tool_execution_start", async (event: ToolExecutionStartEvent) => {
 		broadcast({
 			type: "tool_start",
 			toolName: event.toolName,
-			args: event.input,
+			args: event.args,
 			toolCallId: event.toolCallId,
 			timestamp: Date.now(),
 		});
 	});
 
-	pi.on("tool_execution_end", async (event) => {
+	pi.on("tool_execution_end", async (event: ToolExecutionEndEvent) => {
 		broadcast({
 			type: "tool_end",
 			toolName: event.toolName,
@@ -227,7 +240,7 @@ export default async function (pi: ExtensionAPI) {
 	// Register remote commands
 	pi.registerCommand("remote-send", {
 		description: "Send a message via remote connection",
-		handler: async (args, ctx) => {
+		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			if (!currentWs) {
 				ctx.ui.notify("No remote client connected", "warning");
 				return;
@@ -240,7 +253,7 @@ export default async function (pi: ExtensionAPI) {
 function broadcast(msg: ServerMessage): void {
 	if (currentWs && currentWs.readyState === WebSocket.OPEN) {
 		sendMessage(currentWs, msg);
-	} else {
+	} else if (messageQueue) {
 		messageQueue.push(msg);
 		// Keep queue size manageable
 		if (messageQueue.length > 100) {
@@ -261,7 +274,7 @@ function handleHttpRequest(
 	req: IncomingMessage,
 	res: ServerResponse,
 	config: RemoteConfig,
-	ctx: any,
+	ctx: ExtensionContext,
 	pi: ExtensionAPI,
 	isStreamingGetter: () => boolean,
 ): void {
@@ -311,12 +324,12 @@ function handleHttpRequest(
 	}
 }
 
-async function handlePostMessage(req: IncomingMessage, res: ServerResponse, ctx: any, pi: ExtensionAPI, isStreaming: boolean): Promise<void> {
+async function handlePostMessage(req: IncomingMessage, res: ServerResponse, ctx: ExtensionContext, pi: ExtensionAPI, isStreaming: boolean): Promise<void> {
 	let body = "";
 	req.on("data", (chunk) => (body += chunk));
 	req.on("end", async () => {
 		try {
-			const data = JSON.parse(body);
+			const data = JSON.parse(body) as { message?: string; text?: string; prompt?: string };
 			const message = data.message || data.text || data.prompt;
 
 			if (!message) {
@@ -344,7 +357,7 @@ async function handlePostMessage(req: IncomingMessage, res: ServerResponse, ctx:
 	});
 }
 
-function handleGetSession(res: ServerResponse, ctx: any): void {
+function handleGetSession(res: ServerResponse, ctx: ExtensionContext): void {
 	const entries = ctx.sessionManager.getEntries();
 	const sessionFile = ctx.sessionManager.getSessionFile();
 
@@ -358,7 +371,7 @@ function handleGetSession(res: ServerResponse, ctx: any): void {
 	);
 }
 
-function handleNewSession(res: ServerResponse, ctx: any, pi: ExtensionAPI): void {
+function handleNewSession(res: ServerResponse, ctx: ExtensionContext, pi: ExtensionAPI): void {
 	// Queue a /new command
 	pi.sendUserMessage("/new", { deliverAs: "followUp" });
 
@@ -366,7 +379,7 @@ function handleNewSession(res: ServerResponse, ctx: any, pi: ExtensionAPI): void
 	res.end(JSON.stringify({ status: "accepted", action: "new_session" }));
 }
 
-function handleCompactSession(res: ServerResponse, ctx: any): void {
+function handleCompactSession(res: ServerResponse, ctx: ExtensionContext): void {
 	ctx.compact({
 		onComplete: () => {
 			res.writeHead(200, { "Content-Type": "application/json" });
@@ -379,7 +392,7 @@ function handleCompactSession(res: ServerResponse, ctx: any): void {
 	});
 }
 
-async function handleWebSocketMessage(data: string, ctx: any, pi: ExtensionAPI, isStreamingGetter: () => boolean): Promise<void> {
+async function handleWebSocketMessage(data: string, ctx: ExtensionContext, pi: ExtensionAPI, isStreamingGetter: () => boolean): Promise<void> {
 	try {
 		const msg: ClientMessage = JSON.parse(data);
 		const isStreaming = isStreamingGetter();
@@ -387,7 +400,7 @@ async function handleWebSocketMessage(data: string, ctx: any, pi: ExtensionAPI, 
 		switch (msg.type) {
 			case "message":
 			case "prompt": {
-				const text = msg.message || msg.text || msg.prompt;
+				const text = (msg.message || msg.text || msg.prompt) as string | undefined;
 				if (text) {
 					ctx.ui.notify(`Received WebSocket message: ${text.slice(0, 50)}...`, "info");
 					pi.sendUserMessage(text, { deliverAs: isStreaming ? "steer" : undefined });

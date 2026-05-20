@@ -12,6 +12,9 @@ importers:
         specifier: ^8.18.0
         version: 8.20.1
     devDependencies:
+      '@earendil-works/pi-coding-agent':
+        specifier: file:~/.volta/tools/image/packages/@earendil-works/pi-coding-agent
+        version: pi-coding-agent@file:../../../../.volta/tools/image/packages/@earendil-works/pi-coding-agent
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.19
@@ -199,6 +202,9 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
 
+  pi-coding-agent@file:../../../../.volta/tools/image/packages/@earendil-works/pi-coding-agent:
+    resolution: {directory: ../../../../.volta/tools/image/packages/@earendil-works/pi-coding-agent, type: directory}
+
   tsx@4.22.3:
     resolution: {integrity: sha512-mdoNxBC/cSQObGGVQ5Bpn5i+yv7j68gk3Nfm3wFjcJg3Z0Mix9jzAFfP12prmm5eVGmDKtp0yyArrs0Q+8gZHg==}
     engines: {node: '>=18.0.0'}
@@ -343,6 +349,8 @@ snapshots:
 
   fsevents@2.3.3:
     optional: true
+
+  pi-coding-agent@file:../../../../.volta/tools/image/packages/@earendil-works/pi-coding-agent: {}
 
   tsx@4.22.3:
     dependencies:
