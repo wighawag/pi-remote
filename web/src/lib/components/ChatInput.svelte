@@ -1,16 +1,20 @@
 <script lang="ts">
 	import { sendMessage } from '$lib/pi-remote';
-	import { isStreaming } from '$lib/pi-remote';
+	import { isStreaming, isReadOnly, activeSessionInfo } from '$lib/pi-remote';
 
 	let { disabled }: { disabled: boolean } = $props();
 
 	let text = $state('');
 
 	let streaming = $derived($isStreaming);
+	let readOnly = $derived($isReadOnly);
+	let sessionInfo = $derived($activeSessionInfo);
+
+	let effectivelyDisabled = $derived(disabled || streaming || readOnly || !sessionInfo.sessionId);
 
 	function handleSend() {
 		const trimmed = text.trim();
-		if (!trimmed || disabled || streaming) return;
+		if (!trimmed || effectivelyDisabled) return;
 		sendMessage(trimmed);
 		text = '';
 	}
@@ -35,13 +39,13 @@
 			type="text"
 			bind:value={text}
 			onkeydown={handleKeydown}
-			disabled={disabled || streaming}
-			placeholder={streaming ? 'Agent is working...' : 'Type a message...'}
+			disabled={effectivelyDisabled}
+			placeholder={streaming ? 'Agent is working...' : readOnly ? 'Read-only mode' : !sessionInfo.sessionId ? 'Select a session first...' : 'Type a message...'}
 			class="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
 		/>
 		<button
 			type="submit"
-			disabled={disabled || streaming || !text.trim()}
+			disabled={effectivelyDisabled || !text.trim()}
 			class="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-medium transition-colors"
 		>
 			Send

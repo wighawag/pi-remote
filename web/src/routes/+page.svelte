@@ -1,137 +1,207 @@
 <script lang="ts">
-	import Head from '$lib/Head.svelte';
-	import ConnectionSettings from '$lib/components/ConnectionSettings.svelte';
-	import ChatMessageList from '$lib/components/ChatMessageList.svelte';
-	import ChatInput from '$lib/components/ChatInput.svelte';
-	import { piState, isConnected, connect, disconnect } from '$lib/pi-remote';
-	import { onMount } from 'svelte';
+  import Head from '$lib/Head.svelte';
+  import ConnectionSettings from '$lib/components/ConnectionSettings.svelte';
+  import ChatMessageList from '$lib/components/ChatMessageList.svelte';
+  import ChatInput from '$lib/components/ChatInput.svelte';
+  import SessionBrowser from '$lib/components/SessionBrowser.svelte';
+  import SessionConflictDialog from '$lib/components/SessionConflictDialog.svelte';
+  import { piState, isConnected, isInterrupted, sessionError, isReadOnly, activeSessionInfo, connect, disconnect, leaveSession, dismissSessionError } from '$lib/pi-remote';
+  import { fetchSessions } from '$lib/session-store';
+  import { onMount } from 'svelte';
 
-	let sidebarOpen = $state(false);
-	let autoConnect = $state(true);
+  let sidebarOpen = $state(false);
+  let autoConnect = $state(true);
+  let interruptedTimeout: ReturnType<typeof setTimeout> | null = null;
 
-	onMount(() => {
-		if (autoConnect) {
-			setTimeout(() => connect(), 200);
-		}
-	});
+  onMount(() => {
+    if (autoConnect) {
+      setTimeout(() => connect(), 200);
+    }
+  });
 
-	function handleConnected() {
-		connect();
-	}
+  function handleConnected() {
+    connect();
+  }
 
-	let connected = $derived($isConnected);
-	let appState = $derived($piState);
+  function handleDisconnect() {
+    leaveSession();
+    disconnect();
+  }
+
+  function handleReconnect() {
+    disconnect();
+    setTimeout(() => connect(), 100);
+  }
+
+  function handleRefresh() {
+    fetchSessions();
+  }
+
+  let connected = $derived($isConnected);
+  let interrupted = $derived($isInterrupted);
+  let sError = $derived($sessionError);
+  let readOnly = $derived($isReadOnly);
+  let sessionInfo = $derived($activeSessionInfo);
+  let appState = $derived($piState);
 </script>
 
 <Head title="Pi Remote" description="Chat with your Pi coding agent remotely" />
 
 <div class="h-screen flex bg-gray-900 text-white overflow-hidden">
-	<!-- Sidebar -->
-	<div
-		class="{sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 fixed md:relative z-20 w-72 h-full bg-gray-850 border-r border-gray-700 flex flex-col transition-transform duration-200"
-	>
-		<div class="p-4 border-b border-gray-700">
-			<div class="flex items-center justify-between">
-				<h1 class="text-lg font-bold">Pi Remote</h1>
-				<button
-					onclick={() => sidebarOpen = false}
-					class="md:hidden text-gray-400 hover:text-white"
-				>
-					✕
-				</button>
-			</div>
-		</div>
+  <!-- Sidebar -->
+  <div
+    class="{sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 fixed md:relative z-20 w-72 h-full bg-gray-850 border-r border-gray-700 flex flex-col transition-transform duration-200"
+  >
+    <div class="p-4 border-b border-gray-700">
+      <div class="flex items-center justify-between">
+        <h1 class="text-lg font-bold">Pi Remote</h1>
+        <button
+          onclick={() => sidebarOpen = false}
+          class="md:hidden text-gray-400 hover:text-white"
+        >
+          X
+        </button>
+      </div>
+    </div>
 
-		<ConnectionSettings
-			host={appState.connected ? 'localhost' : 'localhost'}
-			port={8765}
-			token=""
-			onConnected={handleConnected}
-		/>
+    <ConnectionSettings
+      host={appState.connected ? 'localhost' : 'localhost'}
+      port={8765}
+      token=""
+      onConnected={handleConnected}
+    />
 
-		<!-- Connection status -->
-		<div class="p-4 border-b border-gray-700">
-			<div class="flex items-center gap-2">
-				<div class="w-2.5 h-2.5 rounded-full {connected ? 'bg-green-500' : 'bg-red-500'}"></div>
-				<span class="text-sm {connected ? 'text-green-400' : 'text-red-400'}">
-					{connected ? 'Connected' : 'Disconnected'}
-				</span>
-			</div>
-			{#if appState.session}
-				<div class="text-xs text-gray-500 mt-2 truncate">
-					Session: {appState.session}
-				</div>
-			{/if}
-			{#if appState.error}
-				<div class="text-xs text-red-400 mt-2">
-					{appState.error}
-				</div>
-			{/if}
-		</div>
+    <!-- Connection status -->
+    <div class="p-4 border-b border-gray-700">
+      <div class="flex items-center gap-2">
+        <div class="w-2.5 h-2.5 rounded-full {connected ? 'bg-green-500' : 'bg-red-500'}"></div>
+        <span class="text-sm {connected ? 'text-green-400' : 'text-red-400'}">
+          {connected ? 'Connected' : 'Disconnected'}
+        </span>
+      </div>
+      {#if sessionInfo.sessionFile}
+        <div class="text-xs text-gray-500 mt-2 truncate" title={sessionInfo.sessionFile}>
+          Session active
+        </div>
+        {#if sessionInfo.cwd}
+          <div class="text-xs text-gray-500 truncate" title={sessionInfo.cwd}>
+            {sessionInfo.cwd}
+          </div>
+        {/if}
+      {/if}
+      {#if appState.error && !connected}
+        <div class="text-xs text-red-400 mt-2">
+          {appState.error}
+        </div>
+      {/if}
+    </div>
 
-		<!-- Quick actions -->
-		<div class="p-4 space-y-2">
-			<button
-				onclick={() => { disconnect(); setTimeout(() => connect(), 100); }}
-				class="w-full text-left text-sm text-gray-400 hover:text-white py-1.5 px-2 rounded hover:bg-gray-700 transition-colors"
-			>
-				⟳ Reconnect
-			</button>
-			<button
-				onclick={() => { disconnect(); }}
-				class="w-full text-left text-sm text-gray-400 hover:text-white py-1.5 px-2 rounded hover:bg-gray-700 transition-colors"
-			>
-				⏻ Disconnect
-			</button>
-		</div>
-	</div>
+    <!-- Session Browser -->
+    <div class="flex-1 overflow-hidden">
+      <SessionBrowser />
+    </div>
 
-	<!-- Main content -->
-	<div class="flex-1 flex flex-col min-w-0">
-		<!-- Top bar -->
-		<div class="flex items-center gap-3 p-3 border-b border-gray-700 bg-gray-850">
-			<button
-				onclick={() => sidebarOpen = !sidebarOpen}
-				class="md:hidden text-gray-400 hover:text-white p-1"
-			>
-				☰
-			</button>
-			<div class="flex-1 flex items-center gap-2">
-				<span class="text-sm text-gray-400">
-					{#if appState.isStreaming}
-						<span class="flex items-center gap-1.5">
-							<span class="inline-block w-2 h-2 bg-blue-400 rounded-full animate-pulse"></span>
-							Agent working...
-						</span>
-					{:else if connected}
-						Ready
-					{:else}
-						Not connected
-					{/if}
-				</span>
-			</div>
-		</div>
+    <!-- Quick actions -->
+    <div class="p-4 space-y-2 border-t border-gray-700">
+      <button
+        onclick={handleRefresh}
+        class="w-full text-left text-sm text-gray-400 hover:text-white py-1.5 px-2 rounded hover:bg-gray-700 transition-colors"
+      >
+        Refresh Sessions
+      </button>
+      <button
+        onclick={handleReconnect}
+        class="w-full text-left text-sm text-gray-400 hover:text-white py-1.5 px-2 rounded hover:bg-gray-700 transition-colors"
+      >
+        Reconnect
+      </button>
+      <button
+        onclick={handleDisconnect}
+        class="w-full text-left text-sm text-gray-400 hover:text-white py-1.5 px-2 rounded hover:bg-gray-700 transition-colors"
+      >
+        Disconnect
+      </button>
+    </div>
+  </div>
 
-		<!-- Chat area -->
-		<ChatMessageList onMessageSent={() => {}} />
+  <!-- Main content -->
+  <div class="flex-1 flex flex-col min-w-0">
+    <!-- Top bar -->
+    <div class="flex items-center gap-3 p-3 border-b border-gray-700 bg-gray-850">
+      <button
+        onclick={() => sidebarOpen = !sidebarOpen}
+        class="md:hidden text-gray-400 hover:text-white p-1"
+      >
+        =
+      </button>
+      <div class="flex-1 flex items-center gap-2">
+        <span class="text-sm text-gray-400">
+          {#if appState.isStreaming}
+            <span class="flex items-center gap-1.5">
+              <span class="inline-block w-2 h-2 bg-blue-400 rounded-full animate-pulse"></span>
+              Agent working...
+            </span>
+          {:else if connected}
+            {#if sessionInfo.sessionFile}
+              Ready
+            {:else}
+              Select a session from sidebar
+            {/if}
+          {:else}
+            Not connected
+          {/if}
+        </span>
+      </div>
+      {#if readOnly}
+        <span class="text-xs bg-yellow-600/30 text-yellow-400 px-2 py-1 rounded">Read-only</span>
+      {/if}
+    </div>
 
-		<!-- Input -->
-		<ChatInput disabled={!connected || appState.isStreaming} />
-	</div>
+    <!-- Interruption notification -->
+    {#if interrupted}
+      <div class="bg-red-600/20 border border-red-500/50 text-red-400 text-sm px-4 py-2 text-center">
+        Your session was interrupted — another client took over.
+      </div>
+    {/if}
 
-	<!-- Overlay for mobile sidebar -->
-	{#if sidebarOpen}
-		<button
-			type="button"
-			class="fixed inset-0 bg-black/50 z-10 md:hidden"
-			onclick={() => sidebarOpen = false}
-			aria-label="Close sidebar"
-		></button>
-	{/if}
+    <!-- Session error notification -->
+    {#if sError}
+      <div class="bg-red-600/20 border border-red-500/50 text-red-400 text-sm px-4 py-2 flex items-center justify-between">
+        <span>{sError}</span>
+        <button onclick={() => dismissSessionError()} class="ml-2 text-red-300 hover:text-red-200">X</button>
+      </div>
+    {/if}
+
+    <!-- Read-only banner -->
+    {#if readOnly && !interrupted}
+      <div class="bg-yellow-600/20 border border-yellow-500/50 text-yellow-400 text-sm px-4 py-2 text-center">
+        Read-only: another session is active in this folder
+      </div>
+    {/if}
+
+    <!-- Chat area -->
+    <ChatMessageList onMessageSent={() => {}} />
+
+    <!-- Input -->
+    <ChatInput disabled={!connected || appState.isStreaming || readOnly || !sessionInfo.sessionFile} />
+  </div>
+
+  <!-- Session Conflict Dialog -->
+  <SessionConflictDialog />
+
+  <!-- Overlay for mobile sidebar -->
+  {#if sidebarOpen}
+    <button
+      type="button"
+      class="fixed inset-0 bg-black/50 z-10 md:hidden"
+      onclick={() => sidebarOpen = false}
+      aria-label="Close sidebar"
+    ></button>
+  {/if}
 </div>
 
 <style>
-	.bg-gray-850 {
-		background-color: rgb(30, 30, 35);
-	}
+  .bg-gray-850 {
+    background-color: rgb(30, 30, 35);
+  }
 </style>

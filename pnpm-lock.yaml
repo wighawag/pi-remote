@@ -43,6 +43,31 @@ importers:
         specifier: ^5.7.0
         version: 5.9.3
 
+  server:
+    dependencies:
+      '@earendil-works/pi-ai':
+        specifier: '*'
+        version: 0.75.3(ws@8.20.1)(zod@4.4.3)
+      '@earendil-works/pi-coding-agent':
+        specifier: ^0.75.3
+        version: 0.75.3(ws@8.20.1)(zod@4.4.3)
+      ws:
+        specifier: ^8.18.0
+        version: 8.20.1
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.19
+      '@types/ws':
+        specifier: ^8.5.13
+        version: 8.18.1
+      tsx:
+        specifier: ^4.19.0
+        version: 4.22.3
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
   web:
     devDependencies:
       '@sveltejs/adapter-static':

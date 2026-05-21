@@ -1,9 +1,11 @@
 <script lang="ts">
-	import { messages, isStreaming, abort, newSession, clearMessages } from '$lib/pi-remote';
+	import { messages, isStreaming, abort, clearMessages, activeSessionInfo } from '$lib/pi-remote';
 	import { onMount } from 'svelte';
 
 	let messageList = $state<HTMLDivElement>();
 	let { onMessageSent }: { onMessageSent: () => void } = $props();
+
+	let sessionInfo = $derived($activeSessionInfo);
 
 	function scrollToBottom() {
 		if (messageList) {
@@ -31,7 +33,7 @@
 			<div class="text-center">
 				<div class="text-4xl mb-4">🤖</div>
 				<p class="text-lg font-medium mb-2">Pi Remote Chat</p>
-				<p class="text-sm">Connect to start chatting with your Pi agent</p>
+				<p class="text-sm">Select a session from the sidebar to start chatting</p>
 			</div>
 		</div>
 	{:else}
@@ -69,15 +71,8 @@
 		</div>
 	{/if}
 
-	{#if msgList.length > 0}
+ {#if msgList.length > 0}
 		<div class="flex gap-2 p-2 border-t border-gray-700">
-			<button
-				onclick={() => newSession()}
-				class="px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"
-				title="New session"
-			>
-				+ New Session
-			</button>
 			<button
 				onclick={() => clearMessages()}
 				class="px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"

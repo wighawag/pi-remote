@@ -1,6 +1,6 @@
 layout {
 	pane split_direction="vertical" {
-		
+
 	}
 	pane split_direction="vertical" {
 		pane name="web" command="pnpm"  {
@@ -12,11 +12,8 @@ layout {
 	}
 
 	pane split_direction="vertical" {
-		// pane name="extension" command="pnpm"  {
-		// 	args "--filter" "./extension" "dev"
-		// }
-		pane name="extension" command="pi"  {
-			args "--extension" "./extension/dist/index.js" "--remote-port" "8765" 
+		pane name="server" command="pnpm"  {
+			args "server:dev"
 		}
 	}
 }
