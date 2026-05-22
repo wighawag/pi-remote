@@ -2,7 +2,7 @@
 	import { sendMessage } from '$lib/pi-remote';
 	import { isStreaming, isReadOnly, activeSessionInfo } from '$lib/pi-remote';
 
-	let { disabled }: { disabled: boolean } = $props();
+	let { disabled, onSend }: { disabled: boolean; onSend?: () => void } = $props();
 
 	let text = $state('');
 
@@ -17,6 +17,7 @@
 		if (!trimmed || effectivelyDisabled) return;
 		sendMessage(trimmed);
 		text = '';
+		onSend?.();
 	}
 
 	function handleKeydown(e: KeyboardEvent) {

@@ -12,6 +12,7 @@
   let sidebarOpen = $state(false);
   let autoConnect = $state(true);
   let interruptedTimeout: ReturnType<typeof setTimeout> | null = null;
+  let chatList: { forceScrollToBottom: () => void };
 
   onMount(() => {
     if (autoConnect) {
@@ -180,10 +181,10 @@
     {/if}
 
     <!-- Chat area -->
-    <ChatMessageList onMessageSent={() => {}} />
+    <ChatMessageList bind:this={chatList} onMessageSent={() => {}} />
 
     <!-- Input -->
-    <ChatInput disabled={!connected || appState.isStreaming || readOnly || !sessionInfo.sessionFile} />
+    <ChatInput disabled={!connected || appState.isStreaming || readOnly || !sessionInfo.sessionFile} onSend={() => chatList?.forceScrollToBottom()} />
   </div>
 
   <!-- Session Conflict Dialog -->

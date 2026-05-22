@@ -7,16 +7,47 @@
 
 	let sessionInfo = $derived($activeSessionInfo);
 
+	let shouldAutoScroll = $state(true);
+	let forceScroll = $state(false);
+
+	function isScrolledToBottom(el: HTMLDivElement): boolean {
+		const threshold = 20;
+		return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
+	}
+
+	function handleScroll() {
+		if (messageList) {
+			shouldAutoScroll = isScrolledToBottom(messageList);
+		}
+	}
+
 	function scrollToBottom() {
 		if (messageList) {
 			messageList.scrollTop = messageList.scrollHeight;
 		}
 	}
 
+	function scrollToBottomIfShould() {
+		if (shouldAutoScroll || forceScroll) {
+			scrollToBottom();
+			forceScroll = false;
+		}
+	}
+
 	onMount(scrollToBottom);
 
 	$effect(() => {
-		scrollToBottom();
+		if (messageList) {
+			messageList.addEventListener('scroll', handleScroll);
+			return () => {
+				messageList.removeEventListener('scroll', handleScroll);
+			};
+		}
+	});
+
+	$effect(() => {
+		$messages.length;
+		setTimeout(scrollToBottomIfShould, 0);
 	});
 
 	let msgList = $derived($messages);
@@ -24,6 +55,11 @@
 
 	function formatTime(timestamp: number) {
 		return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+	}
+
+	export function forceScrollToBottom() {
+		forceScroll = true;
+		setTimeout(scrollToBottom, 0);
 	}
 </script>
 
