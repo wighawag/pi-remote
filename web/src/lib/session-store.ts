@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 
 export interface SessionInfo {
   path: string;
@@ -82,7 +82,7 @@ export async function fetchSessions(): Promise<void> {
     sessionFolders.set({
       folders: data.folders || [],
       activeSessions: (data.activeSessions || []).map((s: any) => s.sessionFile),
-      currentSession: sessionFolders.get().currentSession,
+      currentSession: get(sessionFolders).currentSession,
       loading: false,
     });
   } catch (err) {

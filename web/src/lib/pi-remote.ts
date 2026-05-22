@@ -1,4 +1,4 @@
-import { writable, derived } from 'svelte/store';
+import { writable, derived, get } from 'svelte/store';
 import type { ConflictInfo } from './session-store';
 import { setCurrentSession } from './session-store';
 
@@ -334,7 +334,7 @@ export function disconnect() {
 
 export function sendMessage(text: string) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  const s = state.getValue();
+  const s = get(state);
   if (!s.sessionId) return;
 
   addMessage({ role: 'user', content: text, isStreaming: false, sessionId: s.sessionId });
@@ -345,7 +345,7 @@ export function sendMessage(text: string) {
 
 export function abort() {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  const s = state.getValue();
+  const s = get(state);
   if (!s.sessionId) return;
   ws.send(JSON.stringify({ type: 'abort', sessionId: s.sessionId }));
 }
@@ -364,7 +364,7 @@ export function createSession(cwd: string, model?: string) {
 
 export function leaveSession() {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  const s = state.getValue();
+  const s = get(state);
   if (!s.sessionId) return;
   ws.send(JSON.stringify({ type: 'session_leave', sessionId: s.sessionId }));
   state.update((s: PiRemoteState) => ({
@@ -381,8 +381,8 @@ export function leaveSession() {
 }
 
 export function resolveConflict(action: 'take_over' | 'read_only') {
-  if (!ws || ws.readyState !== WebSocket.Open) return;
-  const s = state.getValue();
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const s = get(state);
   if (!s.conflict) return;
 
   ws.send(JSON.stringify({
