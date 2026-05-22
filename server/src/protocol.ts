@@ -12,8 +12,9 @@ export type ClientMessage =
 
 export type ServerMessage =
   | { type: 'connected'; clientId: string }
-  | { type: 'agent_start'; sessionId: string }
-  | { type: 'message_update'; sessionId: string; delta: string }
+| { type: 'agent_start'; sessionId: string }
+ | { type: 'thinking_update'; sessionId: string; delta: string }
+ | { type: 'message_update'; sessionId: string; delta: string }
   | { type: 'message_end'; sessionId: string; content: string }
   | { type: 'agent_end'; sessionId: string }
   | { type: 'tool_start'; sessionId: string; toolName: string; args: unknown }

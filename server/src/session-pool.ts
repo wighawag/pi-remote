@@ -237,14 +237,66 @@ export class SessionPool {
       if (entry.type === 'message') {
         const msgEntry = entry as SessionMessageEntry;
         const msg = msgEntry.message;
-        const role = msg.role === 'user' ? 'user' : 'assistant';
-        const content = this.extractMessageText(msg);
-        if (content) {
+        const ts = Date.parse(msgEntry.timestamp);
+
+        if (msg.role === 'user') {
+          const content = this.extractMessageText(msg);
+          if (content) {
+            messages.push({ role: 'user', content, timestamp: ts });
+          }
+        } else if (msg.role === 'assistant') {
+          const content = msg.content;
+          if (Array.isArray(content)) {
+            for (const block of content) {
+              if (block.type === 'thinking') {
+                const thinking = (block as any).thinking || '';
+                if (thinking) {
+                  messages.push({ role: 'thinking', content: thinking, timestamp: ts });
+                }
+              } else if (block.type === 'text') {
+                const text = (block as any).text || '';
+                if (text) {
+                  messages.push({ role: 'assistant', content: text, timestamp: ts });
+                }
+              } else if (block.type === 'toolCall') {
+                const tc = block as any;
+                const toolName = tc.name || tc.toolName || 'unknown';
+                const args = tc.args ? JSON.stringify(tc.args) : '';
+                messages.push({ role: 'tool_call', content: args, timestamp: ts, toolName });
+              }
+            }
+          } else if (typeof content === 'string' && content) {
+            messages.push({ role: 'assistant', content, timestamp: ts });
+          }
+        } else if (msg.role === 'toolResult') {
+          const resultMsg = msg as any;
+          const toolName = resultMsg.toolName || 'unknown';
+          let resultText = '';
+          if (Array.isArray(resultMsg.content)) {
+            resultText = resultMsg.content
+              .filter((c: any) => c.type === 'text')
+              .map((c: any) => c.text || '')
+              .join('\n');
+          } else if (typeof resultMsg.content === 'string') {
+            resultText = resultMsg.content;
+          }
+          messages.push({ role: 'tool_result', content: resultText, timestamp: ts, toolName });
+        } else if (msg.role === 'bashExecution') {
+          const bashMsg = msg as any;
           messages.push({
-            role,
-            content,
-            timestamp: Date.parse(msgEntry.timestamp),
+            role: 'tool_call',
+            content: bashMsg.command || '',
+            timestamp: ts,
+            toolName: 'bash',
           });
+          if (bashMsg.output) {
+            messages.push({
+              role: 'tool_result',
+              content: bashMsg.output,
+              timestamp: ts,
+              toolName: 'bash',
+            });
+          }
         }
       }
     }

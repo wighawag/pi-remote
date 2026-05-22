@@ -102,6 +102,8 @@ function main(): void {
         const evt = (event as any).assistantMessageEvent;
         if (evt?.type === 'text_delta') {
           msg = { type: 'message_update', sessionId, delta: evt.delta };
+        } else if (evt?.type === 'thinking_delta') {
+          msg = { type: 'thinking_update', sessionId, delta: evt.delta };
         }
         break;
       }

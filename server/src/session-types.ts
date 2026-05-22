@@ -33,9 +33,10 @@ export interface SessionsResponse {
 }
 
 export interface HistoryMessage {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'thinking' | 'tool_call' | 'tool_result';
   content: string;
   timestamp: number;
+  toolName?: string;
 }
 
 export interface ModelInfo {

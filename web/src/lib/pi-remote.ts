@@ -4,7 +4,7 @@ import { setCurrentSession } from './session-store';
 
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant' | 'tool';
+  role: 'user' | 'assistant' | 'thinking' | 'tool';
   content: string;
   timestamp: number;
   isStreaming?: boolean;
@@ -130,7 +130,32 @@ export function connect() {
 
         case 'agent_start':
           state.update((s: PiRemoteState) => ({ ...s, isStreaming: true }));
-          addMessage({ role: 'assistant', content: '', isStreaming: true });
+          break;
+
+        case 'thinking_update':
+          state.update((s: PiRemoteState) => {
+            let lastThinking = [...s.messages].reverse().find(
+              (m: ChatMessage) => m.role === 'thinking' && m.isStreaming,
+            );
+            if (!lastThinking) {
+              const newMsg: ChatMessage = {
+                id: generateId(),
+                role: 'thinking',
+                content: msg.delta,
+                timestamp: Date.now(),
+                isStreaming: true,
+              };
+              return { ...s, messages: [...s.messages, newMsg] };
+            }
+            return {
+              ...s,
+              messages: s.messages.map((m: ChatMessage) =>
+                m.id === lastThinking.id
+                  ? { ...m, content: m.content + msg.delta, isStreaming: true }
+                  : m,
+              ),
+            };
+          });
           break;
 
         case 'message_update':
@@ -162,33 +187,39 @@ export function connect() {
 
         case 'message_end':
           state.update((s: PiRemoteState) => {
-            const lastAssistant = [...s.messages].reverse().find(
+            let newMessages = s.messages;
+
+            // Finalize any streaming thinking message
+            const lastThinking = [...newMessages].reverse().find(
+              (m: ChatMessage) => m.role === 'thinking' && m.isStreaming,
+            );
+            if (lastThinking) {
+              newMessages = newMessages.map((m: ChatMessage) =>
+                m.id === lastThinking.id ? { ...m, isStreaming: false } : m,
+              );
+            }
+
+            // Finalize any streaming assistant message
+            const lastAssistant = [...newMessages].reverse().find(
               (m: ChatMessage) => m.role === 'assistant' && m.isStreaming,
             );
             if (lastAssistant) {
-              return {
-                ...s,
-                messages: s.messages.map((m: ChatMessage) =>
-                  m.id === lastAssistant.id
-                    ? { ...m, content: msg.content || m.content, isStreaming: false }
-                    : m,
-                ),
-              };
+              newMessages = newMessages.map((m: ChatMessage) =>
+                m.id === lastAssistant.id
+                  ? { ...m, content: msg.content || m.content, isStreaming: false }
+                  : m,
+              );
+            } else if (msg.content) {
+              newMessages = [...newMessages, {
+                id: generateId(),
+                role: 'assistant',
+                content: msg.content,
+                timestamp: Date.now(),
+                isStreaming: false,
+              }];
             }
-            // Fallback: create message from final content
-            if (msg.content) {
-              return {
-                ...s,
-                messages: [...s.messages, {
-                  id: generateId(),
-                  role: 'assistant',
-                  content: msg.content,
-                  timestamp: Date.now(),
-                  isStreaming: false,
-                }],
-              };
-            }
-            return s;
+
+            return { ...s, messages: newMessages };
           });
           break;
 
@@ -304,17 +335,52 @@ export function connect() {
           break;
 
         case 'message_history':
-          state.update((s: PiRemoteState) => ({
-            ...s,
-            messages: msg.messages.map((m: any) => ({
-              id: generateId(),
-              role: m.role,
-              content: m.content,
-              timestamp: m.timestamp,
-              isStreaming: false,
-              sessionId: msg.sessionId,
-            })),
-          }));
+          state.update((s: PiRemoteState) => {
+            const mapped: ChatMessage[] = [];
+            let pendingToolName: string | null = null;
+            let pendingToolArgs: string | null = null;
+
+            for (const m of msg.messages) {
+              if (m.role === 'tool_call') {
+                pendingToolName = m.toolName || 'unknown';
+                pendingToolArgs = m.content || '';
+              } else if (m.role === 'tool_result' && pendingToolName) {
+                mapped.push({
+                  id: generateId(),
+                  role: 'tool',
+                  content: pendingToolArgs ? `$ ${pendingToolName} ${pendingToolArgs}\n${m.content}` : `$ ${pendingToolName}\n${m.content}`,
+                  timestamp: m.timestamp,
+                  isStreaming: false,
+                  toolName: pendingToolName,
+                  sessionId: msg.sessionId,
+                });
+                pendingToolName = null;
+                pendingToolArgs = null;
+              } else if (m.role === 'tool_result' && !pendingToolName) {
+                mapped.push({
+                  id: generateId(),
+                  role: 'tool',
+                  content: `${m.toolName || 'tool'}\n${m.content}`,
+                  timestamp: m.timestamp,
+                  isStreaming: false,
+                  toolName: m.toolName || 'tool',
+                  sessionId: msg.sessionId,
+                });
+              } else {
+                mapped.push({
+                  id: generateId(),
+                  role: m.role,
+                  content: m.content,
+                  timestamp: m.timestamp,
+                  isStreaming: false,
+                  toolName: m.toolName,
+                  sessionId: msg.sessionId,
+                });
+              }
+            }
+
+            return { ...s, messages: mapped };
+          });
           break;
 
         case 'pong':
