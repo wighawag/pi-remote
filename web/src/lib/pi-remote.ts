@@ -130,24 +130,33 @@ export function connect() {
 
         case 'agent_start':
           state.update((s: PiRemoteState) => ({ ...s, isStreaming: true }));
+          addMessage({ role: 'assistant', content: '', isStreaming: true });
           break;
 
         case 'message_update':
           state.update((s: PiRemoteState) => {
-            const lastAssistant = [...s.messages].reverse().find(
+            let lastAssistant = [...s.messages].reverse().find(
               (m: ChatMessage) => m.role === 'assistant' && m.isStreaming,
             );
-            if (lastAssistant) {
-              return {
-                ...s,
-                messages: s.messages.map((m: ChatMessage) =>
-                  m.id === lastAssistant.id
-                    ? { ...m, content: m.content + msg.delta, isStreaming: true }
-                    : m,
-                ),
+            if (!lastAssistant) {
+              // No streaming message — create one (mid-agent-cycle thinking)
+              const newMsg: ChatMessage = {
+                id: generateId(),
+                role: 'assistant',
+                content: msg.delta,
+                timestamp: Date.now(),
+                isStreaming: true,
               };
+              return { ...s, messages: [...s.messages, newMsg] };
             }
-            return s;
+            return {
+              ...s,
+              messages: s.messages.map((m: ChatMessage) =>
+                m.id === lastAssistant.id
+                  ? { ...m, content: m.content + msg.delta, isStreaming: true }
+                  : m,
+              ),
+            };
           });
           break;
 
@@ -161,13 +170,25 @@ export function connect() {
                 ...s,
                 messages: s.messages.map((m: ChatMessage) =>
                   m.id === lastAssistant.id
-                    ? { ...m, content: msg.content ?? m.content, isStreaming: false }
+                    ? { ...m, content: msg.content || m.content, isStreaming: false }
                     : m,
                 ),
-                isStreaming: false,
               };
             }
-            return { ...s, isStreaming: false };
+            // Fallback: create message from final content
+            if (msg.content) {
+              return {
+                ...s,
+                messages: [...s.messages, {
+                  id: generateId(),
+                  role: 'assistant',
+                  content: msg.content,
+                  timestamp: Date.now(),
+                  isStreaming: false,
+                }],
+              };
+            }
+            return s;
           });
           break;
 
@@ -176,9 +197,13 @@ export function connect() {
           break;
 
         case 'tool_start':
+          const toolArgs = msg.args ? Object.entries(msg.args)
+            .filter(([k, v]) => v !== undefined && v !== '')
+            .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+            .join(' ') : '';
           addMessage({
             role: 'tool',
-            content: `Running: ${msg.toolName}`,
+            content: toolArgs ? `$ ${msg.toolName} ${toolArgs}` : `$ ${msg.toolName}`,
             isStreaming: false,
             toolName: msg.toolName,
           });
@@ -189,8 +214,8 @@ export function connect() {
           const toolMsg = [...current.messages].reverse().find(
             (m: ChatMessage) => m.role === 'tool' && m.toolName === msg.toolName && !m.content.startsWith('Tool error:'),
           );
+          const result = msg.result ? `\n${msg.result}` : '';
           if (toolMsg) {
-            const result = msg.result ? `\n${msg.result}` : '';
             const errorPrefix = msg.isError ? 'Error: ' : '';
             state.update((s: PiRemoteState) => ({
               ...s,
@@ -198,8 +223,12 @@ export function connect() {
                 m.id === toolMsg.id ? { ...m, content: `${errorPrefix}${m.content}${result}`, isStreaming: false } : m,
               ),
             }));
-          } else if (msg.isError) {
-            addMessage({ role: 'tool', content: `Tool error: ${msg.toolName}${msg.result ? `\n${msg.result}` : ''}`, isStreaming: false });
+          } else {
+            // No matching tool message — add standalone result
+            const content = msg.isError
+              ? `Tool error: ${msg.toolName}${result}`
+              : `${msg.toolName}${result}`;
+            addMessage({ role: 'tool', content, isStreaming: false, toolName: msg.toolName });
           }
           break;
         }
@@ -350,7 +379,6 @@ export function sendMessage(text: string) {
   if (!s.sessionId) return;
 
   addMessage({ role: 'user', content: text, isStreaming: false, sessionId: s.sessionId });
-  addMessage({ role: 'assistant', content: '', isStreaming: true, sessionId: s.sessionId });
 
   ws.send(JSON.stringify({ type: 'message', message: text, sessionId: s.sessionId }));
 }
