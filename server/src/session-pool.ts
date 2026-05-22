@@ -385,6 +385,23 @@ export class SessionPool {
     await tracked.agentSession.abort();
   }
 
+  async changeModel(sessionId: string, modelStr: string): Promise<{ error?: string }> {
+    const tracked = this.sessions.get(sessionId);
+    if (!tracked) return { error: 'Session not found' };
+
+    const [provider, id] = modelStr.split(':');
+    const model = this.modelRegistry.find(provider, id);
+    if (!model) return { error: `Model not found: ${modelStr}` };
+
+    try {
+      await tracked.agentSession.setModel(model);
+      tracked.model = modelStr;
+      return {};
+    } catch (err) {
+      return { error: (err as Error).message };
+    }
+  }
+
   isStreaming(sessionId: string): boolean {
     const tracked = this.sessions.get(sessionId);
     return tracked ? tracked.agentSession.isStreaming : false;

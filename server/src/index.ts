@@ -173,6 +173,22 @@ function main(): void {
       return;
     }
 
+    if (pathname === '/session/model' && req.method === 'POST') {
+      const body = await readBody(req);
+      try {
+        const { sessionId, model } = JSON.parse(body) as { sessionId: string; model: string };
+        const result = await sessionPool.changeModel(sessionId, model);
+        if (result.error) {
+          sendJSON(res, 400, { error: result.error });
+        } else {
+          sendJSON(res, 200, { status: 'changed', model });
+        }
+      } catch {
+        sendJSON(res, 400, { error: 'Missing sessionId or model' });
+      }
+      return;
+    }
+
     if (pathname === '/session/destroy' && req.method === 'POST') {
       const body = await readBody(req);
       try {
@@ -441,6 +457,17 @@ async function handleWSMessage(
     case 'abort': {
       if (!client.sessionId) return;
       await pool.abortSession(client.sessionId);
+      break;
+    }
+
+    case 'model_change': {
+      if (!client.sessionId) return;
+      const result = await pool.changeModel(client.sessionId, msg.model);
+      if (result.error) {
+        sendWS(client.ws, { type: 'session_error', error: result.error });
+      } else {
+        sendWS(client.ws, { type: 'model_changed', sessionId: client.sessionId, model: msg.model });
+      }
       break;
     }
   }

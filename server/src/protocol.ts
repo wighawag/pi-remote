@@ -8,7 +8,8 @@ export type ClientMessage =
   | { type: 'session_load'; sessionFile: string; cwd?: string; model?: string }
   | { type: 'session_new'; cwd: string; model?: string }
   | { type: 'session_leave'; sessionId: string }
-  | { type: 'session_resolve_conflict'; action: 'take_over' | 'read_only'; sessionId: string; cwd?: string };
+  | { type: 'session_resolve_conflict'; action: 'take_over' | 'read_only'; sessionId: string; cwd?: string }
+  | { type: 'model_change'; model: string };
 
 export type ServerMessage =
   | { type: 'connected'; clientId: string }
@@ -25,4 +26,5 @@ export type ServerMessage =
   | { type: 'session_conflict'; sessionId: string; conflictingSession: string; conflictingCwd: string }
   | { type: 'session_interrupted'; sessionId: string; reason: string }
   | { type: 'message_history'; sessionId: string; messages: HistoryMessage[] }
+  | { type: 'model_changed'; sessionId: string; model: string }
   | { type: 'pong'; timestamp: number };

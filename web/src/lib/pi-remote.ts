@@ -385,6 +385,13 @@ export function connect() {
 
         case 'pong':
           break;
+
+        case 'model_changed':
+          state.update((s: PiRemoteState) => ({
+            ...s,
+            activeModel: msg.model,
+          }));
+          break;
       }
     } catch (err) {
       console.error('Failed to parse WebSocket message:', err);
@@ -520,6 +527,11 @@ export function setConfig(config: { host: string; port: number; token: string })
 
 export function dismissSessionError() {
   state.update((s: PiRemoteState) => ({ ...s, sessionError: null }));
+}
+
+export function changeModel(model: string) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: 'model_change', model }));
 }
 
 export const piState = derived(state, ($s) => $s);
