@@ -338,7 +338,7 @@ async function handleWSMessage(
 
     case 'session_new': {
       const existing = pool.findActiveSessionByCwd(msg.cwd);
-      if (existing) {
+      if (existing && existing.clients.size > 0) {
         sendWS(client.ws, {
           type: 'session_conflict',
           sessionId: '',

@@ -132,7 +132,7 @@ export class SessionPool {
 
   async createNewSession(cwd: string, modelStr?: string): Promise<{ tracked: TrackedSession; error?: string; sessionFile?: string }> {
     const existing = this.findActiveSessionByCwd(cwd);
-    if (existing) {
+    if (existing && existing.clients.size > 0) {
       return { tracked: existing };
     }
 
@@ -220,7 +220,7 @@ export class SessionPool {
     }
 
     for (const s of this.sessions.values()) {
-      if (s.cwd === targetCwd) {
+      if (s.cwd === targetCwd && s.clients.size > 0) {
         return { conflict: true, otherSessionId: s.sessionId, otherCwd: s.cwd };
       }
     }
