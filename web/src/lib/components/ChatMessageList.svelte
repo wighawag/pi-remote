@@ -46,13 +46,15 @@
 					<div
 						class="max-w-[85%] rounded-lg px-4 py-3 {msg.role === 'user'
 							? 'bg-blue-600 text-white'
-							: msg.content === '' && msg.isStreaming
-								? 'bg-gray-700 text-gray-400 italic'
-								: msg.content.startsWith('⚙️') || msg.content.startsWith('⚠️')
-									? 'bg-gray-800 text-gray-300 text-sm border-l-2 border-yellow-500'
+							: msg.role === 'tool'
+								? 'bg-gray-800 text-gray-300 text-sm border-l-2 border-yellow-500 font-mono'
+								: msg.content === '' && msg.isStreaming
+									? 'bg-gray-700 text-gray-400 italic'
 									: 'bg-gray-800 text-gray-100'}"
 					>
-						{#if msg.role === 'assistant' && msg.content !== ''}
+						{#if msg.role === 'tool'}
+							<div class="text-sm font-mono whitespace-pre-wrap">{msg.content}</div>
+						{:else if msg.role === 'assistant' && msg.content !== ''}
 							<pre class="text-sm leading-relaxed whitespace-pre-wrap font-sans">{msg.content}</pre>
 						{:else}
 							<div class="text-sm">

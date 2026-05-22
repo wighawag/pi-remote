@@ -4,11 +4,12 @@ import { setCurrentSession } from './session-store';
 
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'tool';
   content: string;
   timestamp: number;
   isStreaming?: boolean;
   sessionId?: string;
+  toolName?: string;
 }
 
 export interface PiRemoteState {
@@ -176,21 +177,32 @@ export function connect() {
 
         case 'tool_start':
           addMessage({
-            role: 'user',
+            role: 'tool',
             content: `Running: ${msg.toolName}`,
             isStreaming: false,
+            toolName: msg.toolName,
           });
           break;
 
-        case 'tool_end':
-          if (msg.isError) {
-            addMessage({
-              role: 'user',
-              content: `Tool error: ${msg.toolName}`,
-              isStreaming: false,
-            });
+        case 'tool_end': {
+          const current = get(state);
+          const toolMsg = [...current.messages].reverse().find(
+            (m: ChatMessage) => m.role === 'tool' && m.toolName === msg.toolName && !m.content.startsWith('Tool error:'),
+          );
+          if (toolMsg) {
+            const result = msg.result ? `\n${msg.result}` : '';
+            const errorPrefix = msg.isError ? 'Error: ' : '';
+            state.update((s: PiRemoteState) => ({
+              ...s,
+              messages: s.messages.map((m: ChatMessage) =>
+                m.id === toolMsg.id ? { ...m, content: `${errorPrefix}${m.content}${result}`, isStreaming: false } : m,
+              ),
+            }));
+          } else if (msg.isError) {
+            addMessage({ role: 'tool', content: `Tool error: ${msg.toolName}${msg.result ? `\n${msg.result}` : ''}`, isStreaming: false });
           }
           break;
+        }
 
         case 'aborted':
           state.update((s: PiRemoteState) => ({ ...s, isStreaming: false }));

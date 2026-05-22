@@ -118,7 +118,8 @@ function main(): void {
         msg = { type: 'tool_start', sessionId, toolName: event.toolName, args: event.args };
         break;
       case 'tool_execution_end':
-        msg = { type: 'tool_end', sessionId, toolName: event.toolName, isError: event.isError };
+        const toolResult = extractToolResult(event as any);
+        msg = { type: 'tool_end', sessionId, toolName: event.toolName, isError: event.isError, result: toolResult };
         break;
     }
 
@@ -441,6 +442,25 @@ async function handleWSMessage(
       break;
     }
   }
+}
+
+function extractToolResult(event: any): string {
+  const result = event.result;
+  if (!result) return '';
+  if (typeof result === 'string') return result;
+  if (typeof result === 'object') {
+    if (result.content) {
+      if (typeof result.content === 'string') return result.content;
+      if (Array.isArray(result.content)) {
+        return result.content
+          .filter((c: any) => c.type === 'text')
+          .map((c: any) => c.text || '')
+          .join('\n');
+      }
+    }
+    return JSON.stringify(result, null, 2);
+  }
+  return String(result);
 }
 
 function extractText(msg: any): string {
