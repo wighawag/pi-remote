@@ -77,7 +77,9 @@ export class SessionPool {
       let model: Model<Api> | undefined;
 
       if (modelStr) {
-        const [provider, id] = modelStr.split(':');
+        const colonIdx = modelStr.indexOf(':');
+        const provider = modelStr.slice(0, colonIdx);
+        const id = modelStr.slice(colonIdx + 1);
         model = this.modelRegistry.find(provider, id);
       }
 
@@ -141,7 +143,9 @@ export class SessionPool {
       let model: Model<Api> | undefined;
 
       if (modelStr) {
-        const [provider, id] = modelStr.split(':');
+        const colonIdx = modelStr.indexOf(':');
+        const provider = modelStr.slice(0, colonIdx);
+        const id = modelStr.slice(colonIdx + 1);
         model = this.modelRegistry.find(provider, id);
       }
 
@@ -389,7 +393,10 @@ export class SessionPool {
     const tracked = this.sessions.get(sessionId);
     if (!tracked) return { error: 'Session not found' };
 
-    const [provider, id] = modelStr.split(':');
+    const colonIdx = modelStr.indexOf(':');
+    if (colonIdx === -1) return { error: `Invalid model format: ${modelStr}` };
+    const provider = modelStr.slice(0, colonIdx);
+    const id = modelStr.slice(colonIdx + 1);
     const model = this.modelRegistry.find(provider, id);
     if (!model) return { error: `Model not found: ${modelStr}` };
 
