@@ -40,7 +40,9 @@
 		if (messageList) {
 			messageList.addEventListener('scroll', handleScroll);
 			return () => {
-				messageList.removeEventListener('scroll', handleScroll);
+				if (messageList) {
+					messageList.removeEventListener('scroll', handleScroll);
+				}
 			};
 		}
 	});
