@@ -8,7 +8,7 @@
   let connected = $derived($isConnected);
   let models = $derived($availableModels.models);
 
-  const collapsed = $state(new Set<string>());
+  let collapsed = $state<Record<string, boolean>>({});
 
   // Auto-fetch sessions on connect and periodically
   $effect(() => {
@@ -19,10 +19,10 @@
   });
 
   function toggleFolder(path: string) {
-    if (collapsed.has(path)) {
-      collapsed.delete(path);
+    if (collapsed[path]) {
+      delete collapsed[path];
     } else {
-      collapsed.add(path);
+      collapsed[path] = true;
     }
   }
 
@@ -91,7 +91,7 @@
   }
 </script>
 
-<div class="flex-1 overflow-y-auto">
+<div class="h-full overflow-y-auto">
   {#if loading}
     <div class="p-4 text-center text-gray-500">
       <div class="animate-spin inline-block w-4 h-4 border-2 border-gray-500 border-t-transparent rounded-full"></div>
@@ -108,14 +108,14 @@
           onclick={() => toggleFolder(folder.path)}
           class="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-gray-700/50 transition-colors"
         >
-          <span class="text-xs text-gray-500 transition-transform {collapsed.has(folder.path) ? '' : 'rotate-90'}">
+          <span class="text-xs text-gray-500 transition-transform {collapsed[folder.path] ? '' : 'rotate-90'}">
             ▶
           </span>
           <span class="text-sm font-medium text-gray-300 flex-1 truncate">{folder.name}</span>
           <span class="text-xs text-gray-500">{folder.sessions.length}</span>
         </button>
 
-        {#if !collapsed.has(folder.path)}
+        {#if !collapsed[folder.path]}
           <div class="px-3 pb-2">
             <button
               onclick={() => openNewSessionPicker(folder.path)}
