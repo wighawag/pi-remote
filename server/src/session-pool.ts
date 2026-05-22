@@ -1,3 +1,4 @@
+import path from 'path';
 import { createAgentSession, AuthStorage, ModelRegistry, DefaultResourceLoader, SettingsManager, getAgentDir, SessionManager } from '@earendil-works/pi-coding-agent';
 import type { AgentSession, AgentSessionEvent } from '@earendil-works/pi-coding-agent';
 import type { Model, Api } from '@earendil-works/pi-ai';
@@ -309,7 +310,8 @@ export class SessionPool {
     const folderMap = new Map<string, FolderSessionInfo[]>();
 
     for (const s of diskSessions) {
-      const cwd = s.cwd || '';
+      const rawCwd = s.cwd || '';
+      const cwd = path.resolve(rawCwd);
       if (!folderMap.has(cwd)) {
         folderMap.set(cwd, []);
       }
@@ -328,9 +330,9 @@ export class SessionPool {
     }
 
     const folders: FolderWithSessions[] = [];
-    for (const [path, sessions] of folderMap.entries()) {
-      const name = path.split('/').pop() || path;
-      folders.push({ path, name, sessions: sessions.sort((a, b) => b.modified.localeCompare(a.modified)) });
+    for (const [cwdPath, sessions] of folderMap.entries()) {
+      const name = cwdPath.split('/').pop() || cwdPath;
+      folders.push({ path: cwdPath, name, sessions: sessions.sort((a, b) => b.modified.localeCompare(a.modified)) });
     }
 
     return folders.sort((a, b) => {

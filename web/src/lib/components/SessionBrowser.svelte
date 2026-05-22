@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { sessionFolders, availableModels, fetchSessions, fetchModels, setCurrentSession, type ModelInfo } from '$lib/session-store';
+  import { sessionFolders, availableModels, fetchSessions, fetchModels, setCurrentSession, type ModelInfo, type FolderWithSessions } from '$lib/session-store';
   import { joinSession, createSession, leaveSession, activeSessionInfo, isConnected, sessionError, dismissSessionError } from '$lib/pi-remote';
 
   let folders = $derived($sessionFolders.folders);
@@ -9,12 +9,39 @@
   let models = $derived($availableModels.models);
 
   let collapsed = $state<Record<string, boolean>>({});
+  let searchQuery = $state('');
+  let filteredFolders = $state<FolderWithSessions[]>([]);
 
   // Auto-fetch sessions on connect and periodically
   $effect(() => {
     if (connected) {
       fetchSessions();
       fetchModels();
+    }
+  });
+
+  function matchesFilter(session: (typeof folders)[number]['sessions'][number], folderName: string, query: string): boolean {
+    if (!query) return true;
+    const q = query.toLowerCase();
+    return (
+      (session.name || '').toLowerCase().includes(q) ||
+      session.firstMessage.toLowerCase().includes(q) ||
+      folderName.toLowerCase().includes(q)
+    );
+  }
+
+  $effect(() => {
+    const q = searchQuery;
+    const foldersArr = folders;
+    if (!q) {
+      filteredFolders = foldersArr;
+    } else {
+      filteredFolders = foldersArr
+        .map(folder => ({
+          ...folder,
+          sessions: folder.sessions.filter((s: (typeof folder)['sessions'][number]) => matchesFilter(s, folder.name, q)),
+        }))
+        .filter(folder => folder.sessions.length > 0);
     }
   });
 
@@ -91,18 +118,29 @@
   }
 </script>
 
-<div class="h-full overflow-y-auto">
-  {#if loading}
-    <div class="p-4 text-center text-gray-500">
-      <div class="animate-spin inline-block w-4 h-4 border-2 border-gray-500 border-t-transparent rounded-full"></div>
-      <span class="ml-2 text-sm">Loading sessions...</span>
-    </div>
-  {:else if folders.length === 0}
-    <div class="p-4 text-center text-gray-500 text-sm">
-      No sessions found
-    </div>
-  {:else}
-    {#each folders as folder}
+<div class="flex flex-col h-full">
+  <div class="p-2 border-b border-gray-700/50">
+    <input
+      type="text"
+      placeholder="Filter sessions..."
+      value={searchQuery}
+      oninput={(e) => searchQuery = e.currentTarget.value}
+      class="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+    />
+  </div>
+
+  <div class="flex-1 overflow-y-auto">
+    {#if loading}
+      <div class="p-4 text-center text-gray-500">
+        <div class="animate-spin inline-block w-4 h-4 border-2 border-gray-500 border-t-transparent rounded-full"></div>
+        <span class="ml-2 text-sm">Loading sessions...</span>
+      </div>
+    {:else if filteredFolders.length === 0}
+      <div class="p-4 text-center text-gray-500 text-sm">
+        {searchQuery ? 'No sessions match your filter' : 'No sessions found'}
+      </div>
+    {:else}
+      {#each filteredFolders as folder}
       <div class="border-b border-gray-700/50">
         <button
           onclick={() => toggleFolder(folder.path)}
@@ -152,6 +190,7 @@
       </div>
     {/each}
   {/if}
+  </div>
 </div>
 
 <!-- New Session Picker Dialog -->
