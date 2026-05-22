@@ -1,7 +1,6 @@
 <script lang="ts">
-  import { sessionFolders, availableModels, fetchSessions, fetchModels, type ModelInfo } from '$lib/session-store';
-  import { joinSession, createSession, leaveSession, activeSessionInfo, isConnected } from '$lib/pi-remote';
-  import { onMount } from 'svelte';
+  import { sessionFolders, availableModels, fetchSessions, fetchModels, setCurrentSession, type ModelInfo } from '$lib/session-store';
+  import { joinSession, createSession, leaveSession, activeSessionInfo, isConnected, sessionError, dismissSessionError } from '$lib/pi-remote';
 
   let folders = $derived($sessionFolders.folders);
   let loading = $derived($sessionFolders.loading);
@@ -10,6 +9,14 @@
   let models = $derived($availableModels.models);
 
   const collapsed = $state(new Set<string>());
+
+  // Auto-fetch sessions on connect and periodically
+  $effect(() => {
+    if (connected) {
+      fetchSessions();
+      fetchModels();
+    }
+  });
 
   function toggleFolder(path: string) {
     if (collapsed.has(path)) {
@@ -21,26 +28,51 @@
 
   function handleSessionClick(sessionPath: string) {
     if (currentSession === sessionPath) return;
-    leaveSession();
-    setTimeout(() => {
-      joinSession(sessionPath);
-    }, 50);
-  }
-
-  function handleNewSession(folderPath: string) {
-    const picker = $state({ open: false, folderPath, selected: '' });
-
-    const defaultModel = models.find((m: ModelInfo) => m.isDefault);
-    picker.selected = defaultModel ? `${defaultModel.provider}:${defaultModel.modelId}` : '';
-
-    function create() {
+    dismissSessionError();
+    if (currentSession) {
       leaveSession();
       setTimeout(() => {
-        createSession(folderPath, picker.selected || undefined);
-      }, 50);
+        joinSession(sessionPath);
+      }, 100);
+    } else {
+      joinSession(sessionPath);
     }
+  }
 
-    return { picker, create };
+  // New session picker state
+  let newSessionPicker = $state<{ open: boolean; folderPath: string; selected: string }>({
+    open: false,
+    folderPath: '',
+    selected: '',
+  });
+
+  function openNewSessionPicker(folderPath: string) {
+    const defaultModel = models.find((m: ModelInfo) => m.isDefault);
+    newSessionPicker = {
+      open: true,
+      folderPath,
+      selected: defaultModel ? `${defaultModel.provider}:${defaultModel.modelId}` : '',
+    };
+  }
+
+  function closeNewSessionPicker() {
+    newSessionPicker.open = false;
+  }
+
+  function handleCreateSession() {
+    if (!newSessionPicker.open) return;
+    dismissSessionError();
+    const folderPath = newSessionPicker.folderPath;
+    const model = newSessionPicker.selected || undefined;
+    closeNewSessionPicker();
+    if (currentSession) {
+      leaveSession();
+      setTimeout(() => {
+        createSession(folderPath, model);
+      }, 100);
+    } else {
+      createSession(folderPath, model);
+    }
   }
 
   function formatRelative(timeStr: string): string {
@@ -57,13 +89,6 @@
   function truncate(text: string, max: number = 40): string {
     return text.length > max ? text.slice(0, max) + '...' : text;
   }
-
-  onMount(() => {
-    if (connected) {
-      fetchSessions();
-      fetchModels();
-    }
-  });
 </script>
 
 <div class="flex-1 overflow-y-auto">
@@ -92,23 +117,12 @@
 
         {#if !collapsed.has(folder.path)}
           <div class="px-3 pb-2">
-            <div class="relative">
-              <button
-                onclick={() => {
-                  if (connected) {
-                    const { picker, create } = handleNewSession(folder.path);
-                    picker.open = true;
-                    const result = confirm(`Create new session in ${folder.name}?`);
-                    if (result) {
-                      create();
-                    }
-                  }
-                }}
-                class="w-full text-xs text-blue-400 hover:text-blue-300 py-1 px-2 rounded hover:bg-gray-700/50 transition-colors text-left"
-              >
-                + New Session Here
-              </button>
-            </div>
+            <button
+              onclick={() => openNewSessionPicker(folder.path)}
+              class="w-full text-xs text-blue-400 hover:text-blue-300 py-1 px-2 rounded hover:bg-gray-700/50 transition-colors text-left mb-1"
+            >
+              + New Session Here
+            </button>
 
             {#each folder.sessions as session}
               <button
@@ -139,3 +153,65 @@
     {/each}
   {/if}
 </div>
+
+<!-- New Session Picker Dialog -->
+{#if newSessionPicker.open}
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" role="presentation" onclick={closeNewSessionPicker}>
+  <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 w-80" role="dialog" tabindex="-1" onclick={(e) => e.stopPropagation()}>
+    <h3 class="text-sm font-bold mb-4">New Session</h3>
+    <div class="mb-4">
+      <span class="block text-xs text-gray-400 mb-1">Folder</span>
+      <div class="text-xs bg-gray-700 rounded px-2 py-1.5 truncate">
+        {newSessionPicker.folderPath}
+      </div>
+    </div>
+    <div class="mb-4">
+      <label class="block text-xs text-gray-400 mb-1" for="model-select">Model</label>
+      {#if models.length > 0}
+        <select
+          id="model-select"
+          bind:value={newSessionPicker.selected}
+          class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-xs text-white"
+        >
+          {#each models as model}
+            <option value={`${model.provider}:${model.modelId}`}>
+              {model.label}{model.isDefault ? ' (default)' : ''}
+            </option>
+          {/each}
+        </select>
+      {:else}
+        <input
+          id="model-select"
+          type="text"
+          bind:value={newSessionPicker.selected}
+          placeholder="provider:model"
+          class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-xs text-white placeholder-gray-500"
+        />
+      {/if}
+    </div>
+    <div class="flex gap-2 justify-end">
+      <button
+        onclick={closeNewSessionPicker}
+        class="px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"
+      >
+        Cancel
+      </button>
+      <button
+        onclick={handleCreateSession}
+        class="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
+      >
+        Create
+      </button>
+    </div>
+  </div>
+</div>
+{/if}
+
+<!-- Session Error -->
+{#if $sessionError}
+<div class="absolute bottom-0 left-0 right-0 bg-red-600/20 border-t border-red-500/50 text-red-400 text-xs px-3 py-2 flex items-center justify-between">
+  <span class="truncate">{sessionError}</span>
+  <button onclick={() => dismissSessionError()} class="ml-2 text-red-300 hover:text-red-200 flex-shrink-0">✕</button>
+</div>
+{/if}

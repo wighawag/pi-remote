@@ -381,9 +381,15 @@ async function handleWSMessage(
     }
 
     case 'session_resolve_conflict': {
-      if (msg.action === 'take_over') {
-        const tracked = pool.getSession(msg.sessionId);
-        if (tracked) {
+      let tracked = pool.getSession(msg.sessionId);
+
+      // For new sessions, targetSessionId is empty; find by cwd
+      if (!tracked && msg.cwd) {
+        tracked = pool.findActiveSessionByCwd(msg.cwd);
+      }
+
+      if (tracked) {
+        if (msg.action === 'take_over') {
           const interrupted = await pool.takeOver(tracked.cwd, msg.sessionId);
           for (const intClientId of interrupted) {
             const intClient = clients.get(intClientId);
@@ -406,10 +412,7 @@ async function handleWSMessage(
             sessionId: tracked.sessionId,
             messages: history,
           });
-        }
-      } else {
-        const tracked = pool.getSession(msg.sessionId);
-        if (tracked) {
+        } else {
           client.sessionId = tracked.sessionFile;
           client.readOnly = true;
 

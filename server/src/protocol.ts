@@ -8,7 +8,7 @@ export type ClientMessage =
   | { type: 'session_load'; sessionFile: string; cwd?: string; model?: string }
   | { type: 'session_new'; cwd: string; model?: string }
   | { type: 'session_leave'; sessionId: string }
-  | { type: 'session_resolve_conflict'; action: 'take_over' | 'read_only'; sessionId: string };
+  | { type: 'session_resolve_conflict'; action: 'take_over' | 'read_only'; sessionId: string; cwd?: string };
 
 export type ServerMessage =
   | { type: 'connected'; clientId: string }

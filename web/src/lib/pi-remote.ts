@@ -380,7 +380,7 @@ export function leaveSession() {
   setCurrentSession(null);
 }
 
-export function resolveConflict(action: 'take_over' | 'read_only') {
+export function resolveConflict(action: 'take_over' | 'read_only', cwd?: string) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   const s = get(state);
   if (!s.conflict) return;
@@ -389,6 +389,7 @@ export function resolveConflict(action: 'take_over' | 'read_only') {
     type: 'session_resolve_conflict',
     action,
     sessionId: s.conflict.targetSessionId,
+    cwd: cwd || s.conflict.conflictingCwd,
   }));
 
   state.update((s: PiRemoteState) => ({
