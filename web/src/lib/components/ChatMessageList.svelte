@@ -17,30 +17,94 @@
 		expandedMessages[id] = !expandedMessages[id];
 	}
 
-	function formatArgs(toolName: string, argsStr: string | undefined): string {
-		if (!argsStr) return '';
-		
-		let trimmed = argsStr.trim();
-		if (!trimmed) return '';
+	function parseArgsObject(argsStr: string | undefined): Record<string, any> | null {
+		if (!argsStr) return null;
+		const trimmed = argsStr.trim();
+		if (!trimmed) return null;
 
-		// If it's already in k="v" format (like live tool_start output)
-		if (!trimmed.startsWith('{')) {
-			return trimmed;
+		// If it's JSON
+		if (trimmed.startsWith('{')) {
+			try {
+				return JSON.parse(trimmed);
+			} catch (e) {}
 		}
 
-		try {
-			const obj = JSON.parse(trimmed);
-			if (typeof obj === 'object' && obj !== null) {
-				return Object.entries(obj)
-					.filter(([k, v]) => v !== undefined && v !== '')
-					.map(([k, v]) => `${k}=${JSON.stringify(v)}`)
-					.join(' ');
+		// If it's k1="v1" k2="v2" format, parse it
+		const obj: Record<string, any> = {};
+		const regex = /([a-zA-Z0-9_-]+)\s*=\s*(?:"([^"\\]*(?:\\.[^"\\]*)*)"|'([^'\\]*(?:\\.[^'\\]*)*)'|(\S+))/g;
+		let match;
+		while ((match = regex.exec(trimmed)) !== null) {
+			const key = match[1];
+			const val = match[2] !== undefined ? match[2] : (match[3] !== undefined ? match[3] : match[4]);
+			obj[key] = val;
+		}
+
+		if (Object.keys(obj).length > 0) {
+			return obj;
+		}
+
+		return null;
+	}
+
+	function getSmartTitleArgs(toolName: string, argsObj: Record<string, any> | null, rawArgsStr: string): string {
+		if (!argsObj) {
+			return rawArgsStr ? rawArgsStr.trim() : '';
+		}
+
+		const name = toolName.toLowerCase();
+
+		// 1. read, write, edit, ls: show the path directly
+		if (['read', 'write', 'edit', 'ls'].includes(name)) {
+			const pathVal = argsObj.path || argsObj.filepath || argsObj.file;
+			if (pathVal) {
+				return String(pathVal);
 			}
-		} catch (e) {
-			// Ignore JSON parsing errors and return original trimmed string
 		}
 
-		return trimmed;
+		// 2. bash: show the first few characters of the command
+		if (name === 'bash') {
+			const cmd = argsObj.command || argsObj.cmd;
+			if (cmd) {
+				const cleanCmd = String(cmd).replace(/\s+/g, ' ').trim();
+				return cleanCmd.length > 50 ? cleanCmd.slice(0, 47) + '...' : cleanCmd;
+			}
+		}
+
+		// 3. grep: show pattern / pattern in path
+		if (name === 'grep') {
+			const pattern = argsObj.pattern;
+			const pathVal = argsObj.path;
+			if (pattern) {
+				return pathVal ? `"${pattern}" in ${pathVal}` : `"${pattern}"`;
+			}
+		}
+
+		// 4. find: show pattern or path
+		if (name === 'find') {
+			const pattern = argsObj.pattern || argsObj.path;
+			if (pattern) {
+				return String(pattern);
+			}
+		}
+
+		// Custom tools check for common key names
+		const commonPath = argsObj.path || argsObj.filepath || argsObj.file || argsObj.name || argsObj.query;
+		if (commonPath) {
+			return String(commonPath);
+		}
+
+		// Default fallback formatting for title
+		return Object.entries(argsObj)
+			.filter(([k, v]) => v !== undefined && v !== '')
+			.map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`)
+			.join(' ');
+	}
+
+	function getFullArgsFormatted(argsObj: Record<string, any> | null, rawArgsStr: string): string {
+		if (argsObj) {
+			return JSON.stringify(argsObj, null, 2);
+		}
+		return rawArgsStr ? rawArgsStr.trim() : '';
 	}
 
 	function parseToolMessage(msg: ChatMessage) {
@@ -76,12 +140,14 @@
 			toolArgs = firstSpace !== -1 ? header.slice(firstSpace + 1) : '';
 		}
 
-		// Beautifully format arguments (JSON or raw string)
-		toolArgs = formatArgs(toolName, toolArgs);
+		const argsObj = parseArgsObject(toolArgs);
+		const smartTitleArgs = getSmartTitleArgs(toolName, argsObj, toolArgs);
+		const fullArgs = getFullArgsFormatted(argsObj, toolArgs);
 
 		return {
 			toolName,
-			toolArgs,
+			smartTitleArgs,
+			fullArgs,
 			toolOutput,
 			isError
 		};
@@ -202,9 +268,9 @@
 											{parsed.toolName}
 										</span>
 
-										{#if parsed.toolArgs}
-											<span class="text-gray-400 text-xs font-mono truncate max-w-[180px] sm:max-w-[300px] md:max-w-[450px]" title={parsed.toolArgs}>
-												{parsed.toolArgs}
+										{#if parsed.smartTitleArgs}
+											<span class="text-gray-400 text-xs font-mono truncate max-w-[180px] sm:max-w-[300px] md:max-w-[450px]" title={parsed.smartTitleArgs}>
+												{parsed.smartTitleArgs}
 											</span>
 										{/if}
 									</div>
@@ -220,14 +286,26 @@
 
 								<!-- Tool Output (collapsible) -->
 								{#if expandedMessages[msg.id]}
-									<div class="mt-2 border-t border-gray-700/50 pt-2 flex flex-col overflow-hidden">
-										{#if parsed.toolOutput}
-											<pre class="overflow-x-auto text-xs whitespace-pre-wrap max-h-96 text-gray-300 font-mono bg-gray-950/60 p-2 rounded border border-gray-700/30">{parsed.toolOutput}</pre>
-										{:else if msg.isStreaming}
-											<div class="text-xs text-gray-500 italic animate-pulse p-1">Running and waiting for output...</div>
-										{:else}
-											<div class="text-xs text-gray-500 italic p-1">No output returned</div>
+									<div class="mt-2 border-t border-gray-700/50 pt-2 flex flex-col gap-3 overflow-hidden">
+										<!-- Full Arguments section -->
+										{#if parsed.fullArgs && parsed.fullArgs !== '{}'}
+											<div class="flex flex-col gap-1">
+												<span class="text-[10px] font-bold tracking-wider uppercase text-gray-500 font-sans">Arguments</span>
+												<pre class="overflow-x-auto text-[11px] whitespace-pre-wrap text-amber-400 font-mono bg-gray-950/40 p-1.5 rounded border border-gray-700/20 max-h-40">{parsed.fullArgs}</pre>
+											</div>
 										{/if}
+
+										<!-- Tool Output section -->
+										<div class="flex flex-col gap-1">
+											<span class="text-[10px] font-bold tracking-wider uppercase text-gray-500 font-sans">Output</span>
+											{#if parsed.toolOutput}
+												<pre class="overflow-x-auto text-xs whitespace-pre-wrap max-h-96 text-gray-300 font-mono bg-gray-950/60 p-2 rounded border border-gray-700/30">{parsed.toolOutput}</pre>
+											{:else if msg.isStreaming}
+												<div class="text-xs text-gray-500 italic animate-pulse p-1">Running and waiting for output...</div>
+											{:else}
+												<div class="text-xs text-gray-500 italic p-1">No output returned</div>
+											{/if}
+										</div>
 									</div>
 								{/if}
 							</div>
