@@ -272,7 +272,9 @@ export default async function (pi: ExtensionAPI) {
         ctx.ui.notify("No remote client connected", "warning");
         return;
       }
-      pi.sendUserMessage(args || "", { deliverAs: "steer" });
+      pi.sendUserMessage(args || "", {
+        deliverAs: isStreaming ? "steer" : undefined,
+      });
     },
   });
 }
