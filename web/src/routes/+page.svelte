@@ -5,7 +5,7 @@
   import ChatInput from '$lib/components/ChatInput.svelte';
   import SessionBrowser from '$lib/components/SessionBrowser.svelte';
   import SessionConflictDialog from '$lib/components/SessionConflictDialog.svelte';
-  import { piState, isConnected, isInterrupted, sessionError, isReadOnly, activeSessionInfo, connect, disconnect, leaveSession, dismissSessionError, changeModel } from '$lib/pi-remote';
+  import { piState, isConnected, isInterrupted, sessionError, isReadOnly, activeSessionInfo, connect, disconnect, leaveSession, dismissSessionError, changeModel, joinSession } from '$lib/pi-remote';
   import { fetchSessions, availableModels } from '$lib/session-store';
   import { onMount } from 'svelte';
 
@@ -18,6 +18,27 @@
     if (autoConnect) {
       setTimeout(() => connect(), 200);
     }
+
+    const handleHashChange = () => {
+      if (connected) {
+        const hashFile = window.location.hash ? decodeURIComponent(window.location.hash.slice(1)) : '';
+        if (hashFile && hashFile !== currentSessionFile) {
+          if (currentSessionFile) {
+            leaveSession();
+            setTimeout(() => joinSession(hashFile), 100);
+          } else {
+            joinSession(hashFile);
+          }
+        } else if (!hashFile && currentSessionFile) {
+          leaveSession();
+        }
+      }
+    };
+
+    window.addEventListener('hashchange', handleHashChange);
+    return () => {
+      window.removeEventListener('hashchange', handleHashChange);
+    };
   });
 
   function handleConnected() {
@@ -45,6 +66,42 @@
   let sessionInfo = $derived($activeSessionInfo);
   let appState = $derived($piState);
   let models = $derived($availableModels.models);
+
+  let hasJoinedFromHash = $state(false);
+  let currentSessionFile = $derived(sessionInfo.sessionFile);
+
+  // Update hash when sessionFile changes
+  $effect(() => {
+    if (typeof window !== 'undefined') {
+      if (currentSessionFile) {
+        window.location.hash = encodeURIComponent(currentSessionFile);
+      } else {
+        if (window.location.hash) {
+          window.location.hash = '';
+        }
+      }
+    }
+  });
+
+  // Auto-join session from hash when connected
+  $effect(() => {
+    if (connected && typeof window !== 'undefined' && window.location.hash && !hasJoinedFromHash) {
+      const hashFile = decodeURIComponent(window.location.hash.slice(1));
+      if (hashFile) {
+        hasJoinedFromHash = true;
+        setTimeout(() => {
+          joinSession(hashFile);
+        }, 300);
+      }
+    }
+  });
+
+  // Reset guard flag on disconnect
+  $effect(() => {
+    if (!connected) {
+      hasJoinedFromHash = false;
+    }
+  });
 </script>
 
 <Head title="Pi Remote" description="Chat with your Pi coding agent remotely" />
@@ -223,7 +280,7 @@
     <ChatMessageList bind:this={chatList} onMessageSent={() => {}} />
 
     <!-- Input -->
-    <ChatInput disabled={!connected || appState.isStreaming || readOnly || !sessionInfo.sessionFile} onSend={() => chatList?.forceScrollToBottom()} />
+    <ChatInput disabled={!connected || readOnly || !sessionInfo.sessionFile} onSend={() => chatList?.forceScrollToBottom()} />
   </div>
 
   <!-- Session Conflict Dialog -->

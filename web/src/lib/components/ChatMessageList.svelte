@@ -191,8 +191,18 @@
 	});
 
 	$effect(() => {
-		$messages.length;
+		// React to both array length and the last message's content length (which changes on every single streamed token!)
+		const lastMsg = $messages[$messages.length - 1];
+		const triggerValue = lastMsg ? `${$messages.length}-${lastMsg.content.length}` : '0';
+		
 		setTimeout(scrollToBottomIfShould, 0);
+	});
+
+	$effect(() => {
+		// Force scroll to bottom when the active session changes
+		const sFile = sessionInfo.sessionFile;
+		forceScroll = true;
+		setTimeout(scrollToBottom, 50);
 	});
 
 	let msgList = $derived($messages);

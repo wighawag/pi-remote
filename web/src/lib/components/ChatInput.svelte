@@ -7,6 +7,7 @@
 
 	let text = $state('');
 	let enterToSend = $state(true);
+	let queuedText = $state<string | null>(null);
 
 	let streaming = $derived($isStreaming);
 	let readOnly = $derived($isReadOnly);
@@ -14,7 +15,7 @@
 	let connected = $derived($isConnected);
 	let appState = $derived($piState);
 
-	let effectivelyDisabled = $derived(disabled || streaming || readOnly || !sessionInfo.sessionId);
+	let effectivelyDisabled = $derived(disabled || readOnly || !sessionInfo.sessionId || !!queuedText);
 
 	let textarea = $state<HTMLTextAreaElement>();
 
@@ -46,9 +47,24 @@
 		}
 	});
 
+	// Auto-send queued message when agent stops streaming
+	$effect(() => {
+		if (!streaming && queuedText) {
+			sendMessage(queuedText);
+			text = '';
+			queuedText = null;
+			onSend?.();
+		}
+	});
+
+	function handleUnqueue() {
+		queuedText = null;
+		setTimeout(() => textarea?.focus(), 0);
+	}
+
 	function handleSend() {
 		const trimmed = text.trim();
-		if (!trimmed || effectivelyDisabled) return;
+		if (!trimmed) return;
 
 		// Handle local slash commands to match terminal behavior
 		if (trimmed.startsWith('/')) {
@@ -57,22 +73,29 @@
 				if (sessionInfo.cwd) {
 					createSession(sessionInfo.cwd, sessionInfo.model || undefined);
 					text = '';
+					queuedText = null;
 					return;
 				}
 			} else if (lower === '/clear') {
 				clearMessages();
 				text = '';
+				queuedText = null;
 				return;
 			} else if (lower === '/leave' || lower === '/exit') {
 				leaveSession();
 				text = '';
+				queuedText = null;
 				return;
 			}
 		}
 
-		sendMessage(trimmed);
-		text = '';
-		onSend?.();
+		if (streaming) {
+			queuedText = trimmed;
+		} else {
+			sendMessage(trimmed);
+			text = '';
+			onSend?.();
+		}
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
@@ -122,16 +145,30 @@
 			onkeydown={handleKeydown}
 			disabled={effectivelyDisabled}
 			rows={1}
-			placeholder={streaming ? 'Agent is working...' : readOnly ? 'Read-only mode' : !sessionInfo.sessionId ? 'Select a session first...' : 'Type a message...'}
+			placeholder={queuedText ? 'Message is queued...' : streaming ? 'Agent is working (type next message...)' : readOnly ? 'Read-only mode' : !sessionInfo.sessionId ? 'Select a session first...' : 'Type a message...'}
 			class="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50 resize-none overflow-y-auto max-h-48 min-h-[48px] h-auto leading-relaxed"
 		></textarea>
-		<button
-			type="submit"
-			disabled={effectivelyDisabled || !text.trim()}
-			class="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-medium transition-colors h-[48px] flex items-center justify-center shrink-0"
-		>
-			Send
-		</button>
+		{#if queuedText}
+			<button
+				type="button"
+				onclick={handleUnqueue}
+				class="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-lg font-medium transition-colors h-[48px] flex items-center justify-center shrink-0"
+			>
+				Unqueue
+			</button>
+		{:else}
+			<button
+				type="submit"
+				disabled={effectivelyDisabled || !text.trim()}
+				class="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-medium transition-colors h-[48px] flex items-center justify-center shrink-0"
+			>
+				{#if streaming}
+					Queue
+				{:else}
+					Send
+				{/if}
+			</button>
+		{/if}
 	</form>
 
 	<div class="mt-2 flex items-center justify-between text-[11px] text-gray-400 select-none px-1">
