@@ -10,6 +10,9 @@ export interface ChatMessage {
   isStreaming?: boolean;
   sessionId?: string;
   toolName?: string;
+  toolArgs?: string;
+  toolOutput?: string;
+  isError?: boolean;
 }
 
 export interface PiRemoteState {
@@ -235,8 +238,10 @@ export function connect() {
           addMessage({
             role: 'tool',
             content: toolArgs ? `$ ${msg.toolName} ${toolArgs}` : `$ ${msg.toolName}`,
-            isStreaming: false,
+            isStreaming: true,
             toolName: msg.toolName,
+            toolArgs: toolArgs,
+            toolOutput: '',
           });
           break;
 
@@ -245,21 +250,35 @@ export function connect() {
           const toolMsg = [...current.messages].reverse().find(
             (m: ChatMessage) => m.role === 'tool' && m.toolName === msg.toolName && !m.content.startsWith('Tool error:'),
           );
-          const result = msg.result ? `\n${msg.result}` : '';
+          const result = msg.result ? `${msg.result}` : '';
           if (toolMsg) {
             const errorPrefix = msg.isError ? 'Error: ' : '';
             state.update((s: PiRemoteState) => ({
               ...s,
               messages: s.messages.map((m: ChatMessage) =>
-                m.id === toolMsg.id ? { ...m, content: `${errorPrefix}${m.content}${result}`, isStreaming: false } : m,
+                m.id === toolMsg.id ? { 
+                  ...m, 
+                  content: `${errorPrefix}${m.content}\n${result}`, 
+                  isStreaming: false,
+                  isError: msg.isError,
+                  toolOutput: result,
+                } : m,
               ),
             }));
           } else {
             // No matching tool message — add standalone result
             const content = msg.isError
-              ? `Tool error: ${msg.toolName}${result}`
-              : `${msg.toolName}${result}`;
-            addMessage({ role: 'tool', content, isStreaming: false, toolName: msg.toolName });
+              ? `Tool error: ${msg.toolName}\n${result}`
+              : `${msg.toolName}\n${result}`;
+            addMessage({ 
+              role: 'tool', 
+              content, 
+              isStreaming: false, 
+              toolName: msg.toolName,
+              toolArgs: '',
+              toolOutput: result,
+              isError: msg.isError,
+            });
           }
           break;
         }
@@ -338,33 +357,30 @@ export function connect() {
         case 'message_history':
           state.update((s: PiRemoteState) => {
             const mapped: ChatMessage[] = [];
-            let pendingToolName: string | null = null;
-            let pendingToolArgs: string | null = null;
+            const pendingCalls: Record<string, string[]> = {};
 
             for (const m of msg.messages) {
               if (m.role === 'tool_call') {
-                pendingToolName = m.toolName || 'unknown';
-                pendingToolArgs = m.content || '';
-              } else if (m.role === 'tool_result' && pendingToolName) {
+                const tName = m.toolName || 'unknown';
+                if (!pendingCalls[tName]) {
+                  pendingCalls[tName] = [];
+                }
+                pendingCalls[tName].push(m.content || '');
+              } else if (m.role === 'tool_result') {
+                const tName = m.toolName || 'unknown';
+                const tArgs = pendingCalls[tName] && pendingCalls[tName].length > 0
+                  ? pendingCalls[tName].shift()!
+                  : '';
                 mapped.push({
                   id: generateId(),
                   role: 'tool',
-                  content: pendingToolArgs ? `$ ${pendingToolName} ${pendingToolArgs}\n${m.content}` : `$ ${pendingToolName}\n${m.content}`,
+                  content: tArgs ? `$ ${tName} ${tArgs}\n${m.content}` : `$ ${tName}\n${m.content}`,
                   timestamp: m.timestamp,
                   isStreaming: false,
-                  toolName: pendingToolName,
-                  sessionId: msg.sessionId,
-                });
-                pendingToolName = null;
-                pendingToolArgs = null;
-              } else if (m.role === 'tool_result' && !pendingToolName) {
-                mapped.push({
-                  id: generateId(),
-                  role: 'tool',
-                  content: `${m.toolName || 'tool'}\n${m.content}`,
-                  timestamp: m.timestamp,
-                  isStreaming: false,
-                  toolName: m.toolName || 'tool',
+                  toolName: tName,
+                  toolArgs: tArgs,
+                  toolOutput: m.content,
+                  isError: m.isError,
                   sessionId: msg.sessionId,
                 });
               } else {

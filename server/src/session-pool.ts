@@ -297,7 +297,8 @@ export class SessionPool {
               } else if (block.type === 'toolCall') {
                 const tc = block as any;
                 const toolName = tc.name || tc.toolName || 'unknown';
-                const args = tc.args ? JSON.stringify(tc.args) : '';
+                const rawArgs = tc.arguments || tc.args;
+                const args = rawArgs ? JSON.stringify(rawArgs) : '';
                 messages.push({ role: 'tool_call', content: args, timestamp: ts, toolName });
               }
             }
@@ -316,7 +317,7 @@ export class SessionPool {
           } else if (typeof resultMsg.content === 'string') {
             resultText = resultMsg.content;
           }
-          messages.push({ role: 'tool_result', content: resultText, timestamp: ts, toolName });
+          messages.push({ role: 'tool_result', content: resultText, timestamp: ts, toolName, isError: !!resultMsg.isError });
         } else if (msg.role === 'bashExecution') {
           const bashMsg = msg as any;
           messages.push({
@@ -331,6 +332,7 @@ export class SessionPool {
               content: bashMsg.output,
               timestamp: ts,
               toolName: 'bash',
+              isError: bashMsg.exitCode !== undefined && bashMsg.exitCode !== 0,
             });
           }
         }

@@ -37,6 +37,7 @@ export interface HistoryMessage {
   content: string;
   timestamp: number;
   toolName?: string;
+  isError?: boolean;
 }
 
 export interface ModelInfo {

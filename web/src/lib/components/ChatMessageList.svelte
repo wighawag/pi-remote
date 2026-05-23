@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { messages, isStreaming, abort, clearMessages, activeSessionInfo } from '$lib/pi-remote';
+	import type { ChatMessage } from '$lib/pi-remote';
 	import { onMount } from 'svelte';
 
 	let messageList = $state<HTMLDivElement>();
@@ -9,6 +10,82 @@
 
 	let shouldAutoScroll = $state(true);
 	let forceScroll = $state(false);
+
+	let expandedMessages = $state<Record<string, boolean>>({});
+
+	function toggleMessage(id: string) {
+		expandedMessages[id] = !expandedMessages[id];
+	}
+
+	function formatArgs(toolName: string, argsStr: string | undefined): string {
+		if (!argsStr) return '';
+		
+		let trimmed = argsStr.trim();
+		if (!trimmed) return '';
+
+		// If it's already in k="v" format (like live tool_start output)
+		if (!trimmed.startsWith('{')) {
+			return trimmed;
+		}
+
+		try {
+			const obj = JSON.parse(trimmed);
+			if (typeof obj === 'object' && obj !== null) {
+				return Object.entries(obj)
+					.filter(([k, v]) => v !== undefined && v !== '')
+					.map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+					.join(' ');
+			}
+		} catch (e) {
+			// Ignore JSON parsing errors and return original trimmed string
+		}
+
+		return trimmed;
+	}
+
+	function parseToolMessage(msg: ChatMessage) {
+		let toolName = msg.toolName || 'tool';
+		let toolArgs = msg.toolArgs !== undefined ? msg.toolArgs : '';
+		let toolOutput = msg.toolOutput !== undefined ? msg.toolOutput : '';
+		let isError = !!msg.isError;
+
+		// If we don't have toolArgs or toolOutput, or if they are empty but msg.content is populated,
+		// let's parse from content to be absolutely sure we get any args embedded in the raw text.
+		if (!toolArgs && !toolOutput && msg.content) {
+			let content = msg.content || '';
+
+			if (content.startsWith('Error: ')) {
+				isError = true;
+				content = content.slice(7);
+			} else if (content.startsWith('Tool error: ')) {
+				isError = true;
+				content = content.slice(12);
+			}
+
+			const firstLineBreak = content.indexOf('\n');
+			const headerLine = firstLineBreak !== -1 ? content.slice(0, firstLineBreak) : content;
+			toolOutput = firstLineBreak !== -1 ? content.slice(firstLineBreak + 1) : '';
+
+			let header = headerLine.trim();
+			if (header.startsWith('$ ')) {
+				header = header.slice(2);
+			}
+
+			const firstSpace = header.indexOf(' ');
+			toolName = msg.toolName || (firstSpace !== -1 ? header.slice(0, firstSpace) : header) || 'tool';
+			toolArgs = firstSpace !== -1 ? header.slice(firstSpace + 1) : '';
+		}
+
+		// Beautifully format arguments (JSON or raw string)
+		toolArgs = formatArgs(toolName, toolArgs);
+
+		return {
+			toolName,
+			toolArgs,
+			toolOutput,
+			isError
+		};
+	}
 
 	function isScrolledToBottom(el: HTMLDivElement): boolean {
 		const threshold = 20;
@@ -87,7 +164,13 @@
 							: msg.role === 'thinking'
 								? 'bg-purple-900/30 text-purple-300 text-sm border-l-2 border-purple-500'
 								: msg.role === 'tool'
-									? 'bg-gray-800 text-gray-300 text-sm border-l-2 border-yellow-500 font-mono'
+									? `bg-gray-800 text-gray-300 text-sm border-l-2 font-mono ${
+											msg.isStreaming
+												? 'border-amber-500'
+												: msg.isError
+													? 'border-rose-500'
+													: 'border-emerald-500'
+										}`
 									: msg.content === '' && msg.isStreaming
 										? 'bg-gray-700 text-gray-400 italic'
 										: 'bg-gray-800 text-gray-100'}"
@@ -95,7 +178,59 @@
 						{#if msg.role === 'thinking'}
 							<div class="text-sm font-mono whitespace-pre-wrap">{msg.content}</div>
 						{:else if msg.role === 'tool'}
-							<div class="text-sm font-mono whitespace-pre-wrap">{msg.content}</div>
+							{@const parsed = parseToolMessage(msg)}
+							<div class="flex flex-col min-w-[280px] sm:min-w-[400px] md:min-w-[550px] max-w-full">
+								<!-- Header of tool execution -->
+								<button
+									onclick={() => toggleMessage(msg.id)}
+									class="flex items-center justify-between w-full text-left gap-3 focus:outline-none hover:bg-gray-750/30 p-1 rounded transition-colors"
+								>
+									<div class="flex items-center gap-2 overflow-hidden flex-1">
+										<!-- Status icon -->
+										{#if msg.isStreaming}
+											<!-- Running -->
+											<span class="inline-block animate-spin text-amber-500 font-bold">⚡</span>
+										{:else if parsed.isError}
+											<!-- Error -->
+											<span class="text-rose-500 font-bold" title="Failed">❌</span>
+										{:else}
+											<!-- Success -->
+											<span class="text-emerald-500 font-bold" title="Succeeded">✅</span>
+										{/if}
+
+										<span class="font-bold text-gray-200 text-sm font-mono">
+											{parsed.toolName}
+										</span>
+
+										{#if parsed.toolArgs}
+											<span class="text-gray-400 text-xs font-mono truncate max-w-[180px] sm:max-w-[300px] md:max-w-[450px]" title={parsed.toolArgs}>
+												{parsed.toolArgs}
+											</span>
+										{/if}
+									</div>
+
+									<div class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-200 select-none font-sans font-medium whitespace-nowrap shrink-0">
+										{#if expandedMessages[msg.id]}
+											Collapse <span class="text-[10px]">▲</span>
+										{:else}
+											Expand <span class="text-[10px]">▼</span>
+										{/if}
+									</div>
+								</button>
+
+								<!-- Tool Output (collapsible) -->
+								{#if expandedMessages[msg.id]}
+									<div class="mt-2 border-t border-gray-700/50 pt-2 flex flex-col overflow-hidden">
+										{#if parsed.toolOutput}
+											<pre class="overflow-x-auto text-xs whitespace-pre-wrap max-h-96 text-gray-300 font-mono bg-gray-950/60 p-2 rounded border border-gray-700/30">{parsed.toolOutput}</pre>
+										{:else if msg.isStreaming}
+											<div class="text-xs text-gray-500 italic animate-pulse p-1">Running and waiting for output...</div>
+										{:else}
+											<div class="text-xs text-gray-500 italic p-1">No output returned</div>
+										{/if}
+									</div>
+								{/if}
+							</div>
 						{:else if msg.role === 'assistant' && msg.content !== ''}
 							<pre class="text-sm leading-relaxed whitespace-pre-wrap font-sans">{msg.content}</pre>
 						{:else}
