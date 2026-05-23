@@ -9,14 +9,19 @@ export type ClientMessage =
   | { type: 'session_new'; cwd: string; model?: string }
   | { type: 'session_leave'; sessionId: string }
   | { type: 'session_resolve_conflict'; action: 'take_over' | 'read_only'; sessionId: string; cwd?: string }
-  | { type: 'model_change'; model: string };
+  | { type: 'model_change'; model: string }
+  | { type: 'cli_register'; sessionFile: string; cwd: string; model?: string }
+  | { type: 'cli_event'; sessionFile: string; event: any }
+  | { type: 'cli_message'; message: string; streamingBehavior?: 'steer' | 'followUp' }
+  | { type: 'cli_abort' }
+  | { type: 'cli_model_change'; model: string };
 
 export type ServerMessage =
   | { type: 'connected'; clientId: string }
 | { type: 'agent_start'; sessionId: string }
  | { type: 'thinking_update'; sessionId: string; delta: string }
  | { type: 'message_update'; sessionId: string; delta: string }
-  | { type: 'message_end'; sessionId: string; content: string }
+  | { type: 'message_end'; sessionId: string; content: string; role?: 'user' | 'assistant' }
   | { type: 'agent_end'; sessionId: string }
   | { type: 'tool_start'; sessionId: string; toolName: string; args: unknown }
   | { type: 'tool_end'; sessionId: string; toolName: string; isError: boolean; result?: string }

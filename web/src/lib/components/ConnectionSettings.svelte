@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { connect, disconnect, setConfig, isConnected } from '$lib/pi-remote';
+	import { connect, disconnect, getConfig, setConfig, isConnected } from '$lib/pi-remote';
 	import { onMount } from 'svelte';
 
 	let { host, port, token, onConnected }: {
@@ -16,20 +16,14 @@
 	let connected = $derived($isConnected);
 
 	onMount(() => {
-		const stored = localStorage.getItem('pi-remote-config');
-		if (stored) {
-			const config = JSON.parse(stored);
-			localHost = config.host || 'localhost';
-			localPort = config.port || 8765;
-			localToken = config.token || '';
-		} else {
-			localHost = host;
-			localPort = port;
-			localToken = token;
-		}
+		const config = getConfig();
+		localHost = config.host;
+		localPort = config.port;
+		localToken = config.token || '';
 	});
 
 	function handleConnect() {
+		setConfig({ host: localHost, port: localPort, token: localToken });
 		disconnect();
 		setTimeout(() => connect(), 100);
 	}

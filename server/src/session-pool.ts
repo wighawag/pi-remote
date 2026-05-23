@@ -4,8 +4,10 @@ import type { AgentSession, AgentSessionEvent } from '@earendil-works/pi-coding-
 import type { Model, Api } from '@earendil-works/pi-ai';
 import type { SessionMessageEntry, SessionEntry } from '@earendil-works/pi-coding-agent';
 import type { SessionInfo, HistoryMessage, FolderWithSessions, ModelInfo, FolderSessionInfo } from './session-types.js';
+import type { WebSocket } from 'ws';
 
-interface TrackedSession {
+export interface ServerTrackedSession {
+  type: 'server';
   sessionId: string;
   sessionFile: string;
   cwd: string;
@@ -18,6 +20,23 @@ interface TrackedSession {
   createdAt: number;
   lastActivity: number;
 }
+
+export interface CliTrackedSession {
+  type: 'cli';
+  sessionId: string;
+  sessionFile: string;
+  cwd: string;
+  model: string;
+  clients: Set<string>;
+  isIdle: boolean;
+  idleTimer: ReturnType<typeof setTimeout> | null;
+  createdAt: number;
+  lastActivity: number;
+  cliWs: WebSocket;
+  isStreaming: boolean;
+}
+
+export type TrackedSession = ServerTrackedSession | CliTrackedSession;
 
 export class SessionPool {
   private sessions = new Map<string, TrackedSession>();
@@ -119,6 +138,7 @@ export class SessionPool {
         const modelLabel = agentSession.model ? `${agentSession.model.provider}:${agentSession.model.id}` : '';
 
         const tracked: TrackedSession = {
+          type: 'server',
           sessionId: agentSession.sessionId,
           sessionFile,
           cwd: sessionCwd,
@@ -190,6 +210,7 @@ export class SessionPool {
         const modelLabel = agentSession.model ? `${agentSession.model.provider}:${agentSession.model.id}` : '';
 
         const tracked: TrackedSession = {
+          type: 'server',
           sessionId: agentSession.sessionId,
           sessionFile,
           cwd,
@@ -266,7 +287,8 @@ export class SessionPool {
     const tracked = this.getSession(sessionFileOrId);
     if (!tracked) return [];
 
-    const entries = tracked.agentSession.sessionManager.getEntries();
+    const sessionManager = SessionManager.open(tracked.sessionFile);
+    const entries = sessionManager.getEntries();
     const messages: HistoryMessage[] = [];
 
     for (const entry of entries) {
@@ -397,7 +419,11 @@ export class SessionPool {
     const interruptedClientIds = new Set<string>();
     if (existing && existing.sessionId !== targetSessionId) {
       try {
-        await existing.agentSession.abort();
+        if (existing.type === 'server') {
+          await existing.agentSession.abort();
+        } else if (existing.type === 'cli') {
+          existing.cliWs.send(JSON.stringify({ type: 'cli_abort' }));
+        }
       } catch (err) {
         console.error(`Failed to abort session ${existing.sessionId} during takeover:`, err);
       }
@@ -416,36 +442,55 @@ export class SessionPool {
     if (!tracked) return;
     tracked.lastActivity = Date.now();
     this.cancelIdleCheck(tracked.sessionFile);
-    await tracked.agentSession.sendUserMessage(text, { deliverAs: streamingBehavior });
+    if (tracked.type === 'server') {
+      await tracked.agentSession.sendUserMessage(text, { deliverAs: streamingBehavior });
+    } else if (tracked.type === 'cli') {
+      tracked.cliWs.send(JSON.stringify({
+        type: 'cli_message',
+        message: text,
+        streamingBehavior,
+      }));
+    }
   }
 
   async abortSession(sessionFileOrId: string): Promise<void> {
     const tracked = this.getSession(sessionFileOrId);
     if (!tracked) return;
-    await tracked.agentSession.abort();
+    if (tracked.type === 'server') {
+      await tracked.agentSession.abort();
+    } else if (tracked.type === 'cli') {
+      tracked.cliWs.send(JSON.stringify({ type: 'cli_abort' }));
+    }
   }
 
   async changeModel(sessionFileOrId: string, modelStr: string): Promise<{ error?: string }> {
     const tracked = this.getSession(sessionFileOrId);
     if (!tracked) return { error: 'Session not found' };
 
-    const parsed = this.parseModelStr(modelStr);
-    if (!parsed) return { error: `Invalid model format: ${modelStr}` };
-    const model = this.modelRegistry.find(parsed.provider, parsed.id);
-    if (!model) return { error: `Model not found: ${modelStr}` };
+    if (tracked.type === 'server') {
+      const parsed = this.parseModelStr(modelStr);
+      if (!parsed) return { error: `Invalid model format: ${modelStr}` };
+      const model = this.modelRegistry.find(parsed.provider, parsed.id);
+      if (!model) return { error: `Model not found: ${modelStr}` };
 
-    try {
-      await tracked.agentSession.setModel(model);
+      try {
+        await tracked.agentSession.setModel(model);
+        tracked.model = modelStr;
+        return {};
+      } catch (err) {
+        return { error: (err as Error).message };
+      }
+    } else {
+      tracked.cliWs.send(JSON.stringify({ type: 'cli_model_change', model: modelStr }));
       tracked.model = modelStr;
       return {};
-    } catch (err) {
-      return { error: (err as Error).message };
     }
   }
 
   isStreaming(sessionFileOrId: string): boolean {
     const tracked = this.getSession(sessionFileOrId);
-    return tracked ? tracked.agentSession.isStreaming : false;
+    if (!tracked) return false;
+    return tracked.type === 'server' ? tracked.agentSession.isStreaming : tracked.isStreaming;
   }
 
   scheduleIdleCheck(sessionFileOrId: string): void {
@@ -471,9 +516,90 @@ export class SessionPool {
     const tracked = this.getSession(sessionFileOrId);
     if (!tracked) return;
     this.cancelIdleCheck(tracked.sessionFile);
-    tracked.eventUnsubscribe();
-    tracked.agentSession.dispose();
+    if (tracked.type === 'server') {
+      tracked.eventUnsubscribe();
+      tracked.agentSession.dispose();
+    } else {
+      try {
+        tracked.cliWs.close();
+      } catch (err) {}
+    }
     this.sessions.delete(tracked.sessionFile);
+  }
+
+  async registerCliSession(sessionFile: string, cwd: string, modelStr: string, cliWs: WebSocket): Promise<{ tracked: TrackedSession; error?: string }> {
+    const existing = this.sessions.get(sessionFile);
+    let clients = new Set<string>();
+    if (existing) {
+      clients = existing.clients;
+      this.cancelIdleCheck(sessionFile);
+      if (existing.type === 'server') {
+        try {
+          existing.eventUnsubscribe();
+          existing.agentSession.dispose();
+        } catch (err) {}
+      }
+    }
+
+    const sessionId = existing?.sessionId || Math.random().toString(36).substring(2) + Date.now().toString(36);
+
+    const tracked: CliTrackedSession = {
+      type: 'cli',
+      sessionId,
+      sessionFile,
+      cwd,
+      model: modelStr || '',
+      clients,
+      isIdle: true,
+      idleTimer: null,
+      createdAt: existing?.createdAt || Date.now(),
+      lastActivity: Date.now(),
+      cliWs,
+      isStreaming: false,
+    };
+
+    this.sessions.set(sessionFile, tracked);
+    return { tracked };
+  }
+
+  async unregisterCliSession(sessionFile: string): Promise<void> {
+    const tracked = this.sessions.get(sessionFile);
+    if (!tracked || tracked.type !== 'cli') return;
+
+    this.cancelIdleCheck(sessionFile);
+    this.sessions.delete(sessionFile);
+
+    if (tracked.clients.size > 0) {
+      console.log(`CLI Bridge disconnected for ${sessionFile}. Restarting server-side agent session...`);
+      const result = await this.loadSession(sessionFile, tracked.cwd, tracked.model);
+      if (!result.error && result.tracked) {
+        result.tracked.clients = tracked.clients;
+        if (this.onEvent) {
+          this.onEvent(sessionFile, { type: 'agent_end' } as any);
+        }
+      }
+    }
+  }
+
+  handleCliEvent(sessionFile: string, event: AgentSessionEvent): void {
+    const tracked = this.sessions.get(sessionFile);
+    if (!tracked || tracked.type !== 'cli') return;
+
+    tracked.lastActivity = Date.now();
+
+    if (event.type === 'agent_start') {
+      tracked.isIdle = false;
+      tracked.isStreaming = true;
+      this.cancelIdleCheck(sessionFile);
+    } else if (event.type === 'agent_end') {
+      tracked.isIdle = true;
+      tracked.isStreaming = false;
+      this.scheduleIdleCheck(sessionFile);
+    }
+
+    if (this.onEvent) {
+      this.onEvent(sessionFile, event);
+    }
   }
 
   async disposeAll(): Promise<void> {

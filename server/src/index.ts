@@ -9,6 +9,7 @@ interface WSClient {
   ws: WebSocket;
   sessionId: string | null;
   readOnly: boolean;
+  isCliBridge?: boolean;
 }
 
 function generateId(): string {
@@ -115,9 +116,10 @@ async function main(): Promise<void> {
         break;
       }
       case 'message_end': {
-        if ((event.message as any)?.role !== 'assistant') break;
+        const role = (event.message as any)?.role;
+        if (role !== 'assistant' && role !== 'user') break;
         const content = extractText(event.message as any);
-        msg = { type: 'message_end', sessionId, content };
+        msg = { type: 'message_end', sessionId, content, role };
         break;
       }
       case 'agent_end': {
@@ -400,9 +402,13 @@ async function main(): Promise<void> {
       }
     });
 
-    ws.on('close', () => {
+    ws.on('close', async () => {
       if (client.sessionId) {
-        sessionPool.removeClient(client.sessionId, clientId);
+        if (client.isCliBridge) {
+          await sessionPool.unregisterCliSession(client.sessionId);
+        } else {
+          sessionPool.removeClient(client.sessionId, clientId);
+        }
       }
       clients.delete(clientId);
     });
@@ -443,6 +449,43 @@ async function handleWSMessage(
   broadcast: (sessionFile: string, message: ServerMessage, excludeId?: string) => void,
 ): Promise<void> {
   switch (msg.type) {
+    case 'cli_register': {
+      client.isCliBridge = true;
+      client.sessionId = msg.sessionFile;
+      const result = await pool.registerCliSession(msg.sessionFile, msg.cwd, msg.model || '', client.ws);
+      if (result.error) {
+        sendWS(client.ws, { type: 'session_error', error: result.error });
+      } else {
+        console.log(`Registered CLI Bridge for session ${msg.sessionFile} at ${msg.cwd}`);
+        const sId = result.tracked.sessionId;
+        const msgToWeb: ServerMessage = {
+          type: 'session_created',
+          sessionId: sId,
+          sessionFile: msg.sessionFile,
+          cwd: msg.cwd,
+          model: msg.model || '',
+        };
+        for (const c of clients.values()) {
+          if (c.sessionId === msg.sessionFile && !c.isCliBridge) {
+            sendWS(c.ws, msgToWeb);
+            const history = pool.getSessionHistory(msg.sessionFile);
+            sendWS(c.ws, {
+              type: 'message_history',
+              sessionId: sId,
+              messages: history,
+            });
+          }
+        }
+      }
+      break;
+    }
+
+    case 'cli_event': {
+      if (!client.isCliBridge || !client.sessionId) return;
+      pool.handleCliEvent(client.sessionId, msg.event);
+      break;
+    }
+
     case 'connect':
       break;
 

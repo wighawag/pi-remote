@@ -13,7 +13,7 @@ layout {
 
 	pane split_direction="vertical" {
 		pane name="server" command="pnpm"  {
-			args "server:dev"
+			args "server:dev" "--host" "0.0.0.0"
 		}
 	}
 }

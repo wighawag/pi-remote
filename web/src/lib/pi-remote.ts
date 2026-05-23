@@ -74,8 +74,24 @@ function saveConfig(config: { host: string; port: number; token: string }) {
   localStorage.setItem('pi-remote-config', JSON.stringify(config));
 }
 
-function getConfig() {
-  return getStoredConfig() || { host: 'localhost', port: 8765, token: '' };
+export function getConfig() {
+  const defaultHost = (typeof window !== 'undefined' && window.location && window.location.hostname)
+    ? window.location.hostname
+    : 'localhost';
+
+  const stored = getStoredConfig();
+  if (stored) {
+    if (!stored.host || stored.host === 'localhost' || stored.host === '127.0.0.1') {
+      if (defaultHost && defaultHost !== 'localhost' && defaultHost !== '127.0.0.1') {
+        return { ...stored, host: defaultHost };
+      }
+    }
+    if (!stored.host) {
+      stored.host = defaultHost;
+    }
+    return stored;
+  }
+  return { host: defaultHost, port: 8765, token: '' };
 }
 
 function buildUrl(config: { host: string; port: number; token: string }) {
@@ -215,7 +231,7 @@ export function connect() {
             } else if (msg.content) {
               newMessages = [...newMessages, {
                 id: generateId(),
-                role: 'assistant',
+                role: msg.role || 'assistant',
                 content: msg.content,
                 timestamp: Date.now(),
                 isStreaming: false,
