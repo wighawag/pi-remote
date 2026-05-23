@@ -1,6 +1,6 @@
 {
   "name": "pi-remote-server",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Standalone multi-session server for pi coding agent",
   "type": "module",
   "main": "dist/index.js",
