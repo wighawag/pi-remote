@@ -316,7 +316,7 @@ async function main(): Promise<void> {
         } else {
           sendJSON(res, 201, {
             sessionId: result.tracked.sessionId,
-            sessionFile: result.sessionFile,
+            sessionFile: result.tracked.sessionFile,
             cwd: result.tracked.cwd,
             model: result.tracked.model,
           });
@@ -441,6 +441,13 @@ async function main(): Promise<void> {
   process.on('SIGINT', shutdown);
 }
 
+function switchClientSession(client: WSClient, newSessionFile: string | null, pool: SessionPool) {
+  if (client.sessionId && client.sessionId !== newSessionFile) {
+    pool.removeClient(client.sessionId, client.id);
+  }
+  client.sessionId = newSessionFile;
+}
+
 async function handleWSMessage(
   msg: ClientMessage,
   client: WSClient,
@@ -512,7 +519,7 @@ async function handleWSMessage(
       }
 
       pool.addClient(result.tracked.sessionFile, client.id);
-      client.sessionId = result.tracked.sessionFile;
+      switchClientSession(client, result.tracked.sessionFile, pool);
       client.readOnly = false;
 
       sendWS(client.ws, {
@@ -534,7 +541,11 @@ async function handleWSMessage(
 
     case 'session_new': {
       const existing = pool.findActiveSessionByCwd(msg.cwd);
-      if (existing && existing.clients.size > 0) {
+      const hasOtherClients = existing && (
+        existing.clients.size > 1 || 
+        (existing.clients.size === 1 && !existing.clients.has(client.id))
+      );
+      if (hasOtherClients && existing) {
         sendWS(client.ws, {
           type: 'session_conflict',
           sessionId: '',
@@ -551,13 +562,13 @@ async function handleWSMessage(
       }
 
       pool.addClient(result.tracked.sessionFile, client.id);
-      client.sessionId = result.tracked.sessionFile;
+      switchClientSession(client, result.tracked.sessionFile, pool);
       client.readOnly = false;
 
       sendWS(client.ws, {
         type: 'session_created',
         sessionId: result.tracked.sessionId,
-        sessionFile: result.sessionFile || '',
+        sessionFile: result.tracked.sessionFile,
         cwd: result.tracked.cwd,
         model: result.tracked.model,
       });
@@ -572,8 +583,7 @@ async function handleWSMessage(
 
     case 'session_leave': {
       if (client.sessionId) {
-        pool.removeClient(client.sessionId, client.id);
-        client.sessionId = null;
+        switchClientSession(client, null, pool);
         client.readOnly = false;
       }
       break;
@@ -581,44 +591,79 @@ async function handleWSMessage(
 
     case 'session_resolve_conflict': {
       let tracked = pool.getSession(msg.sessionId);
+      const isNewSessionConflict = !msg.sessionId;
 
       // For new sessions, targetSessionId is empty; find by cwd
-      if (!tracked && msg.cwd) {
-        tracked = pool.findActiveSessionByCwd(msg.cwd);
-      }
+      const existingTracked = tracked || (msg.cwd ? pool.findActiveSessionByCwd(msg.cwd) : null);
 
-      if (tracked) {
+      if (existingTracked) {
         if (msg.action === 'take_over') {
-          const interrupted = await pool.takeOver(tracked.cwd, msg.sessionId);
+          const interrupted = await pool.takeOver(existingTracked.cwd, msg.sessionId);
           for (const intClientId of interrupted) {
+            // Do not interrupt the current client itself if we are creating a new session
+            if (isNewSessionConflict && intClientId === client.id) continue;
+
             const intClient = clients.get(intClientId);
             if (intClient) {
               sendWS(intClient.ws, {
                 type: 'session_interrupted',
                 sessionId: intClient.sessionId || '',
-                reason: 'Another client took over this folder',
+                reason: isNewSessionConflict
+                  ? 'Another client started a new session in this folder'
+                  : 'Another client took over this folder',
               });
-              intClient.sessionId = null;
+              switchClientSession(intClient, null, pool);
             }
           }
-          pool.addClient(tracked.sessionFile, client.id);
-          client.sessionId = tracked.sessionFile;
-          client.readOnly = false;
 
-          const history = pool.getSessionHistory(tracked.sessionFile);
-          sendWS(client.ws, {
-            type: 'message_history',
-            sessionId: tracked.sessionId,
-            messages: history,
-          });
+          if (isNewSessionConflict) {
+            // Create a brand-new session as requested!
+            const result = await pool.createNewSession(msg.cwd!, undefined);
+            if (result.error) {
+              sendWS(client.ws, { type: 'session_error', error: result.error });
+              return;
+            }
+
+            pool.addClient(result.tracked.sessionFile, client.id);
+            switchClientSession(client, result.tracked.sessionFile, pool);
+            client.readOnly = false;
+
+            sendWS(client.ws, {
+              type: 'session_created',
+              sessionId: result.tracked.sessionId,
+              sessionFile: result.tracked.sessionFile,
+              cwd: result.tracked.cwd,
+              model: result.tracked.model,
+            });
+
+            sendWS(client.ws, {
+              type: 'message_history',
+              sessionId: result.tracked.sessionId,
+              messages: [],
+            });
+          } else if (tracked) {
+            // Join the existing session
+            pool.addClient(tracked.sessionFile, client.id);
+            switchClientSession(client, tracked.sessionFile, pool);
+            client.readOnly = false;
+
+            const history = pool.getSessionHistory(tracked.sessionFile);
+            sendWS(client.ws, {
+              type: 'message_history',
+              sessionId: tracked.sessionId,
+              messages: history,
+            });
+          }
         } else {
-          client.sessionId = tracked.sessionFile;
+          // Join the existing session as read-only
+          pool.addClient(existingTracked.sessionFile, client.id);
+          switchClientSession(client, existingTracked.sessionFile, pool);
           client.readOnly = true;
 
-          const history = pool.getSessionHistory(tracked.sessionFile);
+          const history = pool.getSessionHistory(existingTracked.sessionFile);
           sendWS(client.ws, {
             type: 'message_history',
-            sessionId: tracked.sessionId,
+            sessionId: existingTracked.sessionId,
             messages: history,
           });
         }

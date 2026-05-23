@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { sendMessage, piState, isConnected } from '$lib/pi-remote';
+	import { sendMessage, piState, isConnected, createSession, clearMessages, leaveSession } from '$lib/pi-remote';
 	import { isStreaming, isReadOnly, activeSessionInfo } from '$lib/pi-remote';
 
 	let { disabled, onSend }: { disabled: boolean; onSend?: () => void } = $props();
@@ -17,6 +17,27 @@
 	function handleSend() {
 		const trimmed = text.trim();
 		if (!trimmed || effectivelyDisabled) return;
+
+		// Handle local slash commands to match terminal behavior
+		if (trimmed.startsWith('/')) {
+			const lower = trimmed.toLowerCase();
+			if (lower === '/new' || lower === '/reset') {
+				if (sessionInfo.cwd) {
+					createSession(sessionInfo.cwd, sessionInfo.model || undefined);
+					text = '';
+					return;
+				}
+			} else if (lower === '/clear') {
+				clearMessages();
+				text = '';
+				return;
+			} else if (lower === '/leave' || lower === '/exit') {
+				leaveSession();
+				text = '';
+				return;
+			}
+		}
+
 		sendMessage(trimmed);
 		text = '';
 		onSend?.();
