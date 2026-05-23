@@ -77,10 +77,10 @@ export class SessionPool {
       let model: Model<Api> | undefined;
 
       if (modelStr) {
-        const colonIdx = modelStr.indexOf(':');
-        const provider = modelStr.slice(0, colonIdx);
-        const id = modelStr.slice(colonIdx + 1);
-        model = this.modelRegistry.find(provider, id);
+        const parsed = this.parseModelStr(modelStr);
+        if (parsed) {
+          model = this.modelRegistry.find(parsed.provider, parsed.id);
+        }
       }
 
       if (!model && header) {
@@ -143,10 +143,10 @@ export class SessionPool {
       let model: Model<Api> | undefined;
 
       if (modelStr) {
-        const colonIdx = modelStr.indexOf(':');
-        const provider = modelStr.slice(0, colonIdx);
-        const id = modelStr.slice(colonIdx + 1);
-        model = this.modelRegistry.find(provider, id);
+        const parsed = this.parseModelStr(modelStr);
+        if (parsed) {
+          model = this.modelRegistry.find(parsed.provider, parsed.id);
+        }
       }
 
       const settingsManager = SettingsManager.create(cwd, this.agentDir);
@@ -393,11 +393,9 @@ export class SessionPool {
     const tracked = this.sessions.get(sessionId);
     if (!tracked) return { error: 'Session not found' };
 
-    const colonIdx = modelStr.indexOf(':');
-    if (colonIdx === -1) return { error: `Invalid model format: ${modelStr}` };
-    const provider = modelStr.slice(0, colonIdx);
-    const id = modelStr.slice(colonIdx + 1);
-    const model = this.modelRegistry.find(provider, id);
+    const parsed = this.parseModelStr(modelStr);
+    if (!parsed) return { error: `Invalid model format: ${modelStr}` };
+    const model = this.modelRegistry.find(parsed.provider, parsed.id);
     if (!model) return { error: `Model not found: ${modelStr}` };
 
     try {
@@ -503,5 +501,14 @@ export class SessionPool {
     }
 
     return '';
+  }
+
+  private parseModelStr(modelStr: string): { provider: string; id: string } | null {
+    const colonIdx = modelStr.indexOf(':');
+    if (colonIdx === -1) return null;
+    return {
+      provider: modelStr.slice(0, colonIdx),
+      id: modelStr.slice(colonIdx + 1),
+    };
   }
 }

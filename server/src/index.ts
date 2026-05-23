@@ -54,11 +54,18 @@ function sendJSON(res: ServerResponse, status: number, data: unknown): void {
   res.end(JSON.stringify(data));
 }
 
-function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve) => {
+function readBody(req: IncomingMessage, maxLimitBytes = 1e6): Promise<string> {
+  return new Promise((resolve, reject) => {
     let body = '';
-    req.on('data', (chunk: Buffer) => (body += chunk.toString()));
+    req.on('data', (chunk: Buffer) => {
+      body += chunk.toString();
+      if (body.length > maxLimitBytes) {
+        req.destroy();
+        reject(new Error('Payload too large'));
+      }
+    });
     req.on('end', () => resolve(body));
+    req.on('error', (err) => reject(err));
   });
 }
 
@@ -174,37 +181,67 @@ function main(): void {
     }
 
     if (pathname === '/session/model' && req.method === 'POST') {
-      const body = await readBody(req);
       try {
+        const body = await readBody(req);
         const { sessionId, model } = JSON.parse(body) as { sessionId: string; model: string };
+        if (!sessionId || !model) {
+          sendJSON(res, 400, { error: 'Missing sessionId or model' });
+          return;
+        }
         const result = await sessionPool.changeModel(sessionId, model);
         if (result.error) {
           sendJSON(res, 400, { error: result.error });
         } else {
           sendJSON(res, 200, { status: 'changed', model });
         }
-      } catch {
-        sendJSON(res, 400, { error: 'Missing sessionId or model' });
+      } catch (err) {
+        sendJSON(res, 400, { error: (err as Error).message || 'Invalid request' });
       }
       return;
     }
 
     if (pathname === '/session/destroy' && req.method === 'POST') {
-      const body = await readBody(req);
       try {
+        const body = await readBody(req);
         const { sessionId } = JSON.parse(body) as { sessionId: string };
+        if (!sessionId) {
+          sendJSON(res, 400, { error: 'Missing sessionId' });
+          return;
+        }
+
+        const tracked = sessionPool.getSession(sessionId);
+        if (tracked) {
+          const wsMsg: ServerMessage = {
+            type: 'session_destroyed',
+            sessionId: tracked.sessionId,
+            reason: 'Session destroyed manually'
+          };
+          for (const cid of tracked.clients) {
+            const c = clients.get(cid);
+            if (c) {
+              sendWS(c.ws, wsMsg);
+              c.sessionId = null;
+              c.readOnly = false;
+            }
+          }
+        }
+
         sessionPool.destroySession(sessionId, 'manual');
         sendJSON(res, 200, { status: 'destroyed' });
-      } catch {
-        sendJSON(res, 400, { error: 'Missing sessionId' });
+      } catch (err) {
+        sendJSON(res, 400, { error: (err as Error).message || 'Invalid request' });
       }
       return;
     }
 
     if (pathname === '/session/new' && req.method === 'POST') {
-      const body = await readBody(req);
       try {
+        const body = await readBody(req);
         const { cwd, model } = JSON.parse(body) as { cwd: string; model?: string };
+        if (!cwd) {
+          sendJSON(res, 400, { error: 'Missing cwd' });
+          return;
+        }
         const result = await sessionPool.createNewSession(cwd, model);
         if (result.error) {
           sendJSON(res, 500, { error: result.error });
@@ -216,8 +253,8 @@ function main(): void {
             model: result.tracked.model,
           });
         }
-      } catch {
-        sendJSON(res, 400, { error: 'Missing cwd' });
+      } catch (err) {
+        sendJSON(res, 400, { error: (err as Error).message || 'Invalid request' });
       }
       return;
     }

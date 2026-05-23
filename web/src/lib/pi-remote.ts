@@ -282,7 +282,7 @@ export function connect() {
 
         case 'session_destroyed':
           state.update((s: PiRemoteState) => {
-            if (s.activeSessionFile === msg.sessionId) {
+            if (s.sessionId === msg.sessionId) {
               return {
                 ...s,
                 messages: [],
