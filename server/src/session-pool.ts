@@ -82,17 +82,38 @@ export class SessionPool {
   }
 
   async loadSession(sessionFile: string, cwd?: string, modelStr?: string): Promise<{ tracked: TrackedSession; error?: string }> {
-    if (this.sessions.has(sessionFile)) {
-      return { tracked: this.sessions.get(sessionFile)! };
+    let resolvedFile = sessionFile;
+
+    // Resolve short session ID/name (no path delimiters and doesn't end in .json or .jsonl) to full absolute path
+    if (!sessionFile.includes('/') && !sessionFile.includes('\\') && !sessionFile.endsWith('.json') && !sessionFile.endsWith('.jsonl')) {
+      // 1. Check if the session is already active in memory
+      const active = Array.from(this.sessions.values()).find(s => s.sessionId === sessionFile);
+      if (active) {
+        resolvedFile = active.sessionFile;
+      } else {
+        // 2. Scan the disk to find the session with the matching ID/name
+        const diskSessions = await SessionManager.listAll();
+        const found = diskSessions.find(s => s.id === sessionFile || s.name === sessionFile);
+        if (found) {
+          resolvedFile = found.path;
+        } else {
+          return { tracked: null as any, error: `Session with ID "${sessionFile}" not found` };
+        }
+      }
     }
 
-    if (this.pendingSessions.has(sessionFile)) {
-      return this.pendingSessions.get(sessionFile)!;
+    // Continue with the resolved absolute path
+    if (this.sessions.has(resolvedFile)) {
+      return { tracked: this.sessions.get(resolvedFile)! };
+    }
+
+    if (this.pendingSessions.has(resolvedFile)) {
+      return this.pendingSessions.get(resolvedFile)!;
     }
 
     const loadPromise = (async () => {
       try {
-        const sessionManager = SessionManager.open(sessionFile);
+        const sessionManager = SessionManager.open(resolvedFile);
         const header = sessionManager.getHeader();
 
         if (!header) {
@@ -140,28 +161,28 @@ export class SessionPool {
         const tracked: TrackedSession = {
           type: 'server',
           sessionId: agentSession.sessionId,
-          sessionFile,
+          sessionFile: resolvedFile,
           cwd: sessionCwd,
           model: modelLabel,
           agentSession,
           clients: new Set(),
           isIdle: true,
           idleTimer: null,
-          eventUnsubscribe: this.setupEventListeners(sessionFile, agentSession),
+          eventUnsubscribe: this.setupEventListeners(resolvedFile, agentSession),
           createdAt: Date.now(),
           lastActivity: Date.now(),
         };
 
-        this.sessions.set(sessionFile, tracked);
+        this.sessions.set(resolvedFile, tracked);
         return { tracked };
       } catch (err) {
         return { tracked: null as any, error: (err as Error).message };
       } finally {
-        this.pendingSessions.delete(sessionFile);
+        this.pendingSessions.delete(resolvedFile);
       }
     })();
 
-    this.pendingSessions.set(sessionFile, loadPromise);
+    this.pendingSessions.set(resolvedFile, loadPromise);
     return loadPromise;
   }
 

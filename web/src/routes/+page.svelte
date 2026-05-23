@@ -34,17 +34,17 @@
 
 		const handleHashChange = () => {
 			if (connected) {
-				const hashFile = window.location.hash
+				const hashId = window.location.hash
 					? decodeURIComponent(window.location.hash.slice(1))
 					: '';
-				if (hashFile && hashFile !== currentSessionFile) {
-					if (currentSessionFile) {
+				if (hashId && hashId !== currentSessionId) {
+					if (currentSessionId) {
 						leaveSession();
-						setTimeout(() => joinSession(hashFile), 100);
+						setTimeout(() => joinSession(hashId), 100);
 					} else {
-						joinSession(hashFile);
+						joinSession(hashId);
 					}
-				} else if (!hashFile && currentSessionFile) {
+				} else if (!hashId && currentSessionId) {
 					leaveSession();
 				}
 			}
@@ -83,14 +83,14 @@
 	let models = $derived($availableModels.models);
 
 	let hasJoinedFromHash = $state(false);
-	let currentSessionFile = $derived(sessionInfo.sessionFile);
+	let currentSessionId = $derived(sessionInfo.sessionId);
 
-	// Update hash when sessionFile changes
+	// Update hash when sessionId changes, only if connected to prevent clearing on reload
 	$effect(() => {
-		if (typeof window !== 'undefined') {
-			if (currentSessionFile) {
-				window.location.hash = encodeURIComponent(currentSessionFile);
-			} else {
+		if (typeof window !== 'undefined' && connected) {
+			if (currentSessionId) {
+				window.location.hash = encodeURIComponent(currentSessionId);
+			} else if (hasJoinedFromHash) {
 				if (window.location.hash) {
 					window.location.hash = '';
 				}
@@ -100,18 +100,19 @@
 
 	// Auto-join session from hash when connected
 	$effect(() => {
-		if (
-			connected &&
-			typeof window !== 'undefined' &&
-			window.location.hash &&
-			!hasJoinedFromHash
-		) {
-			const hashFile = decodeURIComponent(window.location.hash.slice(1));
-			if (hashFile) {
+		if (connected && typeof window !== 'undefined') {
+			if (window.location.hash) {
+				if (!hasJoinedFromHash) {
+					const hashId = decodeURIComponent(window.location.hash.slice(1));
+					if (hashId) {
+						hasJoinedFromHash = true;
+						setTimeout(() => {
+							joinSession(hashId);
+						}, 300);
+					}
+				}
+			} else {
 				hasJoinedFromHash = true;
-				setTimeout(() => {
-					joinSession(hashFile);
-				}, 300);
 			}
 		}
 	});
