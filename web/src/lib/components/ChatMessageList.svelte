@@ -238,7 +238,13 @@
 		setTimeout(scrollToBottom, 50);
 	});
 
-	let msgList = $derived($messages);
+	let msgList = $derived(
+		$messages.filter(
+			(msg) =>
+				(msg.role !== 'assistant' && msg.role !== 'thinking') ||
+				msg.content.trim() !== '',
+		),
+	);
 	let streaming = $derived($isStreaming);
 
 	function formatTime(timestamp: number) {
