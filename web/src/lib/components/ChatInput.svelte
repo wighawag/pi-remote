@@ -1,9 +1,16 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { sendMessage, piState, isConnected, createSession, clearMessages, leaveSession } from '$lib/pi-remote';
-	import { isStreaming, isReadOnly, activeSessionInfo } from '$lib/pi-remote';
+	import {onMount} from 'svelte';
+	import {
+		sendMessage,
+		piState,
+		isConnected,
+		createSession,
+		clearMessages,
+		leaveSession,
+	} from '$lib/pi-remote';
+	import {isStreaming, isReadOnly, activeSessionInfo} from '$lib/pi-remote';
 
-	let { disabled, onSend }: { disabled: boolean; onSend?: () => void } = $props();
+	let {disabled, onSend}: {disabled: boolean; onSend?: () => void} = $props();
 
 	let text = $state('');
 	let enterToSend = $state(true);
@@ -15,7 +22,9 @@
 	let connected = $derived($isConnected);
 	let appState = $derived($piState);
 
-	let effectivelyDisabled = $derived(disabled || readOnly || !sessionInfo.sessionId || !!queuedText);
+	let effectivelyDisabled = $derived(
+		disabled || readOnly || !sessionInfo.sessionId || !!queuedText,
+	);
 
 	let textarea = $state<HTMLTextAreaElement>();
 
@@ -117,17 +126,21 @@
 	}
 </script>
 
-<div class="p-4 border-t border-gray-700">
+<div class="border-t border-gray-700 p-4">
 	{#if !connected || appState.connecting || appState.error}
-		<div class="text-xs text-gray-500 mb-2.5 flex items-center gap-1.5 font-medium select-none">
+		<div
+			class="mb-2.5 flex items-center gap-1.5 text-xs font-medium text-gray-500 select-none"
+		>
 			{#if appState.connecting}
-				<span class="inline-block w-1.5 h-1.5 bg-yellow-500 rounded-full animate-ping"></span>
+				<span
+					class="inline-block h-1.5 w-1.5 animate-ping rounded-full bg-yellow-500"
+				></span>
 				<span>Connecting to remote server...</span>
 			{:else if appState.error}
 				<span class="text-red-500">⚠️</span>
 				<span class="text-red-400/80">{appState.error}</span>
 			{:else if !connected}
-				<span class="inline-block w-1.5 h-1.5 bg-gray-600 rounded-full"></span>
+				<span class="inline-block h-1.5 w-1.5 rounded-full bg-gray-600"></span>
 				<span>Disconnected from remote server</span>
 			{/if}
 		</div>
@@ -137,7 +150,7 @@
 			e.preventDefault();
 			handleSend();
 		}}
-		class="flex gap-2 items-end"
+		class="flex items-end gap-2"
 	>
 		<textarea
 			bind:this={textarea}
@@ -145,14 +158,22 @@
 			onkeydown={handleKeydown}
 			disabled={effectivelyDisabled}
 			rows={1}
-			placeholder={queuedText ? 'Message is queued...' : streaming ? 'Agent is working (type next message...)' : readOnly ? 'Read-only mode' : !sessionInfo.sessionId ? 'Select a session first...' : 'Type a message...'}
-			class="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50 resize-none overflow-y-auto max-h-48 min-h-[48px] h-auto leading-relaxed"
+			placeholder={queuedText
+				? 'Message is queued...'
+				: streaming
+					? 'Agent is working (type next message...)'
+					: readOnly
+						? 'Read-only mode'
+						: !sessionInfo.sessionId
+							? 'Select a session first...'
+							: 'Type a message...'}
+			class="h-auto max-h-48 min-h-[48px] flex-1 resize-none overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 px-4 py-3 leading-relaxed text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none disabled:opacity-50"
 		></textarea>
 		{#if queuedText}
 			<button
 				type="button"
 				onclick={handleUnqueue}
-				class="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-lg font-medium transition-colors h-[48px] flex items-center justify-center shrink-0"
+				class="flex h-[48px] shrink-0 items-center justify-center rounded-lg bg-amber-600 px-6 py-3 font-medium text-white transition-colors hover:bg-amber-700"
 			>
 				Unqueue
 			</button>
@@ -160,7 +181,7 @@
 			<button
 				type="submit"
 				disabled={effectivelyDisabled || !text.trim()}
-				class="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-medium transition-colors h-[48px] flex items-center justify-center shrink-0"
+				class="flex h-[48px] shrink-0 items-center justify-center rounded-lg bg-blue-600 px-6 py-3 font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-600"
 			>
 				{#if streaming}
 					Queue
@@ -171,8 +192,10 @@
 		{/if}
 	</form>
 
-	<div class="mt-2 flex items-center justify-between text-[11px] text-gray-400 select-none px-1">
-		<label class="flex items-center gap-1.5 cursor-pointer hover:text-gray-300">
+	<div
+		class="mt-2 flex items-center justify-between px-1 text-[11px] text-gray-400 select-none"
+	>
+		<label class="flex cursor-pointer items-center gap-1.5 hover:text-gray-300">
 			<input
 				type="checkbox"
 				checked={enterToSend}
@@ -181,7 +204,7 @@
 			/>
 			<span>Press Enter to send (Shift+Enter for newline)</span>
 		</label>
-		<span class="opacity-60 font-mono">
+		<span class="font-mono opacity-60">
 			{#if enterToSend}
 				Ctrl+Enter/Cmd+Enter also sends
 			{:else}

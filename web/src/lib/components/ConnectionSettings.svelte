@@ -1,8 +1,19 @@
 <script lang="ts">
-	import { connect, disconnect, getConfig, setConfig, isConnected } from '$lib/pi-remote';
-	import { onMount } from 'svelte';
+	import {
+		connect,
+		disconnect,
+		getConfig,
+		setConfig,
+		isConnected,
+	} from '$lib/pi-remote';
+	import {onMount} from 'svelte';
 
-	let { host, port, token, onConnected }: {
+	let {
+		host,
+		port,
+		token,
+		onConnected,
+	}: {
 		host: string;
 		port: number;
 		token: string;
@@ -23,7 +34,7 @@
 	});
 
 	function handleConnect() {
-		setConfig({ host: localHost, port: localPort, token: localToken });
+		setConfig({host: localHost, port: localPort, token: localToken});
 		disconnect();
 		setTimeout(() => connect(), 100);
 	}
@@ -33,37 +44,39 @@
 	}
 </script>
 
-<div class="p-4 border-b border-gray-700">
+<div class="border-b border-gray-700 p-4">
 	<div class="space-y-3">
 		<div>
-			<label for="pi-host" class="block text-xs text-gray-400 mb-1">Host</label>
+			<label for="pi-host" class="mb-1 block text-xs text-gray-400">Host</label>
 			<input
 				id="pi-host"
 				type="text"
 				bind:value={localHost}
 				placeholder="localhost"
-				class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+				class="w-full rounded border border-gray-600 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
 			/>
 		</div>
 
 		<div>
-			<label for="pi-port" class="block text-xs text-gray-400 mb-1">Port</label>
+			<label for="pi-port" class="mb-1 block text-xs text-gray-400">Port</label>
 			<input
 				id="pi-port"
 				type="number"
 				bind:value={localPort}
-				class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+				class="w-full rounded border border-gray-600 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
 			/>
 		</div>
 
 		<div>
-			<label for="pi-token" class="block text-xs text-gray-400 mb-1">Token (optional)</label>
+			<label for="pi-token" class="mb-1 block text-xs text-gray-400"
+				>Token (optional)</label
+			>
 			<input
 				id="pi-token"
 				type="password"
 				bind:value={localToken}
 				placeholder="Authentication token"
-				class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+				class="w-full rounded border border-gray-600 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
 			/>
 		</div>
 
@@ -71,7 +84,7 @@
 			{#if connected}
 				<button
 					onclick={handleDisconnect}
-					class="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm py-2 px-4 rounded transition-colors"
+					class="flex-1 rounded bg-red-600 px-4 py-2 text-sm text-white transition-colors hover:bg-red-700"
 				>
 					Disconnect
 				</button>
@@ -79,7 +92,7 @@
 				<button
 					onclick={handleConnect}
 					disabled={saving}
-					class="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:cursor-not-allowed text-white text-sm py-2 px-4 rounded transition-colors"
+					class="flex-1 rounded bg-blue-600 px-4 py-2 text-sm text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-800"
 				>
 					{saving ? 'Connecting...' : 'Connect'}
 				</button>
