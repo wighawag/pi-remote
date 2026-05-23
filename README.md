@@ -55,12 +55,18 @@ Now that you have everything installed, here is how to start and run Pi Remote:
 ```bash
 pnpm run server:dev
 ```
-The Standalone Server starts on `http://127.0.0.1:8765` and **automatically hosts both the WebSocket API and the pre-built Web Frontend** on this single port!
+The Standalone Server starts on **`https://127.0.0.1:8765` by default**, using **automatically generated self-signed SSL certificates** for safe, encrypted transmission over your local network!
 
-Open `http://localhost:8765` (or the IP displayed) in your browser (or phone!) to access your Web Dashboard instantly.
+Open **`https://localhost:8765`** (or the IP displayed) in your browser (or phone!) to access your Web Dashboard instantly.
+
+> 🔒 **First Time Connecting?**
+> Because the server's SSL certificate is self-signed:
+> 1. You will see a standard *"Your connection is not private"* warning on your browser or phone.
+> 2. Simply click **"Advanced"** (or "More Info") and click **"Proceed to localhost (unsafe)"**.
+> 3. That's it! Your session is now fully encrypted.
 
 ### 2. Start your Terminal CLI
-Simply run `pi` inside any workspace directory. It will automatically load the symlinked extension, connect to your Standalone Server, and sync with your Web Dashboard in real-time!
+Simply run `pi` inside any workspace directory. It will automatically load the symlinked extension, connect securely to your Standalone Server, and sync with your Web Dashboard in real-time!
 ```bash
 pi
 ```
@@ -101,6 +107,7 @@ Both the server and CLI bridge extension accept standard flags to customize port
 * `--idle-timeout`, `PI_IDLE_TIMEOUT` (Graceful shutdown timeout, default: `300000` = 5 minutes)
 * `--ssl-key`, `PI_REMOTE_SSL_KEY` (Path to SSL private key file for HTTPS/WSS)
 * `--ssl-cert`, `PI_REMOTE_SSL_CERT` (Path to SSL certificate file for HTTPS/WSS)
+* `--no-ssl` / `--http`, `PI_REMOTE_NO_SSL` / `PI_REMOTE_HTTP` (Disables SSL, falling back to standard HTTP/WS)
 
 ### CLI Bridge Settings
 Whenever you run `pi`, you can override bridge defaults:
@@ -108,6 +115,7 @@ Whenever you run `pi`, you can override bridge defaults:
 * `--remote-port` (Default: `8765`)
 * `--remote-token` (Auth token if configured)
 * `--remote-bridge` (Set to `false` to run as offline standard CLI)
+* `--remote-secure` (Whether to connect via WSS. Default: `true`. Set to `false` if server has `--no-ssl` active)
 
 ---
 

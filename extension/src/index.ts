@@ -44,6 +44,12 @@ export default async function (pi: ExtensionAPI) {
     default: true,
   });
 
+  pi.registerFlag("remote-secure", {
+    description: "Whether to connect to the remote standalone server using SSL (WSS)",
+    type: "boolean",
+    default: true,
+  });
+
   pi.registerCommand("remote-reconnect", {
     description: "Manually reconnect to the standalone remote server",
     handler: async (args: string, ctx: any) => {
@@ -126,11 +132,14 @@ export default async function (pi: ExtensionAPI) {
     const host = (pi.getFlag("remote-host") as string) || "127.0.0.1";
     const port = (pi.getFlag("remote-port") as string) || "8765";
     const token = pi.getFlag("remote-token") as string | undefined;
+    const isSecure = pi.getFlag("remote-secure") !== false;
 
     const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : "";
-    const wsUrl = `ws://${host}:${port}/ws${tokenQuery}`;
+    const protocol = isSecure ? "wss" : "ws";
+    const wsUrl = `${protocol}://${host}:${port}/ws${tokenQuery}`;
 
-    const currentWs = new WebSocket(wsUrl);
+    const wsOptions = isSecure ? { rejectUnauthorized: false } : {};
+    const currentWs = new WebSocket(wsUrl, wsOptions);
     ws = currentWs;
 
     currentWs.on("open", () => {

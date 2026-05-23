@@ -7,6 +7,8 @@ import type { ClientMessage, ServerMessage } from './protocol.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import os from 'node:os';
+import { execSync } from 'node:child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -70,7 +72,7 @@ function generateId(): string {
   return Math.random().toString(36).substring(2) + Date.now().toString(36);
 }
 
-function parseArgs(): { port: number; host: string; token?: string; idleTimeout: number; sslKey?: string; sslCert?: string } {
+function parseArgs(): { port: number; host: string; token?: string; idleTimeout: number; sslKey?: string; sslCert?: string; noSsl: boolean } {
   const args = process.argv.slice(2);
   let port = parseInt(process.env.PI_REMOTE_PORT || '8765', 10);
   let host = process.env.PI_REMOTE_HOST || '127.0.0.1';
@@ -78,6 +80,7 @@ function parseArgs(): { port: number; host: string; token?: string; idleTimeout:
   let idleTimeout = parseInt(process.env.PI_IDLE_TIMEOUT || '300000', 10);
   let sslKey = process.env.PI_REMOTE_SSL_KEY || undefined;
   let sslCert = process.env.PI_REMOTE_SSL_CERT || undefined;
+  let noSsl = process.env.PI_REMOTE_NO_SSL === 'true' || process.env.PI_REMOTE_HTTP === 'true';
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
@@ -99,10 +102,14 @@ function parseArgs(): { port: number; host: string; token?: string; idleTimeout:
       case '--ssl-cert':
         sslCert = args[++i];
         break;
+      case '--no-ssl':
+      case '--http':
+        noSsl = true;
+        break;
     }
   }
 
-  return { port, host, token, idleTimeout, sslKey, sslCert };
+  return { port, host, token, idleTimeout, sslKey, sslCert, noSsl };
 }
 
 function authenticate(req: IncomingMessage, token?: string): boolean {
@@ -143,11 +150,43 @@ function sendWS(ws: WebSocket, msg: ServerMessage): void {
 }
 
 async function main(): Promise<void> {
-  const { port, host, token, idleTimeout, sslKey, sslCert } = parseArgs();
+  const { port, host, token, idleTimeout, sslKey, sslCert, noSsl } = parseArgs();
   const sessionPool = new SessionPool(idleTimeout);
   await sessionPool.initialize();
 
   const clients = new Map<string, WSClient>();
+
+  let actualSslKey = sslKey;
+  let actualSslCert = sslCert;
+  let isSecure = !noSsl;
+
+  if (isSecure) {
+    if (!actualSslKey || !actualSslCert) {
+      // Automatic self-signed certificate generation
+      const homeDir = os.homedir();
+      const certsDir = path.join(homeDir, '.pi', 'remote', 'certs');
+      const defaultKeyPath = path.join(certsDir, 'localhost.key');
+      const defaultCertPath = path.join(certsDir, 'localhost.crt');
+
+      if (!fs.existsSync(defaultKeyPath) || !fs.existsSync(defaultCertPath)) {
+        console.log('Generating self-signed SSL certificates for secure HTTPS/WSS...');
+        try {
+          fs.mkdirSync(certsDir, { recursive: true });
+          const cmd = `openssl req -x509 -newkey rsa:2048 -keyout "${defaultKeyPath}" -out "${defaultCertPath}" -sha256 -days 3650 -nodes -subj "/CN=localhost"`;
+          execSync(cmd, { stdio: 'ignore' });
+          console.log(`Self-signed certificates generated successfully in ${certsDir}`);
+        } catch (err) {
+          console.warn('Failed to generate self-signed certificates using OpenSSL. Falling back to HTTP.', (err as Error).message);
+          isSecure = false;
+        }
+      }
+
+      if (isSecure) {
+        actualSslKey = defaultKeyPath;
+        actualSslCert = defaultCertPath;
+      }
+    }
+  }
 
   function broadcastToSession(sessionFile: string, msg: ServerMessage, excludeClientId?: string): void {
     const tracked = sessionPool.getSession(sessionFile);
@@ -397,17 +436,17 @@ async function main(): Promise<void> {
   };
 
   let server;
-  let isSecure = false;
-  if (sslKey && sslCert) {
+  let isSecureServer = false;
+  if (isSecure && actualSslKey && actualSslCert) {
     try {
       const options = {
-        key: fs.readFileSync(sslKey),
-        cert: fs.readFileSync(sslCert),
+        key: fs.readFileSync(actualSslKey),
+        cert: fs.readFileSync(actualSslCert),
       };
       server = createHttpsServer(options, requestHandler);
-      isSecure = true;
+      isSecureServer = true;
     } catch (err) {
-      console.error(`Failed to load SSL certificates from ${sslKey} and ${sslCert}. Falling back to HTTP.`, (err as Error).message);
+      console.error(`Failed to load SSL certificates from ${actualSslKey} and ${actualSslCert}. Falling back to HTTP.`, (err as Error).message);
       server = createHttpServer(requestHandler);
     }
   } else {
@@ -503,9 +542,20 @@ async function main(): Promise<void> {
   });
 
   server.listen(port, host, () => {
-    const protocol = isSecure ? 'https' : 'http';
+    const protocol = isSecureServer ? 'https' : 'http';
     const authInfo = token ? ' (token-protected)' : ' (no authentication)';
-    console.log(`Pi Remote Server: ${protocol}://${host}:${port}${authInfo}`);
+    console.log(`\n🔐 Pi Remote Server: ${protocol}://${host}:${port}${authInfo}`);
+
+    if (isSecureServer) {
+      console.log(`
+👉 FIRST TIME CONNECTING?
+Since the server uses an automatically generated self-signed SSL certificate:
+1. Open https://${host}:${port} in your browser/phone.
+2. You will see a "Your connection is not private" warning.
+3. Click "Advanced" (or "More Info") and choose "Proceed to ${host} (unsafe)".
+This encrypts all network traffic securely and enables safe, private remote access!
+`);
+    }
   });
 
   server.on('error', (err) => {
