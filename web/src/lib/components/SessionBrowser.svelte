@@ -250,7 +250,7 @@
 <!-- Session Error -->
 {#if $sessionError}
 <div class="absolute bottom-0 left-0 right-0 bg-red-600/20 border-t border-red-500/50 text-red-400 text-xs px-3 py-2 flex items-center justify-between">
-  <span class="truncate">{sessionError}</span>
+  <span class="truncate">{$sessionError}</span>
   <button onclick={() => dismissSessionError()} class="ml-2 text-red-300 hover:text-red-200 flex-shrink-0">✕</button>
 </div>
 {/if}
