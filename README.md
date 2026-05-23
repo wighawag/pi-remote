@@ -22,7 +22,47 @@ It allows you to manage multiple pi sessions concurrently across your workspace 
 
 ## Installation
 
-### 1. Clone and Install Dependencies
+There are two ways to install and run Pi Remote: **Quick Install via NPM** (recommended for users), or **Local Development Setup** (for active contributors).
+
+---
+
+### Method A: Quick Install (via NPM) 🚀
+
+This is the easiest and most robust way to run Pi Remote. No cloning or local compiling required!
+
+#### 1. Install the Standalone Server Globally
+Install the Pi Remote Standalone Server command-line tool globally using npm or your favorite package manager:
+```bash
+npm install -g pi-remote-server
+```
+
+#### 2. Install the CLI Extension into Pi
+Use Pi's built-in package manager to install the remote connection bridge extension directly from npm:
+```bash
+pi install npm:pi-remote
+```
+
+#### 3. Start the Server
+Start the standalone multi-session server:
+```bash
+pi-remote-server
+```
+The server will boot up and automatically generate self-signed SSL certificates for a secure `https`/`wss` local environment. Open `https://localhost:8765` in your browser. (The first time, proceed past your browser's SSL warning).
+
+#### 4. Run Pi
+Run `pi` as normal in any project folder:
+```bash
+pi
+```
+Pi will automatically detect and load the `pi-remote` extension, establish a real-time connection to your standalone server, and mirror your workspace to the Web Dashboard!
+
+---
+
+### Method B: Local Development Setup (From Source) 🛠️
+
+If you want to modify the source code, develop custom features, or run pre-release code locally:
+
+#### 1. Clone and Install Dependencies
 Clone this repository and install all monorepo workspace dependencies:
 ```bash
 git clone https://github.com/wighawag/pi-remote.git
@@ -30,48 +70,29 @@ cd pi-remote
 pnpm install
 ```
 
-### 2. Build the Extension and Web Dashboard
-Compile both the CLI extension and the web dashboard:
+#### 2. Build All Components
+Build the frontend, copy it to the server's public asset path, and compile both TypeScript packages (server & extension) using our unified build script:
 ```bash
 pnpm build
 ```
 
-### 3. Install the Extension into Pi
-To make your local `pi` terminal auto-connect to the remote server on startup without needing extra flags, symlink the extension folder into Pi's local extensions directory:
+#### 3. Install the Extension via Symlink
+Symlink your local compiled development extension directly into Pi's extensions directory:
 ```bash
 mkdir -p ~/.pi/agent/extensions
 ln -sf "$(pwd)/extension" ~/.pi/agent/extensions/pi-remote
 ```
 
-> 📌 **Note for future release:** Once this extension package is published, manual cloning/symlinking will no longer be necessary. Users will be able to install it directly using the standard `pi` extension command (e.g., `pi --install pi-remote`). We should update these instructions once published.
-
----
-
-## Quick Start
-
-Now that you have everything installed, here is how to start and run Pi Remote:
-
-### 1. Start the Pi Standalone Server
+#### 4. Start the Server in Development Mode
 ```bash
 pnpm run server:dev
 ```
-The Standalone Server starts on **`https://127.0.0.1:8765` by default**, using **automatically generated self-signed SSL certificates** for safe, encrypted transmission over your local network!
+Open `https://localhost:8765` in your browser.
 
-Open **`https://localhost:8765`** (or the IP displayed) in your browser (or phone!) to access your Web Dashboard instantly.
+#### 5. Run Pi
+Run `pi` in any directory. It will load the symlinked local extension and connect automatically!
 
-> 🔒 **First Time Connecting?**
-> Because the server's SSL certificate is self-signed:
-> 1. You will see a standard *"Your connection is not private"* warning on your browser or phone.
-> 2. Simply click **"Advanced"** (or "More Info") and click **"Proceed to localhost (unsafe)"**.
-> 3. That's it! Your session is now fully encrypted.
-
-### 2. Start your Terminal CLI
-Simply run `pi` inside any workspace directory. It will automatically load the symlinked extension, connect securely to your Standalone Server, and sync with your Web Dashboard in real-time!
-```bash
-pi
-```
-
-*(Optional) **Developing the Frontend:** If you are actively working on the web app's codebase and want Hot Module Replacement (HMR), run the Vite development server on port `5173`:*
+*(Optional) **Frontend HMR:** If you are actively working on Svelte dashboard components and want Hot Module Replacement, run the Vite dev server:*
 ```bash
 pnpm --filter ./web dev
 ```
@@ -102,7 +123,7 @@ Both the server and CLI bridge extension accept standard flags to customize port
 
 ### Standalone Server Settings
 * `--port`, `PI_REMOTE_PORT` (Default: `8765`)
-* `--host`, `PI_REMOTE_HOST` (Default: `127.0.0.1`)
+* `--host`, `PI_REMOTE_HOST` (Default: `127.0.0.1`, set to `0.0.0.0` to expose to outside/local network)
 * `--token`, `PI_REMOTE_TOKEN` (Optional auth token)
 * `--idle-timeout`, `PI_IDLE_TIMEOUT` (Graceful shutdown timeout, default: `300000` = 5 minutes)
 * `--ssl-key`, `PI_REMOTE_SSL_KEY` (Path to SSL private key file for HTTPS/WSS)
@@ -116,6 +137,41 @@ Whenever you run `pi`, you can override bridge defaults:
 * `--remote-token` (Auth token if configured)
 * `--remote-bridge` (Set to `false` to run as offline standard CLI)
 * `--remote-secure` (Whether to connect via WSS. Default: `true`. Set to `false` if server has `--no-ssl` active)
+
+---
+
+## Remote Access & Security (Tailscale, Headscale, & Outside Access)
+
+By default, the Standalone Server binds to `127.0.0.1` (localhost) for security. If you want to access your Pi Remote instance from outside or from other devices (like a mobile phone or tablet), you have a few options:
+
+### 1. Tailscale / Headscale (Highly Recommended)
+Using a secure private mesh VPN like [Tailscale](https://tailscale.com) or [Headscale](https://github.com/juanfont/headscale) is the safest and easiest way to access your Pi Remote server without exposing ports to the public internet.
+1. Install Tailscale/Headscale on both your Pi and your remote client device (e.g., your phone).
+2. Start the Pi Remote server binding to all interfaces (or your specific Tailscale IP):
+   ```bash
+   pi-remote-server --host 0.0.0.0 --token your-secure-token
+   ```
+   *Warning: Always use a strong `--token` when binding to any interface other than localhost!*
+3. Access your Svelte dashboard securely from your remote device's browser at `https://<your-tailscale-ip>:8765` with your token.
+
+### 2. Local Network Access
+To allow access from devices on your local home network (Wi-Fi):
+1. Start the server binding to `0.0.0.0`:
+   ```bash
+   pi-remote-server --host 0.0.0.0 --token your-secure-token
+   ```
+2. Find your Pi's local network IP (e.g., `192.168.1.50`) and open `https://192.168.1.50:8765` in your client's browser.
+3. If running the CLI `pi` command from another computer on the same local network, point it to the Pi:
+   ```bash
+   pi --remote-host 192.168.1.50 --remote-token your-secure-token
+   ```
+
+### 3. SSH Port Forwarding
+For an ad-hoc secure connection without exposing any port:
+```bash
+ssh -L 8765:localhost:8765 user@your-pi-ip
+```
+Once connected, you can open `https://localhost:8765` locally on your client computer.
 
 ---
 

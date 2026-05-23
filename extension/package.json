@@ -5,6 +5,7 @@
   "type": "module",
   "main": "dist/index.js",
   "keywords": [
+    "pi-package",
     "pi",
     "coding-agent",
     "remote",
@@ -13,8 +14,14 @@
   ],
   "author": "",
   "license": "MIT",
+  "files": [
+    "dist"
+  ],
   "dependencies": {
     "ws": "^8.18.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.75.3",

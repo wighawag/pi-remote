@@ -283,7 +283,11 @@ If you try to load a session in `/project-a` while another browser client has an
 
 ### Security Reminders
 * **Bind Binding:** By default, the Standalone Server binds only to `127.0.0.1`. Never expose to `0.0.0.0` unless you set a highly secure `--token` in your startup configuration.
-* **Tunnels:** For remote access (such as mobile browsing), we recommend utilizing secure SSH tunnels:
+* **Tailscale / Headscale (Highly Recommended):** For a secure private network, you can use Tailscale or Headscale. Bind the server to all interfaces with `--host 0.0.0.0` and access it safely over your private mesh VPN:
+  ```bash
+  pi-remote-server --host 0.0.0.0 --token your-secure-token
+  ```
+* **Tunnels:** For remote access (such as mobile browsing) without exposing ports, you can utilize secure SSH tunnels:
   ```bash
   ssh -L 8765:localhost:8765 user@your-server-ip
   ```

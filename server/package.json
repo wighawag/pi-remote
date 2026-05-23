@@ -4,6 +4,13 @@
   "description": "Standalone multi-session server for pi coding agent",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "pi-remote-server": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "public"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",

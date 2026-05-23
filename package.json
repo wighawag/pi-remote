@@ -26,7 +26,7 @@
     "server:dev": "ldenv pnpm --filter ./server dev",
     "server:build": "ldenv pnpm --filter ./server build",
     "---------------------- DEPLOY ----------------------": "",
-    "build": "pnpm web:build",
+    "build": "node scripts/build.js",
     "serve": "pnpm run --filter ./web serve",
     "---------------------- RUN FULL LOCAL SETUP ----------------------": "",
     "stop": "zellij kill-session $npm_package_name",
