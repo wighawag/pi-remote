@@ -83,6 +83,7 @@
 	let models = $derived($availableModels.models);
 
 	let hasJoinedFromHash = $state(false);
+	let wasSessionActive = $state(false);
 	let currentSessionId = $derived(sessionInfo.sessionId);
 
 	// Update hash when sessionId changes, only if connected to prevent clearing on reload
@@ -90,7 +91,9 @@
 		if (typeof window !== 'undefined' && connected) {
 			if (currentSessionId) {
 				window.location.hash = encodeURIComponent(currentSessionId);
-			} else if (hasJoinedFromHash) {
+				wasSessionActive = true;
+			} else if (wasSessionActive) {
+				wasSessionActive = false;
 				if (window.location.hash) {
 					window.location.hash = '';
 				}
@@ -100,19 +103,18 @@
 
 	// Auto-join session from hash when connected
 	$effect(() => {
-		if (connected && typeof window !== 'undefined') {
-			if (window.location.hash) {
-				if (!hasJoinedFromHash) {
-					const hashId = decodeURIComponent(window.location.hash.slice(1));
-					if (hashId) {
-						hasJoinedFromHash = true;
-						setTimeout(() => {
-							joinSession(hashId);
-						}, 300);
-					}
-				}
-			} else {
+		if (
+			connected &&
+			typeof window !== 'undefined' &&
+			window.location.hash &&
+			!hasJoinedFromHash
+		) {
+			const hashId = decodeURIComponent(window.location.hash.slice(1));
+			if (hashId) {
 				hasJoinedFromHash = true;
+				setTimeout(() => {
+					joinSession(hashId);
+				}, 300);
 			}
 		}
 	});
@@ -121,6 +123,7 @@
 	$effect(() => {
 		if (!connected) {
 			hasJoinedFromHash = false;
+			wasSessionActive = false;
 		}
 	});
 </script>
