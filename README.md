@@ -43,6 +43,8 @@ mkdir -p ~/.pi/agent/extensions
 ln -sf "$(pwd)/extension" ~/.pi/agent/extensions/pi-remote
 ```
 
+> 📌 **Note for future release:** Once this extension package is published, manual cloning/symlinking will no longer be necessary. Users will be able to install it directly using the standard `pi` extension command (e.g., `pi --install pi-remote`). We should update these instructions once published.
+
 ---
 
 ## Quick Start
