@@ -229,13 +229,19 @@ export function connect() {
                   : m,
               );
             } else if (msg.content) {
-              newMessages = [...newMessages, {
-                id: generateId(),
-                role: msg.role || 'assistant',
-                content: msg.content,
-                timestamp: Date.now(),
-                isStreaming: false,
-              }];
+              // Deduplicate user messages: if the message is from the user, and our last user message matches, do not append it again
+              const lastUserMessage = [...newMessages].reverse().find(m => m.role === 'user');
+              const isDuplicateUserMsg = msg.role === 'user' && lastUserMessage && lastUserMessage.content === msg.content;
+
+              if (!isDuplicateUserMsg) {
+                newMessages = [...newMessages, {
+                  id: generateId(),
+                  role: msg.role || 'assistant',
+                  content: msg.content,
+                  timestamp: Date.now(),
+                  isStreaming: false,
+                }];
+              }
             }
 
             return { ...s, messages: newMessages };

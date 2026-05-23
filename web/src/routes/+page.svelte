@@ -49,7 +49,7 @@
 
 <Head title="Pi Remote" description="Chat with your Pi coding agent remotely" />
 
-<div class="h-screen flex bg-gray-900 text-white overflow-hidden">
+<div class="h-dvh flex bg-gray-900 text-white overflow-hidden">
   <!-- Sidebar -->
   <div
     class="{sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 fixed md:relative z-20 w-72 h-full bg-gray-850 border-r border-gray-700 flex flex-col transition-transform duration-200"
