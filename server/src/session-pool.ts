@@ -21,6 +21,8 @@ interface TrackedSession {
 
 export class SessionPool {
   private sessions = new Map<string, TrackedSession>();
+  private pendingSessions = new Map<string, Promise<{ tracked: TrackedSession; error?: string }>>();
+  private pendingCreateSessions = new Map<string, Promise<{ tracked: TrackedSession; error?: string; sessionFile?: string }>>();
   private authStorage: AuthStorage;
   private modelRegistry: ModelRegistry;
   private agentDir: string;
@@ -65,71 +67,82 @@ export class SessionPool {
       return { tracked: this.sessions.get(sessionFile)! };
     }
 
-    try {
-      const sessionManager = SessionManager.open(sessionFile);
-      const header = sessionManager.getHeader();
-
-      if (!header) {
-        return { tracked: null as any, error: 'Session file has no header' };
-      }
-
-      const sessionCwd = cwd || header.cwd || process.cwd();
-      let model: Model<Api> | undefined;
-
-      if (modelStr) {
-        const parsed = this.parseModelStr(modelStr);
-        if (parsed) {
-          model = this.modelRegistry.find(parsed.provider, parsed.id);
-        }
-      }
-
-      if (!model && header) {
-        const entries = sessionManager.getEntries();
-        const modelChange = entries.find((e: SessionEntry) => e.type === 'model_change');
-        if (modelChange && 'provider' in modelChange && 'modelId' in modelChange) {
-          model = this.modelRegistry.find(modelChange.provider, modelChange.modelId);
-        }
-      }
-
-      const settingsManager = SettingsManager.create(sessionCwd, this.agentDir);
-      const resourceLoader = new DefaultResourceLoader({
-        cwd: sessionCwd,
-        agentDir: this.agentDir,
-        settingsManager,
-      });
-      await resourceLoader.reload();
-
-      const { session: agentSession } = await createAgentSession({
-        cwd: sessionCwd,
-        authStorage: this.authStorage,
-        modelRegistry: this.modelRegistry,
-        model,
-        sessionManager,
-        settingsManager,
-        resourceLoader,
-      });
-
-      const modelLabel = agentSession.model ? `${agentSession.model.provider}:${agentSession.model.id}` : '';
-
-      const tracked: TrackedSession = {
-        sessionId: agentSession.sessionId,
-        sessionFile,
-        cwd: sessionCwd,
-        model: modelLabel,
-        agentSession,
-        clients: new Set(),
-        isIdle: true,
-        idleTimer: null,
-        eventUnsubscribe: this.setupEventListeners(sessionFile, agentSession),
-        createdAt: Date.now(),
-        lastActivity: Date.now(),
-      };
-
-      this.sessions.set(sessionFile, tracked);
-      return { tracked };
-    } catch (err) {
-      return { tracked: null as any, error: (err as Error).message };
+    if (this.pendingSessions.has(sessionFile)) {
+      return this.pendingSessions.get(sessionFile)!;
     }
+
+    const loadPromise = (async () => {
+      try {
+        const sessionManager = SessionManager.open(sessionFile);
+        const header = sessionManager.getHeader();
+
+        if (!header) {
+          return { tracked: null as any, error: 'Session file has no header' };
+        }
+
+        const sessionCwd = cwd || header.cwd || process.cwd();
+        let model: Model<Api> | undefined;
+
+        if (modelStr) {
+          const parsed = this.parseModelStr(modelStr);
+          if (parsed) {
+            model = this.modelRegistry.find(parsed.provider, parsed.id);
+          }
+        }
+
+        if (!model && header) {
+          const entries = sessionManager.getEntries();
+          const modelChange = entries.find((e: SessionEntry) => e.type === 'model_change');
+          if (modelChange && 'provider' in modelChange && 'modelId' in modelChange) {
+            model = this.modelRegistry.find(modelChange.provider, modelChange.modelId);
+          }
+        }
+
+        const settingsManager = SettingsManager.create(sessionCwd, this.agentDir);
+        const resourceLoader = new DefaultResourceLoader({
+          cwd: sessionCwd,
+          agentDir: this.agentDir,
+          settingsManager,
+        });
+        await resourceLoader.reload();
+
+        const { session: agentSession } = await createAgentSession({
+          cwd: sessionCwd,
+          authStorage: this.authStorage,
+          modelRegistry: this.modelRegistry,
+          model,
+          sessionManager,
+          settingsManager,
+          resourceLoader,
+        });
+
+        const modelLabel = agentSession.model ? `${agentSession.model.provider}:${agentSession.model.id}` : '';
+
+        const tracked: TrackedSession = {
+          sessionId: agentSession.sessionId,
+          sessionFile,
+          cwd: sessionCwd,
+          model: modelLabel,
+          agentSession,
+          clients: new Set(),
+          isIdle: true,
+          idleTimer: null,
+          eventUnsubscribe: this.setupEventListeners(sessionFile, agentSession),
+          createdAt: Date.now(),
+          lastActivity: Date.now(),
+        };
+
+        this.sessions.set(sessionFile, tracked);
+        return { tracked };
+      } catch (err) {
+        return { tracked: null as any, error: (err as Error).message };
+      } finally {
+        this.pendingSessions.delete(sessionFile);
+      }
+    })();
+
+    this.pendingSessions.set(sessionFile, loadPromise);
+    return loadPromise;
   }
 
   async createNewSession(cwd: string, modelStr?: string): Promise<{ tracked: TrackedSession; error?: string; sessionFile?: string }> {
@@ -138,77 +151,95 @@ export class SessionPool {
       return { tracked: existing };
     }
 
-    try {
-      const sessionManager = SessionManager.create(cwd);
-      let model: Model<Api> | undefined;
-
-      if (modelStr) {
-        const parsed = this.parseModelStr(modelStr);
-        if (parsed) {
-          model = this.modelRegistry.find(parsed.provider, parsed.id);
-        }
-      }
-
-      const settingsManager = SettingsManager.create(cwd, this.agentDir);
-      const resourceLoader = new DefaultResourceLoader({
-        cwd,
-        agentDir: this.agentDir,
-        settingsManager,
-      });
-      await resourceLoader.reload();
-
-      const { session: agentSession } = await createAgentSession({
-        cwd,
-        authStorage: this.authStorage,
-        modelRegistry: this.modelRegistry,
-        model,
-        sessionManager,
-        settingsManager,
-        resourceLoader,
-      });
-
-      const sessionFile = agentSession.sessionFile || '';
-      const modelLabel = agentSession.model ? `${agentSession.model.provider}:${agentSession.model.id}` : '';
-
-      const tracked: TrackedSession = {
-        sessionId: agentSession.sessionId,
-        sessionFile,
-        cwd,
-        model: modelLabel,
-        agentSession,
-        clients: new Set(),
-        isIdle: true,
-        idleTimer: null,
-        eventUnsubscribe: this.setupEventListeners(sessionFile, agentSession),
-        createdAt: Date.now(),
-        lastActivity: Date.now(),
-      };
-
-      this.sessions.set(sessionFile, tracked);
-      return { tracked, sessionFile };
-    } catch (err) {
-      return { tracked: null as any, error: (err as Error).message };
+    const resolvedCwd = path.resolve(cwd);
+    if (this.pendingCreateSessions.has(resolvedCwd)) {
+      return this.pendingCreateSessions.get(resolvedCwd)!;
     }
+
+    const createPromise = (async () => {
+      try {
+        const sessionManager = SessionManager.create(cwd);
+        let model: Model<Api> | undefined;
+
+        if (modelStr) {
+          const parsed = this.parseModelStr(modelStr);
+          if (parsed) {
+            model = this.modelRegistry.find(parsed.provider, parsed.id);
+          }
+        }
+
+        const settingsManager = SettingsManager.create(cwd, this.agentDir);
+        const resourceLoader = new DefaultResourceLoader({
+          cwd,
+          agentDir: this.agentDir,
+          settingsManager,
+        });
+        await resourceLoader.reload();
+
+        const { session: agentSession } = await createAgentSession({
+          cwd,
+          authStorage: this.authStorage,
+          modelRegistry: this.modelRegistry,
+          model,
+          sessionManager,
+          settingsManager,
+          resourceLoader,
+        });
+
+        const sessionFile = agentSession.sessionFile || '';
+        const modelLabel = agentSession.model ? `${agentSession.model.provider}:${agentSession.model.id}` : '';
+
+        const tracked: TrackedSession = {
+          sessionId: agentSession.sessionId,
+          sessionFile,
+          cwd,
+          model: modelLabel,
+          agentSession,
+          clients: new Set(),
+          isIdle: true,
+          idleTimer: null,
+          eventUnsubscribe: this.setupEventListeners(sessionFile, agentSession),
+          createdAt: Date.now(),
+          lastActivity: Date.now(),
+        };
+
+        this.sessions.set(sessionFile, tracked);
+        return { tracked, sessionFile };
+      } catch (err) {
+        return { tracked: null as any, error: (err as Error).message };
+      } finally {
+        this.pendingCreateSessions.delete(resolvedCwd);
+      }
+    })();
+
+    this.pendingCreateSessions.set(resolvedCwd, createPromise);
+    return createPromise;
   }
 
-  addClient(sessionId: string, clientId: string): TrackedSession | null {
-    const tracked = this.sessions.get(sessionId);
+  addClient(sessionFileOrId: string, clientId: string): TrackedSession | null {
+    const tracked = this.getSession(sessionFileOrId);
     if (!tracked) return null;
     tracked.clients.add(clientId);
     tracked.lastActivity = Date.now();
-    this.cancelIdleCheck(sessionId);
+    this.cancelIdleCheck(tracked.sessionFile);
     return tracked;
   }
 
-  removeClient(sessionId: string, clientId: string): void {
-    const tracked = this.sessions.get(sessionId);
+  removeClient(sessionFileOrId: string, clientId: string): void {
+    const tracked = this.getSession(sessionFileOrId);
     if (!tracked) return;
     tracked.clients.delete(clientId);
-    this.scheduleIdleCheck(sessionId);
+    this.scheduleIdleCheck(tracked.sessionFile);
   }
 
-  getSession(sessionId: string): TrackedSession | null {
-    return this.sessions.get(sessionId) || null;
+  getSession(sessionFileOrId: string): TrackedSession | null {
+    if (this.sessions.has(sessionFileOrId)) {
+      return this.sessions.get(sessionFileOrId)!;
+    }
+    for (const s of this.sessions.values()) {
+      if (s.sessionId === sessionFileOrId) return s;
+    }
+    return null;
   }
 
   findActiveSessionByCwd(cwd: string): TrackedSession | null {
@@ -218,8 +249,8 @@ export class SessionPool {
     return null;
   }
 
-  detectConflict(targetSessionId: string, targetCwd: string): { conflict: boolean; otherSessionId?: string; otherCwd?: string } {
-    if (this.sessions.has(targetSessionId)) {
+  detectConflict(sessionFileOrId: string, targetCwd: string): { conflict: boolean; otherSessionId?: string; otherCwd?: string } {
+    if (this.getSession(sessionFileOrId)) {
       return { conflict: false };
     }
 
@@ -231,8 +262,8 @@ export class SessionPool {
     return { conflict: false };
   }
 
-  getSessionHistory(sessionId: string): HistoryMessage[] {
-    const tracked = this.sessions.get(sessionId);
+  getSessionHistory(sessionFileOrId: string): HistoryMessage[] {
+    const tracked = this.getSession(sessionFileOrId);
     if (!tracked) return [];
 
     const entries = tracked.agentSession.sessionManager.getEntries();
@@ -365,32 +396,37 @@ export class SessionPool {
     const existing = this.findActiveSessionByCwd(cwd);
     const interruptedClientIds = new Set<string>();
     if (existing && existing.sessionId !== targetSessionId) {
+      try {
+        await existing.agentSession.abort();
+      } catch (err) {
+        console.error(`Failed to abort session ${existing.sessionId} during takeover:`, err);
+      }
       const interruptedClients = Array.from(existing.clients);
       for (const clientId of interruptedClients) {
         existing.clients.delete(clientId);
         interruptedClientIds.add(clientId);
       }
-      this.scheduleIdleCheck(existing.sessionId);
+      this.scheduleIdleCheck(existing.sessionFile);
     }
     return interruptedClientIds;
   }
 
-  async sendUserMessage(sessionId: string, text: string, streamingBehavior?: 'steer' | 'followUp'): Promise<void> {
-    const tracked = this.sessions.get(sessionId);
+  async sendUserMessage(sessionFileOrId: string, text: string, streamingBehavior?: 'steer' | 'followUp'): Promise<void> {
+    const tracked = this.getSession(sessionFileOrId);
     if (!tracked) return;
     tracked.lastActivity = Date.now();
-    this.cancelIdleCheck(sessionId);
+    this.cancelIdleCheck(tracked.sessionFile);
     await tracked.agentSession.sendUserMessage(text, { deliverAs: streamingBehavior });
   }
 
-  async abortSession(sessionId: string): Promise<void> {
-    const tracked = this.sessions.get(sessionId);
+  async abortSession(sessionFileOrId: string): Promise<void> {
+    const tracked = this.getSession(sessionFileOrId);
     if (!tracked) return;
     await tracked.agentSession.abort();
   }
 
-  async changeModel(sessionId: string, modelStr: string): Promise<{ error?: string }> {
-    const tracked = this.sessions.get(sessionId);
+  async changeModel(sessionFileOrId: string, modelStr: string): Promise<{ error?: string }> {
+    const tracked = this.getSession(sessionFileOrId);
     if (!tracked) return { error: 'Session not found' };
 
     const parsed = this.parseModelStr(modelStr);
@@ -407,37 +443,37 @@ export class SessionPool {
     }
   }
 
-  isStreaming(sessionId: string): boolean {
-    const tracked = this.sessions.get(sessionId);
+  isStreaming(sessionFileOrId: string): boolean {
+    const tracked = this.getSession(sessionFileOrId);
     return tracked ? tracked.agentSession.isStreaming : false;
   }
 
-  scheduleIdleCheck(sessionId: string): void {
-    const tracked = this.sessions.get(sessionId);
+  scheduleIdleCheck(sessionFileOrId: string): void {
+    const tracked = this.getSession(sessionFileOrId);
     if (!tracked) return;
-    this.cancelIdleCheck(sessionId);
+    this.cancelIdleCheck(tracked.sessionFile);
 
     if (tracked.clients.size === 0 && tracked.isIdle) {
       tracked.idleTimer = setTimeout(() => {
-        this.destroySession(sessionId, 'idle timeout');
+        this.destroySession(tracked.sessionFile, 'idle timeout');
       }, this.idleTimeoutMs);
     }
   }
 
-  cancelIdleCheck(sessionId: string): void {
-    const tracked = this.sessions.get(sessionId);
+  cancelIdleCheck(sessionFileOrId: string): void {
+    const tracked = this.getSession(sessionFileOrId);
     if (!tracked || !tracked.idleTimer) return;
     clearTimeout(tracked.idleTimer);
     tracked.idleTimer = null;
   }
 
-  destroySession(sessionId: string, reason: string): void {
-    const tracked = this.sessions.get(sessionId);
+  destroySession(sessionFileOrId: string, reason: string): void {
+    const tracked = this.getSession(sessionFileOrId);
     if (!tracked) return;
-    this.cancelIdleCheck(sessionId);
+    this.cancelIdleCheck(tracked.sessionFile);
     tracked.eventUnsubscribe();
     tracked.agentSession.dispose();
-    this.sessions.delete(sessionId);
+    this.sessions.delete(tracked.sessionFile);
   }
 
   async disposeAll(): Promise<void> {

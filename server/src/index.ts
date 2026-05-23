@@ -79,10 +79,10 @@ function sendWS(ws: WebSocket, msg: ServerMessage): void {
   }
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const { port, host, token, idleTimeout } = parseArgs();
   const sessionPool = new SessionPool(idleTimeout);
-  sessionPool.initialize();
+  await sessionPool.initialize();
 
   const clients = new Map<string, WSClient>();
 
@@ -246,6 +246,18 @@ function main(): void {
         if (result.error) {
           sendJSON(res, 400, { error: result.error });
         } else {
+          const tracked = sessionPool.getSession(sessionId);
+          if (tracked) {
+            const wsMsg: ServerMessage = {
+              type: 'model_changed',
+              sessionId: tracked.sessionId,
+              model,
+            };
+            for (const cid of tracked.clients) {
+              const c = clients.get(cid);
+              if (c) sendWS(c.ws, wsMsg);
+            }
+          }
           sendJSON(res, 200, { status: 'changed', model });
         }
       } catch (err) {
@@ -346,11 +358,22 @@ function main(): void {
     sendWS(ws, { type: 'connected', clientId });
 
     ws.on('message', async (data) => {
+      let msg: ClientMessage;
       try {
-        const msg: ClientMessage = JSON.parse(data.toString());
+        msg = JSON.parse(data.toString());
+      } catch (err) {
+        console.error('WS parse error:', err);
+        sendWS(ws, {
+          type: 'session_error',
+          error: 'Invalid message format (JSON parse failed)'
+        });
+        return;
+      }
+
+      try {
         await handleWSMessage(msg, client, sessionPool, clients, broadcastToSession);
       } catch (err) {
-        console.error('WS message error:', err);
+        console.error('WS message processing error:', err);
         const errorText = (err as Error).message || 'An error occurred';
         if (client.sessionId) {
           const tracked = sessionPool.getSession(client.sessionId);
@@ -360,16 +383,11 @@ function main(): void {
             sessionId: sId,
             error: errorText
           };
-          const endMsg: ServerMessage = {
-            type: 'agent_end',
-            sessionId: sId || ''
-          };
           if (tracked) {
             for (const cid of tracked.clients) {
               const c = clients.get(cid);
               if (c) {
                 sendWS(c.ws, errMsg);
-                sendWS(c.ws, endMsg);
               }
             }
           }
@@ -585,7 +603,14 @@ async function handleWSMessage(
       if (result.error) {
         sendWS(client.ws, { type: 'session_error', error: result.error });
       } else {
-        sendWS(client.ws, { type: 'model_changed', sessionId: client.sessionId, model: msg.model });
+        const tracked = pool.getSession(client.sessionId);
+        const sId = tracked?.sessionId || '';
+        const modelChangedMsg: ServerMessage = { type: 'model_changed', sessionId: sId, model: msg.model };
+        for (const c of clients.values()) {
+          if (c.sessionId === client.sessionId) {
+            sendWS(c.ws, modelChangedMsg);
+          }
+        }
       }
       break;
     }
@@ -622,4 +647,7 @@ function extractText(msg: any): string {
   return '';
 }
 
-main();
+main().catch((err) => {
+  console.error('Fatal server startup error:', err);
+  process.exit(1);
+});
