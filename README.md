@@ -20,6 +20,55 @@ It allows you to manage multiple pi sessions concurrently across your workspace 
 └────────────────────────────────────────────────────────┘
 ```
 
+## Installation
+
+### 1. Clone and Install Dependencies
+Clone this repository and install all monorepo workspace dependencies:
+```bash
+git clone https://github.com/wighawag/pi-remote.git
+cd pi-remote
+pnpm install
+```
+
+### 2. Build the Extension and Web Dashboard
+Compile both the CLI extension and the web dashboard:
+```bash
+pnpm build
+```
+
+### 3. Install the Extension into Pi
+To make your local `pi` terminal auto-connect to the remote server on startup without needing extra flags, symlink the extension folder into Pi's local extensions directory:
+```bash
+mkdir -p ~/.pi/agent/extensions
+ln -sf "$(pwd)/extension" ~/.pi/agent/extensions/pi-remote
+```
+
+---
+
+## Quick Start
+
+Now that you have everything installed, here is how to start and run Pi Remote:
+
+### 1. Start the Pi Standalone Server
+```bash
+pnpm run server:dev
+```
+The Standalone Server will start listening on `http://127.0.0.1:8765`.
+
+### 2. Run the Web Dashboard
+```bash
+pnpm --filter ./web dev
+```
+Open `http://localhost:5173` (or the IP displayed) in your browser (or phone!) to access the Pi Remote Dashboard.
+
+### 3. Start your Terminal CLI
+Simply run `pi` inside any workspace directory. It will automatically load the symlinked extension, connect to your Standalone Server, and sync with your Web Dashboard!
+```bash
+pi
+```
+
+---
+
 ## Architecture & Features
 
 - **Multi-Session Management:** Run separate independent pi sessions concurrently across different projects or directories.
@@ -35,40 +84,6 @@ It allows you to manage multiple pi sessions concurrently across your workspace 
 * **`server/`** — Node.js Standalone HTTP/WebSocket Server managing independent in-process SDK sessions.
 * **`web/`** — Modern Svelte 5 Web Dashboard for remote chatting, folder browsing, and model configuration.
 * **`extension/`** — CLI Bridge Extension that runs inside the local `pi` terminal process and acts as a sync client.
-
----
-
-## Quick Start
-
-### 1. Install & Build everything
-```bash
-pnpm install
-pnpm build
-```
-
-### 2. Symlink the Extension to Pi
-To make the local terminal auto-connect to your remote server without needing special startup flags, symlink the extension:
-```bash
-ln -sf /home/wighawag/dev/github/wighawag/pi-remote/extension ~/.pi/agent/extensions/pi-remote
-```
-
-### 3. Start the Pi Standalone Server
-```bash
-pnpm run server:dev
-```
-The Standalone Server will start listening on `http://127.0.0.1:8765`.
-
-### 4. Run the Web Dashboard
-```bash
-pnpm --filter ./web dev
-```
-Open `http://localhost:5173` in your browser to access your Pi Remote Dashboard.
-
-### 5. Start your Terminal CLI
-Simply run `pi` inside any workspace directory. It will automatically load the symlinked extension, connect to your Standalone Server, and sync with your Web Dashboard!
-```bash
-pi
-```
 
 ---
 
