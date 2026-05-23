@@ -1,62 +1,95 @@
 # Pi Remote
 
-Remote control extension for [pi coding agent](https://pi.dev) with HTTP/WebSocket API.
+A modern, multi-session remote control platform for the [pi coding agent](https://pi.dev) consisting of a **Standalone Server**, a **Web Frontend**, and a **CLI Bridge Extension**. 
 
-Control pi from anywhere while maintaining full access to all local folders and tools.
+It allows you to manage multiple pi sessions concurrently across your workspace directories from a gorgeous web dashboard while keeping your terminal CLI fully synced in real-time.
 
-## Features
+```
+┌────────────────────────────────────────────────────────┐
+│                   Pi Remote Server                      │
+│                                                        │
+│  ┌──────────────┐         WebSocket        ┌────────┐  │
+│  │ Web Frontend │◄────────────────────────►│  CLI   │  │
+│  │  (Svelte 5)  │◄────────────┐            │ Bridge │  │
+│  └──────────────┘             │            └────────┘  │
+│                               ▼                        │
+│                     ┌──────────────────┐               │
+│                     │  Agent Sessions  │               │
+│                     │ (Standalone/SDK) │               │
+│                     └──────────────────┘               │
+└────────────────────────────────────────────────────────┘
+```
 
-- **WebSocket real-time communication** - Stream agent responses as they happen
-- **HTTP REST API** - Simple endpoints for programmatic control
-- **Full tool access** - All pi tools work remotely (read, write, edit, bash, grep, find, ls)
-- **Session management** - Create, resume, and manage sessions remotely
-- **Authentication** - Optional token-based security
-- **Extension UI support** - Handle confirmations and selections remotely
+## Architecture & Features
+
+- **Multi-Session Management:** Run separate independent pi sessions concurrently across different projects or directories.
+- **Collaborative CLI Mirroring:** Open `pi` in any directory and it automatically connects to the Standalone Server. Your CLI and Web Frontend become mirror images of each other, bidirectionally syncing user inputs, agent thinking, tool executions, and results in real-time.
+- **Robust Connection Recovery:** Built-in background reconnection with exponential backoff makes the CLI and Standalone Server pair automatically whenever either process starts or restarts.
+- **Headless Handover:** Close your terminal CLI, and the Standalone Server automatically transitions the session to a server-side headless session. Re-open your terminal, and control is instantly handed back to your CLI—zero data loss, zero DB lock conflicts.
+- **Folder Session Browser:** Browse active or archived sessions grouped elegantly by workspace folders in your sidebar.
+
+---
+
+## Directory Structure
+
+* **`server/`** — Node.js Standalone HTTP/WebSocket Server managing independent in-process SDK sessions.
+* **`web/`** — Modern Svelte 5 Web Dashboard for remote chatting, folder browsing, and model configuration.
+* **`extension/`** — CLI Bridge Extension that runs inside the local `pi` terminal process and acts as a sync client.
+
+---
 
 ## Quick Start
 
+### 1. Install & Build everything
 ```bash
-# Install dependencies
 pnpm install
-
-# Build
-pnpm run build
-
-# Start pi with remote server
-pnpm run dev -- --remote-port 8765 --remote-token YOUR_TOKEN
-
-# Or use directly with pi
-pi --extension ./dist/index.js --remote-port 8765 --remote-token YOUR_TOKEN
+pnpm build
 ```
 
-## Usage
-
-See [docs/USAGE.md](docs/USAGE.md) for complete API reference and examples.
-
-## Project Structure
-
-```
-pi-remote/
-├── src/
-│   ├── index.ts      # Main extension
-│   └── client.ts     # Reference client
-├── docs/
-│   └── USAGE.md      # Full documentation
-├── examples/
-│   └── web/          # Web frontend (TODO)
-├── package.json
-├── tsconfig.json
-└── README.md
+### 2. Symlink the Extension to Pi
+To make the local terminal auto-connect to your remote server without needing special startup flags, symlink the extension:
+```bash
+ln -sf /home/wighawag/dev/github/wighawag/pi-remote/extension ~/.pi/agent/extensions/pi-remote
 ```
 
-## Security
+### 3. Start the Pi Standalone Server
+```bash
+pnpm run server:dev
+```
+The Standalone Server will start listening on `http://127.0.0.1:8765`.
 
-⚠️ **Important:**
+### 4. Run the Web Dashboard
+```bash
+pnpm --filter ./web dev
+```
+Open `http://localhost:5173` in your browser to access your Pi Remote Dashboard.
 
-- Always use `--remote-token` when exposing pi remotely
-- By default, binds to `127.0.0.1` (localhost only)
-- Use `--remote-host 0.0.0.0` only with strong authentication
-- Consider using SSH tunneling for remote access
+### 5. Start your Terminal CLI
+Simply run `pi` inside any workspace directory. It will automatically load the symlinked extension, connect to your Standalone Server, and sync with your Web Dashboard!
+```bash
+pi
+```
+
+---
+
+## Custom Settings (CLI Flags / Environment Variables)
+
+Both the server and CLI bridge extension accept standard flags to customize ports, host bindings, and auth tokens.
+
+### Standalone Server Settings
+* `--port`, `PI_REMOTE_PORT` (Default: `8765`)
+* `--host`, `PI_REMOTE_HOST` (Default: `127.0.0.1`)
+* `--token`, `PI_REMOTE_TOKEN` (Optional auth token)
+* `--idle-timeout`, `PI_IDLE_TIMEOUT` (Graceful shutdown timeout, default: `300000` = 5 minutes)
+
+### CLI Bridge Settings
+Whenever you run `pi`, you can override bridge defaults:
+* `--remote-host` (Default: `127.0.0.1`)
+* `--remote-port` (Default: `8765`)
+* `--remote-token` (Auth token if configured)
+* `--remote-bridge` (Set to `false` to run as offline standard CLI)
+
+---
 
 ## License
 
