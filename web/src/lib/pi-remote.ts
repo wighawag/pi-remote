@@ -302,6 +302,7 @@ export function connect() {
           state.update((s: PiRemoteState) => ({
             ...s,
             sessionError: msg.error,
+            isStreaming: false,
           }));
           break;
 
@@ -450,6 +451,9 @@ export function sendMessage(text: string) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   const s = get(state);
   if (!s.sessionId) return;
+
+  // Clear any previous session errors when a new message is sent
+  state.update((s: PiRemoteState) => ({ ...s, sessionError: null }));
 
   addMessage({ role: 'user', content: text, isStreaming: false, sessionId: s.sessionId });
 

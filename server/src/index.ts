@@ -120,9 +120,63 @@ function main(): void {
         msg = { type: 'message_end', sessionId, content };
         break;
       }
-      case 'agent_end':
+      case 'agent_end': {
         msg = { type: 'agent_end', sessionId };
+        const messages = (event as any).messages;
+        if (Array.isArray(messages) && messages.length > 0) {
+          const lastMsg = messages[messages.length - 1];
+          if (lastMsg && lastMsg.stopReason === 'error' && lastMsg.errorMessage) {
+            // Send a session_error message to all clients of this session
+            const errMsg: ServerMessage = {
+              type: 'session_error',
+              sessionId,
+              error: lastMsg.errorMessage
+            };
+            for (const c of clients.values()) {
+              if (c.sessionId === sessionFile) {
+                sendWS(c.ws, errMsg);
+              }
+            }
+          }
+        }
         break;
+      }
+      case 'auto_retry_start': {
+        const evt = event as any;
+        const errMsg: ServerMessage = {
+          type: 'session_error',
+          sessionId,
+          error: `Error: ${evt.errorMessage}. Retrying (attempt ${evt.attempt}/${evt.maxAttempts}) in ${Math.round(evt.delayMs / 1000)}s...`
+        };
+        for (const c of clients.values()) {
+          if (c.sessionId === sessionFile) {
+            sendWS(c.ws, errMsg);
+          }
+        }
+        break;
+      }
+      case 'auto_retry_end': {
+        const evt = event as any;
+        if (!evt.success && evt.finalError) {
+          const errMsg: ServerMessage = {
+            type: 'session_error',
+            sessionId,
+            error: `Retry failed: ${evt.finalError}`
+          };
+          for (const c of clients.values()) {
+            if (c.sessionId === sessionFile) {
+              sendWS(c.ws, errMsg);
+            }
+          }
+        } else if (evt.success) {
+          for (const c of clients.values()) {
+            if (c.sessionId === sessionFile) {
+              sendWS(c.ws, { type: 'session_error', sessionId, error: '' });
+            }
+          }
+        }
+        break;
+      }
       case 'tool_execution_start':
         msg = { type: 'tool_start', sessionId, toolName: event.toolName, args: event.args };
         break;
@@ -297,6 +351,34 @@ function main(): void {
         await handleWSMessage(msg, client, sessionPool, clients, broadcastToSession);
       } catch (err) {
         console.error('WS message error:', err);
+        const errorText = (err as Error).message || 'An error occurred';
+        if (client.sessionId) {
+          const tracked = sessionPool.getSession(client.sessionId);
+          const sId = tracked?.sessionId;
+          const errMsg: ServerMessage = {
+            type: 'session_error',
+            sessionId: sId,
+            error: errorText
+          };
+          const endMsg: ServerMessage = {
+            type: 'agent_end',
+            sessionId: sId || ''
+          };
+          if (tracked) {
+            for (const cid of tracked.clients) {
+              const c = clients.get(cid);
+              if (c) {
+                sendWS(c.ws, errMsg);
+                sendWS(c.ws, endMsg);
+              }
+            }
+          }
+        } else {
+          sendWS(ws, {
+            type: 'session_error',
+            error: errorText
+          });
+        }
       }
     });
 
