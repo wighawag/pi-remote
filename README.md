@@ -55,18 +55,19 @@ Now that you have everything installed, here is how to start and run Pi Remote:
 ```bash
 pnpm run server:dev
 ```
-The Standalone Server will start listening on `http://127.0.0.1:8765`.
+The Standalone Server starts on `http://127.0.0.1:8765` and **automatically hosts both the WebSocket API and the pre-built Web Frontend** on this single port!
 
-### 2. Run the Web Dashboard
-```bash
-pnpm --filter ./web dev
-```
-Open `http://localhost:5173` (or the IP displayed) in your browser (or phone!) to access the Pi Remote Dashboard.
+Open `http://localhost:8765` (or the IP displayed) in your browser (or phone!) to access your Web Dashboard instantly.
 
-### 3. Start your Terminal CLI
-Simply run `pi` inside any workspace directory. It will automatically load the symlinked extension, connect to your Standalone Server, and sync with your Web Dashboard!
+### 2. Start your Terminal CLI
+Simply run `pi` inside any workspace directory. It will automatically load the symlinked extension, connect to your Standalone Server, and sync with your Web Dashboard in real-time!
 ```bash
 pi
+```
+
+*(Optional) **Developing the Frontend:** If you are actively working on the web app's codebase and want Hot Module Replacement (HMR), run the Vite development server on port `5173`:*
+```bash
+pnpm --filter ./web dev
 ```
 
 ---
@@ -98,6 +99,8 @@ Both the server and CLI bridge extension accept standard flags to customize port
 * `--host`, `PI_REMOTE_HOST` (Default: `127.0.0.1`)
 * `--token`, `PI_REMOTE_TOKEN` (Optional auth token)
 * `--idle-timeout`, `PI_IDLE_TIMEOUT` (Graceful shutdown timeout, default: `300000` = 5 minutes)
+* `--ssl-key`, `PI_REMOTE_SSL_KEY` (Path to SSL private key file for HTTPS/WSS)
+* `--ssl-cert`, `PI_REMOTE_SSL_CERT` (Path to SSL certificate file for HTTPS/WSS)
 
 ### CLI Bridge Settings
 Whenever you run `pi`, you can override bridge defaults:

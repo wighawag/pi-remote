@@ -1,8 +1,62 @@
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent';
 import { SessionPool } from './session-pool.js';
 import type { ClientMessage, ServerMessage } from './protocol.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const devStaticPath = path.resolve(__dirname, '../../web/build');
+const prodStaticPath = path.resolve(__dirname, '../public');
+const staticDir = fs.existsSync(devStaticPath) ? devStaticPath : prodStaticPath;
+
+function serveStaticFile(reqPath: string, res: ServerResponse) {
+  let filePath = path.join(staticDir, reqPath === '/' ? 'index.html' : reqPath);
+
+  if (!filePath.startsWith(staticDir)) {
+    res.writeHead(403);
+    res.end('Forbidden');
+    return;
+  }
+
+  if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
+    filePath = path.join(filePath, 'index.html');
+  }
+
+  if (!fs.existsSync(filePath)) {
+    filePath = path.join(staticDir, 'index.html');
+  }
+
+  const ext = path.extname(filePath).toLowerCase();
+  const mimeTypes: Record<string, string> = {
+    '.html': 'text/html',
+    '.js': 'text/javascript',
+    '.css': 'text/css',
+    '.json': 'application/json',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.svg': 'image/svg+xml',
+    '.ico': 'image/x-icon',
+    '.wasm': 'application/wasm'
+  };
+
+  const contentType = mimeTypes[ext] || 'application/octet-stream';
+
+  fs.readFile(filePath, (err, data) => {
+    if (err) {
+      res.writeHead(500);
+      res.end(`Server Error: ${err.code}`);
+    } else {
+      res.writeHead(200, { 'Content-Type': contentType });
+      res.end(data);
+    }
+  });
+}
 
 interface WSClient {
   id: string;
@@ -16,12 +70,14 @@ function generateId(): string {
   return Math.random().toString(36).substring(2) + Date.now().toString(36);
 }
 
-function parseArgs(): { port: number; host: string; token?: string; idleTimeout: number } {
+function parseArgs(): { port: number; host: string; token?: string; idleTimeout: number; sslKey?: string; sslCert?: string } {
   const args = process.argv.slice(2);
   let port = parseInt(process.env.PI_REMOTE_PORT || '8765', 10);
   let host = process.env.PI_REMOTE_HOST || '127.0.0.1';
   let token = process.env.PI_REMOTE_TOKEN || undefined;
   let idleTimeout = parseInt(process.env.PI_IDLE_TIMEOUT || '300000', 10);
+  let sslKey = process.env.PI_REMOTE_SSL_KEY || undefined;
+  let sslCert = process.env.PI_REMOTE_SSL_CERT || undefined;
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
@@ -37,10 +93,16 @@ function parseArgs(): { port: number; host: string; token?: string; idleTimeout:
       case '--idle-timeout':
         idleTimeout = parseInt(args[++i] || '300000', 10);
         break;
+      case '--ssl-key':
+        sslKey = args[++i];
+        break;
+      case '--ssl-cert':
+        sslCert = args[++i];
+        break;
     }
   }
 
-  return { port, host, token, idleTimeout };
+  return { port, host, token, idleTimeout, sslKey, sslCert };
 }
 
 function authenticate(req: IncomingMessage, token?: string): boolean {
@@ -81,7 +143,7 @@ function sendWS(ws: WebSocket, msg: ServerMessage): void {
 }
 
 async function main(): Promise<void> {
-  const { port, host, token, idleTimeout } = parseArgs();
+  const { port, host, token, idleTimeout, sslKey, sslCert } = parseArgs();
   const sessionPool = new SessionPool(idleTimeout);
   await sessionPool.initialize();
 
@@ -199,7 +261,7 @@ async function main(): Promise<void> {
 
   sessionPool.onEvent = broadcastAgentEvent;
 
-  const server = createServer(async (req, res) => {
+  const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -218,7 +280,11 @@ async function main(): Promise<void> {
       return;
     }
 
-    if (!authenticate(req, token)) {
+    const isApiRequest = pathname.startsWith('/sessions') || 
+                          pathname.startsWith('/models') || 
+                          pathname.startsWith('/session/');
+
+    if (isApiRequest && !authenticate(req, token)) {
       sendJSON(res, 401, { error: 'Unauthorized' });
       return;
     }
@@ -327,8 +393,26 @@ async function main(): Promise<void> {
       return;
     }
 
-    sendJSON(res, 404, { error: 'Not found' });
-  });
+    serveStaticFile(pathname, res);
+  };
+
+  let server;
+  let isSecure = false;
+  if (sslKey && sslCert) {
+    try {
+      const options = {
+        key: fs.readFileSync(sslKey),
+        cert: fs.readFileSync(sslCert),
+      };
+      server = createHttpsServer(options, requestHandler);
+      isSecure = true;
+    } catch (err) {
+      console.error(`Failed to load SSL certificates from ${sslKey} and ${sslCert}. Falling back to HTTP.`, (err as Error).message);
+      server = createHttpServer(requestHandler);
+    }
+  } else {
+    server = createHttpServer(requestHandler);
+  }
 
   const wss = new WebSocketServer({ noServer: true });
 
@@ -419,8 +503,9 @@ async function main(): Promise<void> {
   });
 
   server.listen(port, host, () => {
+    const protocol = isSecure ? 'https' : 'http';
     const authInfo = token ? ' (token-protected)' : ' (no authentication)';
-    console.log(`Pi Remote Server: http://${host}:${port}${authInfo}`);
+    console.log(`Pi Remote Server: ${protocol}://${host}:${port}${authInfo}`);
   });
 
   server.on('error', (err) => {
