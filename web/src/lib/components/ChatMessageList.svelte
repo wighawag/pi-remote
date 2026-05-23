@@ -228,7 +228,7 @@
 						class="max-w-[85%] rounded-lg px-4 py-3 {msg.role === 'user'
 							? 'bg-blue-600 text-white'
 							: msg.role === 'thinking'
-								? 'bg-purple-900/30 text-purple-300 text-sm border-l-2 border-purple-500'
+								? 'bg-gray-900/30 text-gray-400 text-sm border-l-2 border-gray-600'
 								: msg.role === 'tool'
 									? `bg-gray-800 text-gray-300 text-sm border-l-2 font-mono ${
 											msg.isStreaming
@@ -237,9 +237,11 @@
 													? 'border-rose-500'
 													: 'border-emerald-500'
 										}`
-									: msg.content === '' && msg.isStreaming
-										? 'bg-gray-700 text-gray-400 italic'
-										: 'bg-gray-800 text-gray-100'}"
+									: msg.role === 'assistant'
+										? 'bg-purple-900/30 text-purple-100 border-l-2 border-purple-500'
+										: msg.content === '' && msg.isStreaming
+											? 'bg-gray-700 text-gray-400 italic'
+											: 'bg-gray-800 text-gray-100'}"
 					>
 						{#if msg.role === 'thinking'}
 							<div class="text-sm font-mono whitespace-pre-wrap">{msg.content}</div>
@@ -319,7 +321,7 @@
 								{/if}
 							</div>
 						{/if}
-						<div class="text-xs mt-1 opacity-50 {msg.role === 'user' ? 'text-blue-200' : 'text-gray-400'}">
+						<div class="text-xs mt-1 opacity-50 {msg.role === 'user' ? 'text-blue-200' : msg.role === 'assistant' ? 'text-purple-300' : 'text-gray-400'}">
 							{formatTime(msg.timestamp)}
 						</div>
 					</div>

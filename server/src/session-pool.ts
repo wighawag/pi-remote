@@ -373,11 +373,9 @@ export class SessionPool {
     }
 
     return folders.sort((a, b) => {
-      const aActive = a.sessions.some(s => s.isActive);
-      const bActive = b.sessions.some(s => s.isActive);
-      if (aActive && !bActive) return -1;
-      if (!aActive && bActive) return 1;
-      return b.name.localeCompare(a.name);
+      const aTime = a.sessions[0]?.modified || '';
+      const bTime = b.sessions[0]?.modified || '';
+      return bTime.localeCompare(aTime);
     });
   }
 
