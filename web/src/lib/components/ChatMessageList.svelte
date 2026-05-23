@@ -314,7 +314,7 @@
 						{:else if msg.role === 'assistant' && msg.content !== ''}
 							<pre class="text-sm leading-relaxed whitespace-pre-wrap font-sans">{msg.content}</pre>
 						{:else}
-							<div class="text-sm">
+							<div class="text-sm whitespace-pre-wrap leading-relaxed">
 								{msg.content || (msg.isStreaming ? 'Thinking...' : '')}
 								{#if msg.isStreaming && streaming}
 									<span class="inline-block w-1.5 h-4 bg-blue-400 ml-1 animate-pulse"></span>

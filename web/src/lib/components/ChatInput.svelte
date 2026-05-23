@@ -1,10 +1,12 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { sendMessage, piState, isConnected, createSession, clearMessages, leaveSession } from '$lib/pi-remote';
 	import { isStreaming, isReadOnly, activeSessionInfo } from '$lib/pi-remote';
 
 	let { disabled, onSend }: { disabled: boolean; onSend?: () => void } = $props();
 
 	let text = $state('');
+	let enterToSend = $state(true);
 
 	let streaming = $derived($isStreaming);
 	let readOnly = $derived($isReadOnly);
@@ -13,6 +15,36 @@
 	let appState = $derived($piState);
 
 	let effectivelyDisabled = $derived(disabled || streaming || readOnly || !sessionInfo.sessionId);
+
+	let textarea = $state<HTMLTextAreaElement>();
+
+	onMount(() => {
+		const stored = localStorage.getItem('pi-remote-enter-to-send');
+		if (stored !== null) {
+			enterToSend = stored === 'true';
+		}
+	});
+
+	function toggleEnterToSend() {
+		enterToSend = !enterToSend;
+		localStorage.setItem('pi-remote-enter-to-send', String(enterToSend));
+	}
+
+	$effect(() => {
+		if (textarea) {
+			// Trigger reactive updates when text changes
+			text;
+			textarea.style.height = 'auto';
+			textarea.style.height = `${textarea.scrollHeight}px`;
+		}
+	});
+
+	// Automatically focus/refocus the textarea whenever it becomes active/enabled
+	$effect(() => {
+		if (!effectivelyDisabled && textarea) {
+			textarea.focus();
+		}
+	});
 
 	function handleSend() {
 		const trimmed = text.trim();
@@ -44,9 +76,20 @@
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Enter' && !e.shiftKey) {
-			e.preventDefault();
-			handleSend();
+		if (e.key === 'Enter') {
+			if (enterToSend) {
+				// Default mode: Enter to send, Shift+Enter for newline
+				if (!e.shiftKey) {
+					e.preventDefault();
+					handleSend();
+				}
+			} else {
+				// Dev mode: Enter for newline, Shift+Enter / Ctrl+Enter to send
+				if (e.shiftKey || e.ctrlKey || e.metaKey) {
+					e.preventDefault();
+					handleSend();
+				}
+			}
 		}
 	}
 </script>
@@ -71,22 +114,42 @@
 			e.preventDefault();
 			handleSend();
 		}}
-		class="flex gap-2"
+		class="flex gap-2 items-end"
 	>
-		<input
-			type="text"
+		<textarea
+			bind:this={textarea}
 			bind:value={text}
 			onkeydown={handleKeydown}
 			disabled={effectivelyDisabled}
+			rows={1}
 			placeholder={streaming ? 'Agent is working...' : readOnly ? 'Read-only mode' : !sessionInfo.sessionId ? 'Select a session first...' : 'Type a message...'}
-			class="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
-		/>
+			class="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50 resize-none overflow-y-auto max-h-48 min-h-[48px] h-auto leading-relaxed"
+		></textarea>
 		<button
 			type="submit"
 			disabled={effectivelyDisabled || !text.trim()}
-			class="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-medium transition-colors"
+			class="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-medium transition-colors h-[48px] flex items-center justify-center shrink-0"
 		>
 			Send
 		</button>
 	</form>
+
+	<div class="mt-2 flex items-center justify-between text-[11px] text-gray-400 select-none px-1">
+		<label class="flex items-center gap-1.5 cursor-pointer hover:text-gray-300">
+			<input
+				type="checkbox"
+				checked={enterToSend}
+				onchange={toggleEnterToSend}
+				class="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-0 focus:ring-offset-0"
+			/>
+			<span>Press Enter to send (Shift+Enter for newline)</span>
+		</label>
+		<span class="opacity-60 font-mono">
+			{#if enterToSend}
+				Ctrl+Enter/Cmd+Enter also sends
+			{:else}
+				Shift+Enter or Ctrl+Enter to send
+			{/if}
+		</span>
+	</div>
 </div>
