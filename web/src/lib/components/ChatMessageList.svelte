@@ -3,7 +3,6 @@
 		messages,
 		isStreaming,
 		abort,
-		clearMessages,
 		activeSessionInfo,
 		createSession,
 		piState,
@@ -890,24 +889,15 @@
 		</div>
 	{/if}
 
-	{#if msgList.length > 0}
+	{#if streaming}
 		<div class="flex gap-2 border-t border-gray-700 p-2">
 			<button
-				onclick={() => clearMessages()}
-				class="rounded bg-gray-700 px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-gray-600"
-				title="Clear messages"
+				onclick={abort}
+				class="rounded bg-red-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-red-700"
+				title="Abort"
 			>
-				Clear
+				Abort
 			</button>
-			{#if streaming}
-				<button
-					onclick={abort}
-					class="rounded bg-red-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-red-700"
-					title="Abort"
-				>
-					Abort
-				</button>
-			{/if}
 		</div>
 	{/if}
 

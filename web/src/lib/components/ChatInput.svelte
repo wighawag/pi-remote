@@ -18,6 +18,7 @@
 	let text = $state('');
 	let enterToSend = $state(true);
 	let queuedText = $state<string | null>(null);
+	let isCollapsed = $state(false);
 
 	let fileInput = $state<HTMLInputElement>();
 	let attachments = $state<{ name: string; path?: string; error?: string; uploading: boolean }[]>([]);
@@ -227,129 +228,169 @@
 			{/if}
 		</div>
 	{/if}
-	{#if attachments.length > 0}
-		<div class="mb-3 flex flex-wrap gap-2">
-			{#each attachments as attachment, index}
-				<div class="flex items-center gap-2 rounded bg-gray-800 px-2.5 py-1.5 text-xs border border-gray-700">
-					<span class="max-w-[150px] truncate font-medium text-gray-200" title={attachment.name}>
-						{attachment.name}
-					</span>
-					{#if attachment.uploading}
-						<span class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-blue-500 border-t-transparent"></span>
-					{:else if attachment.error}
-						<span class="text-red-400 font-medium text-[10px] flex items-center gap-1" title={attachment.error}>
-							<span class="truncate max-w-[120px]">⚠️ {attachment.error}</span>
-							{#if (attachment as any).url}
-								<a href={(attachment as any).url} target="_blank" class="underline text-blue-400 hover:text-blue-300 font-semibold shrink-0 ml-1">
-									[Test Link]
-								</a>
-							{/if}
-						</span>
-					{:else}
-						<span class="text-emerald-500">✓</span>
-					{/if}
-					<button
-						type="button"
-						onclick={() => removeAttachment(index)}
-						class="ml-1 text-gray-400 hover:text-white font-bold"
-					>
-						×
-					</button>
-				</div>
-			{/each}
-		</div>
-	{/if}
-	<form
-		onsubmit={(e) => {
-			e.preventDefault();
-			handleSend();
-		}}
-		class="flex items-stretch gap-3"
-	>
-		<div class="flex-1 min-w-0">
-			<textarea
-				bind:this={textarea}
-				bind:value={text}
-				onkeydown={handleKeydown}
-				disabled={effectivelyDisabled}
-				rows={1}
-				placeholder={queuedText
-					? 'Message is queued...'
-					: streaming
-						? 'Agent is working (type next message...)'
-						: readOnly
-							? 'Read-only mode'
-							: !sessionInfo.sessionId
-								? 'Select a session first...'
-								: 'Type a message...'}
-				class="h-full min-h-[120px] max-h-48 w-full resize-none overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 px-4 py-3 leading-relaxed text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none disabled:opacity-50"
-			></textarea>
-		</div>
-
-		<div class="flex flex-col gap-2 justify-end shrink-0 w-[80px]">
+	{#if isCollapsed}
+		<div class="flex items-center">
 			<button
 				type="button"
-				onclick={() => fileInput?.click()}
-				disabled={effectivelyDisabled}
-				class="flex h-[40px] w-full items-center justify-center rounded-lg border border-gray-600 bg-gray-800 text-gray-400 transition-colors hover:bg-gray-700 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
-				title="Attach file (image or document)"
+				onclick={() => {
+					isCollapsed = false;
+					setTimeout(() => textarea?.focus(), 50);
+				}}
+				class="w-full flex items-center justify-between rounded-lg border border-gray-600 bg-gray-800 px-4 py-2.5 text-gray-400 hover:bg-gray-700 hover:text-white transition-all text-sm"
 			>
-				📎
+				<span class="flex items-center gap-2">
+					<span>💬</span>
+					<span>
+						{#if queuedText}
+							Message is queued...
+						{:else if streaming}
+							Agent is working (click to type next)...
+						{:else if readOnly}
+							Read-only mode
+						{:else if !sessionInfo.sessionId}
+							Select a session first...
+						{:else}
+							Tap to type a message...
+						{/if}
+					</span>
+				</span>
+				<span class="text-xs bg-gray-700 px-2 py-1 rounded text-gray-300 font-medium hover:bg-gray-600 transition-colors">Expand ▲</span>
 			</button>
-			<input
-				bind:this={fileInput}
-				type="file"
-				multiple
-				onchange={handleFileChange}
-				class="hidden"
-			/>
-			<div class="w-full flex justify-center">
-				<SpeechButton
-					bind:text
-					disabled={effectivelyDisabled}
-					onSend={handleSend}
-				/>
+		</div>
+	{:else}
+		{#if attachments.length > 0}
+			<div class="mb-3 flex flex-wrap gap-2">
+				{#each attachments as attachment, index}
+					<div class="flex items-center gap-2 rounded bg-gray-800 px-2.5 py-1.5 text-xs border border-gray-700">
+						<span class="max-w-[150px] truncate font-medium text-gray-200" title={attachment.name}>
+							{attachment.name}
+						</span>
+						{#if attachment.uploading}
+							<span class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-blue-500 border-t-transparent"></span>
+						{:else if attachment.error}
+							<span class="text-red-400 font-medium text-[10px] flex items-center gap-1" title={attachment.error}>
+								<span class="truncate max-w-[120px]">⚠️ {attachment.error}</span>
+								{#if (attachment as any).url}
+									<a href={(attachment as any).url} target="_blank" class="underline text-blue-400 hover:text-blue-300 font-semibold shrink-0 ml-1">
+										[Test Link]
+									</a>
+								{/if}
+							</span>
+						{:else}
+							<span class="text-emerald-500">✓</span>
+						{/if}
+						<button
+							type="button"
+							onclick={() => removeAttachment(index)}
+							class="ml-1 text-gray-400 hover:text-white font-bold"
+						>
+							×
+						</button>
+					</div>
+				{/each}
 			</div>
-			{#if queuedText}
+		{/if}
+		<form
+			onsubmit={(e) => {
+				e.preventDefault();
+				handleSend();
+			}}
+			class="flex items-stretch gap-3"
+		>
+			<div class="flex-1 min-w-0">
+				<textarea
+					bind:this={textarea}
+					bind:value={text}
+					onkeydown={handleKeydown}
+					disabled={effectivelyDisabled}
+					rows={1}
+					placeholder={queuedText
+						? 'Message is queued...'
+						: streaming
+							? 'Agent is working (type next message...)'
+							: readOnly
+								? 'Read-only mode'
+								: !sessionInfo.sessionId
+									? 'Select a session first...'
+									: 'Type a message...'}
+					class="h-full min-h-[120px] max-h-48 w-full resize-none overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 px-4 py-3 leading-relaxed text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none disabled:opacity-50"
+				></textarea>
+			</div>
+
+			<div class="flex flex-col gap-2 justify-end shrink-0 w-[80px]">
 				<button
 					type="button"
-					onclick={handleUnqueue}
-					class="flex h-[40px] w-full items-center justify-center rounded-lg bg-amber-600 text-xs font-medium text-white transition-colors hover:bg-amber-700"
+					onclick={() => fileInput?.click()}
+					disabled={effectivelyDisabled}
+					class="flex h-[40px] w-full items-center justify-center rounded-lg border border-gray-600 bg-gray-800 text-gray-400 transition-colors hover:bg-gray-700 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+					title="Attach file (image or document)"
 				>
-					Unqueue
+					📎
 				</button>
-			{:else}
-				<button
-					type="submit"
-					disabled={!canSend}
-					class="flex h-[40px] w-full items-center justify-center rounded-lg bg-blue-600 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-600"
-				>
-					{#if streaming}
-						Queue
-					{:else}
-						Send
-					{/if}
-				</button>
-			{/if}
-		</div>
-	</form>
+				<input
+					bind:this={fileInput}
+					type="file"
+					multiple
+					onchange={handleFileChange}
+					class="hidden"
+				/>
+				<div class="w-full flex justify-center">
+					<SpeechButton
+						bind:text
+						disabled={effectivelyDisabled}
+						onSend={handleSend}
+					/>
+				</div>
+				{#if queuedText}
+					<button
+						type="button"
+						onclick={handleUnqueue}
+						class="flex h-[40px] w-full items-center justify-center rounded-lg bg-amber-600 text-xs font-medium text-white transition-colors hover:bg-amber-700"
+					>
+						Unqueue
+					</button>
+				{:else}
+					<button
+						type="submit"
+						disabled={!canSend}
+						class="flex h-[40px] w-full items-center justify-center rounded-lg bg-blue-600 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-600"
+					>
+						{#if streaming}
+							Queue
+						{:else}
+							Send
+						{/if}
+					</button>
+				{/if}
+			</div>
+		</form>
 
-	<div
-		class="mt-2 flex items-center justify-between px-1 text-[11px] text-gray-400 select-none"
-	>
-		<label class="flex cursor-pointer items-center gap-1.5 hover:text-gray-300">
-			<input
-				type="checkbox"
-				checked={enterToSend}
-				onchange={toggleEnterToSend}
-				class="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-0 focus:ring-offset-0"
-			/>
-			<span>Press Enter to send (Shift+Enter for newline)</span>
-		</label>
-		<span class="font-mono opacity-60">
-			{#if !enterToSend}
-				Shift+Enter to send (Enter for newline)
-			{/if}
-		</span>
-	</div>
+		<div
+			class="mt-2 flex items-center justify-between px-1 text-[11px] text-gray-400 select-none"
+		>
+			<label class="flex cursor-pointer items-center gap-1.5 hover:text-gray-300">
+				<input
+					type="checkbox"
+					checked={enterToSend}
+					onchange={toggleEnterToSend}
+					class="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-0 focus:ring-offset-0"
+				/>
+				<span>Press Enter to send</span>
+			</label>
+			<div class="flex items-center gap-3">
+				<button
+					type="button"
+					onclick={() => isCollapsed = true}
+					class="rounded bg-gray-700/50 px-2 py-0.5 text-xs text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
+				>
+					Collapse ▽
+				</button>
+				{#if !enterToSend}
+					<span class="font-mono opacity-60 hidden sm:inline">
+						Shift+Enter to send
+					</span>
+				{/if}
+			</div>
+		</div>
+	{/if}
 </div>
