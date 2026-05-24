@@ -170,7 +170,11 @@
 							: 'Type a message...'}
 			class="h-auto max-h-48 min-h-[48px] flex-1 resize-none overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 px-4 py-3 leading-relaxed text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none disabled:opacity-50"
 		></textarea>
-		<SpeechButton bind:text={text} disabled={effectivelyDisabled} onSend={handleSend} />
+		<SpeechButton
+			bind:text
+			disabled={effectivelyDisabled}
+			onSend={handleSend}
+		/>
 		{#if queuedText}
 			<button
 				type="button"

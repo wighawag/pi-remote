@@ -34,7 +34,7 @@
 	let modelsData = $derived($availableModels);
 	let defaultGitInit = $derived($gitInitDefaultStore);
 	let isRemoteRepoCreation = $derived(
-		pathStatus.exists !== true && pathStatus.matchingRule && createRemoteRepo
+		pathStatus.exists !== true && pathStatus.matchingRule && createRemoteRepo,
 	);
 
 	// Sync git init default
@@ -496,7 +496,8 @@
 					<div class="mb-2 text-4xl">📁</div>
 					<h3 class="text-lg font-bold text-white">Create a New Session</h3>
 					<p class="mt-1 text-xs text-gray-400">
-						Start a coding session in any folder on your machine
+						Start a coding session in any folder on your machine, or use the
+						sidebar to open an existing session.
 					</p>
 				</div>
 
@@ -526,7 +527,10 @@
 									triggerCheck(newFolderCwd, true);
 								}}
 								onblur={(e) => {
-									if (containerEl && containerEl.contains(e.relatedTarget as Node)) {
+									if (
+										containerEl &&
+										containerEl.contains(e.relatedTarget as Node)
+									) {
 										return;
 									}
 									inputFocused = false;
@@ -536,10 +540,14 @@
 										inputFocused = false;
 									}
 								}}
-								class="w-full rounded border px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none transition-all duration-200 {isRemoteRepoCreation ? 'border-emerald-500/80 bg-emerald-950/20 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/30' : 'border-gray-600 bg-gray-700 focus:border-blue-500'}"
+								class="w-full rounded border px-3 py-2 text-sm text-white placeholder-gray-500 transition-all duration-200 focus:outline-none {isRemoteRepoCreation
+									? 'border-emerald-500/80 bg-emerald-950/20 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/30'
+									: 'border-gray-600 bg-gray-700 focus:border-blue-500'}"
 							/>
 							{#if inputFocused && completions.length > 0}
-								<div class="absolute left-0 right-0 z-50 mt-1 max-h-48 overflow-y-auto rounded border border-gray-600 bg-gray-800 py-1 shadow-xl">
+								<div
+									class="absolute right-0 left-0 z-50 mt-1 max-h-48 overflow-y-auto rounded border border-gray-600 bg-gray-800 py-1 shadow-xl"
+								>
 									{#each completions as completion}
 										<button
 											type="button"

@@ -111,7 +111,9 @@
 
 	let defaultGitInit = $derived($gitInitDefaultStore);
 	let isSidebarRemoteRepoCreation = $derived(
-		sidebarPathStatus.exists !== true && sidebarPathStatus.matchingRule && sidebarCreateRemote
+		sidebarPathStatus.exists !== true &&
+			sidebarPathStatus.matchingRule &&
+			sidebarCreateRemote,
 	);
 
 	// Sync git init default
@@ -394,7 +396,10 @@
 									triggerSidebarCheck(sidebarCwd, true);
 								}}
 								onblur={(e) => {
-									if (sidebarContainerEl && sidebarContainerEl.contains(e.relatedTarget as Node)) {
+									if (
+										sidebarContainerEl &&
+										sidebarContainerEl.contains(e.relatedTarget as Node)
+									) {
 										return;
 									}
 									sidebarInputFocused = false;
@@ -404,10 +409,14 @@
 										sidebarInputFocused = false;
 									}
 								}}
-								class="w-full rounded border px-2 py-1 text-xs text-white placeholder-gray-500 focus:outline-none transition-all duration-200 {isSidebarRemoteRepoCreation ? 'border-emerald-500/80 bg-emerald-950/20 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/30' : 'border-gray-600 bg-gray-900/60 focus:border-blue-500'}"
+								class="w-full rounded border px-2 py-1 text-xs text-white placeholder-gray-500 transition-all duration-200 focus:outline-none {isSidebarRemoteRepoCreation
+									? 'border-emerald-500/80 bg-emerald-950/20 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/30'
+									: 'border-gray-600 bg-gray-900/60 focus:border-blue-500'}"
 							/>
 							{#if sidebarInputFocused && sidebarCompletions.length > 0}
-								<div class="absolute left-0 right-0 z-50 mt-1 max-h-40 overflow-y-auto rounded border border-gray-700 bg-gray-800 py-1 shadow-xl">
+								<div
+									class="absolute right-0 left-0 z-50 mt-1 max-h-40 overflow-y-auto rounded border border-gray-700 bg-gray-800 py-1 shadow-xl"
+								>
 									{#each sidebarCompletions as completion}
 										<button
 											type="button"

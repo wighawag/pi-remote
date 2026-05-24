@@ -152,9 +152,7 @@ export interface PathAutocompleteResult {
 	completions: string[];
 }
 
-export async function autocompletePath(
-	pathStr: string,
-): Promise<string[]> {
+export async function autocompletePath(pathStr: string): Promise<string[]> {
 	try {
 		const baseUrl = getBaseUrl();
 		const token = getToken();

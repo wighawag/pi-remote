@@ -14,7 +14,8 @@
 	// Check for Web Speech API support
 	const SpeechRecognition =
 		typeof window !== 'undefined'
-			? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+			? (window as any).SpeechRecognition ||
+				(window as any).webkitSpeechRecognition
 			: null;
 	const isBrowserSupported = !!SpeechRecognition;
 
@@ -31,7 +32,7 @@
 	// Gesture & API Tracking
 	let pressTimer = $state<any>(null);
 	let recognitionInstance: any = null;
-	
+
 	// Direct WAV / Web Audio PCM Recording State
 	let audioContext: AudioContext | null = null;
 	let micSource: MediaStreamAudioSourceNode | null = null;
@@ -53,7 +54,9 @@
 
 	onMount(() => {
 		// Load preferences
-		const storedDirectSend = localStorage.getItem('pi-remote-speech-direct-send');
+		const storedDirectSend = localStorage.getItem(
+			'pi-remote-speech-direct-send',
+		);
 		if (storedDirectSend !== null) {
 			directSend = storedDirectSend === 'true';
 		}
@@ -109,7 +112,8 @@
 		const config = localStorage.getItem('pi-remote-config');
 		if (config) {
 			const parsed = JSON.parse(config);
-			const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+			const protocol =
+				window.location.protocol === 'https:' ? 'https:' : 'http:';
 			const host = parsed.host.startsWith('http')
 				? parsed.host.replace(/^wss?:\/\//, '')
 				: parsed.host;
@@ -132,7 +136,8 @@
 	// Synthesize a brief audible beep to indicate recording start
 	function playBeep() {
 		try {
-			const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+			const AudioContextClass =
+				window.AudioContext || (window as any).webkitAudioContext;
 			if (!AudioContextClass) return;
 			const ctx = new AudioContextClass();
 			const osc = ctx.createOscillator();
@@ -140,7 +145,7 @@
 
 			osc.type = 'sine';
 			osc.frequency.setValueAtTime(400, ctx.currentTime); // 400 Hz tone
-			
+
 			gain.gain.setValueAtTime(0.08, ctx.currentTime);
 			gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12); // smooth fade out
 
@@ -155,7 +160,11 @@
 	}
 
 	// Downsamples audio buffers to target sample rate (e.g. 16kHz)
-	function downsampleBuffer(buffer: Float32Array, inputSampleRate: number, outputSampleRate: number): Float32Array {
+	function downsampleBuffer(
+		buffer: Float32Array,
+		inputSampleRate: number,
+		outputSampleRate: number,
+	): Float32Array {
 		if (inputSampleRate === outputSampleRate) {
 			return buffer;
 		}
@@ -168,7 +177,11 @@
 			const nextOffsetBuffer = Math.round((offsetResult + 1) * sampleRateRatio);
 			let accum = 0;
 			let count = 0;
-			for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
+			for (
+				let i = offsetBuffer;
+				i < nextOffsetBuffer && i < buffer.length;
+				i++
+			) {
 				accum += buffer[i];
 				count++;
 			}
@@ -260,15 +273,16 @@
 	// ==========================================
 	async function startCloudRecording() {
 		try {
-			const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+			const stream = await navigator.mediaDevices.getUserMedia({audio: true});
 			audioStream = stream;
 			pcmChunks = [];
 
-			const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+			const AudioContextClass =
+				window.AudioContext || (window as any).webkitAudioContext;
 			audioContext = new AudioContextClass();
 
 			micSource = audioContext.createMediaStreamSource(stream);
-			
+
 			// ScriptProcessor is widely supported and simpler than module-registered AudioWorklet
 			scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1);
 			scriptProcessor.onaudioprocess = (event: any) => {
@@ -347,11 +361,21 @@
 			// Downsample to 16kHz (Server transcriber standard)
 			const originalSampleRate = audioContext ? audioContext.sampleRate : 48000;
 			const targetSampleRate = 16000;
-			const downsampledBuffer = downsampleBuffer(flatBuffer, originalSampleRate, targetSampleRate);
+			const downsampledBuffer = downsampleBuffer(
+				flatBuffer,
+				originalSampleRate,
+				targetSampleRate,
+			);
 
 			// Encode directly to mono 16-bit PCM WAV buffer
-			const wavBuffer = createWav(downsampledBuffer, 1, targetSampleRate, 1, 16);
-			const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' });
+			const wavBuffer = createWav(
+				downsampledBuffer,
+				1,
+				targetSampleRate,
+				1,
+				16,
+			);
+			const wavBlob = new Blob([wavBuffer], {type: 'audio/wav'});
 
 			const baseUrl = getBaseUrl();
 			const token = getToken();
@@ -471,23 +495,26 @@
 		const sampleRate = buffer.sampleRate;
 		const format = 1; // Raw PCM
 		const bitDepth = 16;
-		
+
 		let result;
 		if (numOfChan === 2) {
 			result = interleave(buffer.getChannelData(0), buffer.getChannelData(1));
 		} else {
 			result = buffer.getChannelData(0);
 		}
-		
+
 		return createWav(result, numOfChan, sampleRate, format, bitDepth);
 	}
 
-	function interleave(inputL: Float32Array, inputR: Float32Array): Float32Array {
+	function interleave(
+		inputL: Float32Array,
+		inputR: Float32Array,
+	): Float32Array {
 		const length = inputL.length + inputR.length;
 		const result = new Float32Array(length);
 		let index = 0;
 		let inputIndex = 0;
-		
+
 		while (index < length) {
 			result[index++] = inputL[inputIndex];
 			result[index++] = inputR[inputIndex];
@@ -496,10 +523,16 @@
 		return result;
 	}
 
-	function createWav(samples: Float32Array, numOfChan: number, sampleRate: number, format: number, bitDepth: number): ArrayBuffer {
+	function createWav(
+		samples: Float32Array,
+		numOfChan: number,
+		sampleRate: number,
+		format: number,
+		bitDepth: number,
+	): ArrayBuffer {
 		const buffer = new ArrayBuffer(44 + samples.length * 2);
 		const view = new DataView(buffer);
-		
+
 		/* RIFF identifier */
 		writeString(view, 0, 'RIFF');
 		/* file length */
@@ -526,16 +559,20 @@
 		writeString(view, 36, 'data');
 		/* data chunk length */
 		view.setUint32(40, samples.length * 2, true);
-		
+
 		floatTo16BitPCM(view, 44, samples);
-		
+
 		return buffer;
 	}
 
-	function floatTo16BitPCM(output: DataView, offset: number, input: Float32Array) {
+	function floatTo16BitPCM(
+		output: DataView,
+		offset: number,
+		input: Float32Array,
+	) {
 		for (let i = 0; i < input.length; i++, offset += 2) {
 			let s = Math.max(-1, Math.min(1, input[i]));
-			output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+			output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
 		}
 	}
 
@@ -546,7 +583,7 @@
 	}
 </script>
 
-<div class="relative flex select-none items-center gap-1 shrink-0">
+<div class="relative flex shrink-0 items-center gap-1 select-none">
 	<!-- Mic Button -->
 	<button
 		type="button"
@@ -555,13 +592,13 @@
 		onpointerup={handlePointerUp}
 		onpointercancel={handlePointerCancel}
 		class="flex h-[48px] w-[48px] items-center justify-center rounded-lg border transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-40
-			{isRecording 
-				? 'bg-red-600 border-red-500 animate-pulse text-white' 
-				: isProcessing
-					? 'bg-amber-600 border-amber-500 text-white cursor-wait'
-					: 'bg-gray-800 border-gray-600 text-gray-400 hover:text-white hover:bg-gray-700'}"
-		title={isRecording 
-			? 'Recording (release/tap to stop)...' 
+			{isRecording
+			? 'animate-pulse border-red-500 bg-red-600 text-white'
+			: isProcessing
+				? 'cursor-wait border-amber-500 bg-amber-600 text-white'
+				: 'border-gray-600 bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'}"
+		title={isRecording
+			? 'Recording (release/tap to stop)...'
 			: isProcessing
 				? 'Processing speech...'
 				: 'Hold to speak (walkie-talkie) or Tap to toggle recording'}
@@ -587,7 +624,7 @@
 		type="button"
 		onclick={() => (showSettings = !showSettings)}
 		disabled={(disabled && !isRecording && !isProcessing) || isProcessing}
-		class="flex h-[48px] w-[28px] items-center justify-center rounded-lg border border-gray-600 bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
+		class="flex h-[48px] w-[28px] items-center justify-center rounded-lg border border-gray-600 bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
 		title="Speech Settings"
 	>
 		<svg
@@ -598,7 +635,9 @@
 			stroke-width="2"
 			stroke-linecap="round"
 			stroke-linejoin="round"
-			class="h-4 w-4 transition-transform duration-200 {showSettings ? 'rotate-45 text-white' : ''}"
+			class="h-4 w-4 transition-transform duration-200 {showSettings
+				? 'rotate-45 text-white'
+				: ''}"
 		>
 			<circle cx="12" cy="12" r="3" />
 			<path
@@ -612,12 +651,17 @@
 		<!-- Click Outside Backdrop -->
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="fixed inset-0 z-40" onclick={() => (showSettings = false)}></div>
+		<div
+			class="fixed inset-0 z-40"
+			onclick={() => (showSettings = false)}
+		></div>
 
 		<div
-			class="absolute bottom-14 right-0 z-50 w-64 rounded-lg border border-gray-600 bg-gray-800 p-4 shadow-xl text-xs text-white"
+			class="absolute right-0 bottom-14 z-50 w-64 rounded-lg border border-gray-600 bg-gray-800 p-4 text-xs text-white shadow-xl"
 		>
-			<h4 class="mb-3 font-semibold text-gray-300 border-b border-gray-700 pb-1.5">
+			<h4
+				class="mb-3 border-b border-gray-700 pb-1.5 font-semibold text-gray-300"
+			>
 				Speech Settings
 			</h4>
 
@@ -629,27 +673,33 @@
 				<div class="flex gap-2">
 					<button
 						type="button"
-						onclick={() => { engine = 'browser'; savePreferences(); }}
+						onclick={() => {
+							engine = 'browser';
+							savePreferences();
+						}}
 						disabled={!isBrowserSupported}
 						class="flex-1 rounded border px-2 py-1.5 text-center font-medium transition-colors disabled:opacity-40
 							{engine === 'browser'
-								? 'bg-blue-600 border-blue-500 text-white'
-								: 'bg-gray-950 border-gray-600 text-gray-400 hover:text-white'}"
+							? 'border-blue-500 bg-blue-600 text-white'
+							: 'border-gray-600 bg-gray-950 text-gray-400 hover:text-white'}"
 					>
 						On-Device
 					</button>
 					<button
 						type="button"
-						onclick={() => { engine = 'cloud'; savePreferences(); }}
+						onclick={() => {
+							engine = 'cloud';
+							savePreferences();
+						}}
 						class="flex-1 rounded border px-2 py-1.5 text-center font-medium transition-colors
 							{engine === 'cloud'
-								? 'bg-blue-600 border-blue-500 text-white'
-								: 'bg-gray-950 border-gray-600 text-gray-400 hover:text-white'}"
+							? 'border-blue-500 bg-blue-600 text-white'
+							: 'border-gray-600 bg-gray-950 text-gray-400 hover:text-white'}"
 					>
 						Cloud AI
 					</button>
 				</div>
-				<p class="text-[10px] text-gray-400 mt-1 leading-relaxed">
+				<p class="mt-1 text-[10px] leading-relaxed text-gray-400">
 					{engine === 'browser'
 						? 'Uses free built-in browser dictation. Streaming, zero-latency.'
 						: 'Uses server-side Z.ai / Groq / OpenAI keys. High accent tolerance.'}
@@ -659,7 +709,10 @@
 			<!-- Accent/Locale Selection (Only visible for Browser engine) -->
 			{#if engine === 'browser'}
 				<div class="mb-3.5">
-					<label for="speech-locale" class="mb-1 block font-medium text-gray-400">
+					<label
+						for="speech-locale"
+						class="mb-1 block font-medium text-gray-400"
+					>
 						Accent / Locale
 					</label>
 					<select
@@ -684,15 +737,20 @@
 						onchange={savePreferences}
 						class="rounded border-gray-600 bg-gray-950 text-blue-600 focus:ring-0 focus:ring-offset-0"
 					/>
-					<span class="font-medium text-gray-300">Direct Send (Auto-dispatch)</span>
+					<span class="font-medium text-gray-300"
+						>Direct Send (Auto-dispatch)</span
+					>
 				</label>
-				<p class="text-[10px] text-gray-400 pl-6 leading-relaxed">
-					When enabled, releasing or stopping the microphone immediately sends the message.
+				<p class="pl-6 text-[10px] leading-relaxed text-gray-400">
+					When enabled, releasing or stopping the microphone immediately sends
+					the message.
 				</p>
 			</div>
 
 			{#if speechError}
-				<div class="mt-2 text-red-400 bg-red-950/40 p-2 rounded border border-red-900/40 leading-normal">
+				<div
+					class="mt-2 rounded border border-red-900/40 bg-red-950/40 p-2 leading-normal text-red-400"
+				>
 					{speechError}
 				</div>
 			{/if}
