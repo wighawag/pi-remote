@@ -562,7 +562,22 @@ export class SessionPool {
       }
     }
 
-    const sessionId = existing?.sessionId || Math.random().toString(36).substring(2) + Date.now().toString(36);
+    let sessionId = existing?.sessionId;
+    if (!sessionId) {
+      try {
+        const sessionManager = SessionManager.open(sessionFile);
+        sessionId = sessionManager.getSessionId();
+      } catch (err) {
+        // Fallback 1: Extract from filename (e.g. some_path/TIMESTAMP_UUID.jsonl)
+        const baseName = path.basename(sessionFile);
+        const match = baseName.match(/_(.+)\.jsonl$/);
+        if (match) {
+          sessionId = match[1];
+        } else {
+          return { tracked: null as any, error: `Could not determine a persistent session ID from file path: ${sessionFile}` };
+        }
+      }
+    }
 
     const tracked: CliTrackedSession = {
       type: 'cli',
