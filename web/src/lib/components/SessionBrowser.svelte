@@ -4,6 +4,9 @@
 		availableModels,
 		fetchSessions,
 		fetchModels,
+		fetchConfig,
+		gitInitDefaultStore,
+		checkPath,
 		setCurrentSession,
 		type ModelInfo,
 		type FolderWithSessions,
@@ -33,6 +36,7 @@
 		if (connected) {
 			fetchSessions();
 			fetchModels();
+			fetchConfig();
 		}
 	});
 
@@ -86,6 +90,116 @@
 			}, 100);
 		} else {
 			joinSession(sessionPath);
+		}
+	}
+
+	// Collapsible Sidebar form state
+	let createFormOpen = $state(false);
+	let sidebarCwd = $state('');
+	let sidebarModel = $state('');
+	let sidebarGitInit = $state(false);
+	let userManualSidebarGitInit = $state<boolean | null>(null);
+	let showSidebarGitConfirmModal = $state(false);
+
+	let defaultGitInit = $derived($gitInitDefaultStore);
+
+	// Sync git init default
+	$effect(() => {
+		if (userManualSidebarGitInit === null) {
+			sidebarGitInit = defaultGitInit;
+		}
+	});
+
+	let sidebarPathStatus = $state<{
+		exists: boolean | null;
+		isGit: boolean;
+		resolvedPath: string;
+	}>({
+		exists: null,
+		isGit: false,
+		resolvedPath: '',
+	});
+
+	let sidebarPathCheckTimeout: ReturnType<typeof setTimeout> | null = null;
+
+	$effect(() => {
+		const pathValue = sidebarCwd;
+		if (sidebarPathCheckTimeout) clearTimeout(sidebarPathCheckTimeout);
+
+		if (!pathValue.trim()) {
+			sidebarPathStatus = { exists: null, isGit: false, resolvedPath: '' };
+			return;
+		}
+
+		sidebarPathCheckTimeout = setTimeout(async () => {
+			const res = await checkPath(pathValue);
+			if (res) {
+				sidebarPathStatus = res;
+				if (!res.exists) {
+					sidebarGitInit = userManualSidebarGitInit !== null ? userManualSidebarGitInit : defaultGitInit;
+				}
+			} else {
+				sidebarPathStatus = { exists: null, isGit: false, resolvedPath: '' };
+			}
+		}, 300);
+	});
+
+	// Select default model if any
+	$effect(() => {
+		if (models.length > 0 && !sidebarModel) {
+			const defaultModel = models.find((m: ModelInfo) => m.isDefault);
+			if (defaultModel) {
+				sidebarModel = `${defaultModel.provider}:${defaultModel.modelId}`;
+			} else {
+				sidebarModel = `${models[0].provider}:${models[0].modelId}`;
+			}
+		}
+	});
+
+	function handleSidebarCreateSession() {
+		if (!sidebarCwd.trim()) return;
+		if (sidebarPathStatus.exists === true) {
+			sidebarGitInit = false; // toggled off by default in modal
+			showSidebarGitConfirmModal = true;
+		} else {
+			dismissSessionError();
+			const cwd = sidebarCwd.trim();
+			const model = sidebarModel || undefined;
+			const gitInit = sidebarGitInit;
+			
+			// Reset state
+			sidebarCwd = '';
+			createFormOpen = false;
+
+			if (currentSession) {
+				leaveSession();
+				setTimeout(() => {
+					createSession(cwd, model, gitInit);
+				}, 100);
+			} else {
+				createSession(cwd, model, gitInit);
+			}
+		}
+	}
+
+	function handleSidebarConfirmModalSubmit() {
+		showSidebarGitConfirmModal = false;
+		dismissSessionError();
+		const cwd = sidebarCwd.trim();
+		const model = sidebarModel || undefined;
+		const gitInit = sidebarGitInit;
+
+		// Reset state
+		sidebarCwd = '';
+		createFormOpen = false;
+
+		if (currentSession) {
+			leaveSession();
+			setTimeout(() => {
+				createSession(cwd, model, gitInit);
+			}, 100);
+		} else {
+			createSession(cwd, model, gitInit);
 		}
 	}
 
@@ -159,6 +273,87 @@
 	</div>
 
 	<div class="flex-1 overflow-y-auto">
+		<!-- Collapsible Create New Session Section -->
+		<div class="border-b border-gray-700/50 bg-gray-800/10">
+			<button
+				onclick={() => (createFormOpen = !createFormOpen)}
+				class="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-semibold text-blue-400 transition-colors hover:bg-gray-700/30"
+			>
+				<span>{createFormOpen ? '▼ Close Create Session' : '✚ Create New Session'}</span>
+			</button>
+			
+			{#if createFormOpen}
+				<form onsubmit={(e) => { e.preventDefault(); handleSidebarCreateSession(); }} class="space-y-2.5 p-3 border-t border-gray-700/30 bg-gray-800/30">
+					<div>
+						<label class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1" for="sidebar-folder">Folder Path</label>
+						<input
+							id="sidebar-folder"
+							type="text"
+							placeholder="e.g. ~/projects/my-new-app"
+							bind:value={sidebarCwd}
+							class="w-full rounded border border-gray-600 bg-gray-900/60 px-2 py-1 text-xs text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+						/>
+						{#if sidebarPathStatus.exists === true}
+							<span class="text-[10px] text-yellow-400 mt-1 block font-medium">
+								📁 Folder already exists.
+								{#if sidebarPathStatus.isGit}
+									<span class="text-green-400 ml-1 font-semibold">(Git repo)</span>
+								{/if}
+							</span>
+						{/if}
+					</div>
+					
+					<div>
+						<label class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1" for="sidebar-model">Model</label>
+						{#if models.length > 0}
+							<select
+								id="sidebar-model"
+								bind:value={sidebarModel}
+								class="w-full rounded border border-gray-600 bg-gray-900/60 px-2 py-1 text-xs text-white focus:border-blue-500 focus:outline-none"
+							>
+								{#each models as model}
+									<option value={`${model.provider}:${model.modelId}`}>
+										{model.label}{model.isDefault ? ' (default)' : ''}
+									</option>
+								{/each}
+							</select>
+						{:else}
+							<input
+								id="sidebar-model"
+								type="text"
+								bind:value={sidebarModel}
+								placeholder="provider:model"
+								class="w-full rounded border border-gray-600 bg-gray-900/60 px-2 py-1 text-xs text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+							/>
+						{/if}
+					</div>
+
+					{#if sidebarPathStatus.exists !== true}
+						<div class="flex items-center gap-1.5 py-0.5">
+							<input
+								id="sidebar-git-init"
+								type="checkbox"
+								bind:checked={sidebarGitInit}
+								onchange={(e) => { userManualSidebarGitInit = e.currentTarget.checked; }}
+								class="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-800"
+							/>
+							<label for="sidebar-git-init" class="text-xs text-gray-300 select-none cursor-pointer">
+								Initialize Git repository
+							</label>
+						</div>
+					{/if}
+
+					<button
+						type="submit"
+						disabled={!sidebarCwd.trim()}
+						class="w-full rounded bg-blue-600 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+					>
+						Create Session
+					</button>
+				</form>
+			{/if}
+		</div>
+
 		{#if loading}
 			<div class="p-4 text-center text-gray-500">
 				<div
@@ -319,5 +514,52 @@
 			onclick={() => dismissSessionError()}
 			class="ml-2 flex-shrink-0 text-red-300 hover:text-red-200">✕</button
 		>
+	</div>
+{/if}
+
+<!-- Sidebar Git Init Confirm Dialog -->
+{#if showSidebarGitConfirmModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4" role="dialog" aria-modal="true">
+		<div class="w-80 rounded-lg border border-gray-700 bg-gray-800 p-5 text-gray-300">
+			<h3 class="text-sm font-bold text-white mb-2">Folder Already Exists</h3>
+			<p class="text-xs text-gray-400 mb-3">
+				The folder <span class="text-gray-200 font-mono text-[11px] break-all">{sidebarCwd}</span> already exists. Do you want to initialize a Git repository in it?
+			</p>
+
+			<div class="flex items-center gap-1.5 mb-4">
+				<input
+					id="sidebar-modal-git-init"
+					type="checkbox"
+					bind:checked={sidebarGitInit}
+					disabled={sidebarPathStatus.isGit}
+					class="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
+				/>
+				<label for="sidebar-modal-git-init" class="text-xs text-gray-300 select-none cursor-pointer disabled:opacity-50">
+					Initialize Git repository
+					{#if sidebarPathStatus.isGit}
+						<span class="text-[10px] text-gray-500 ml-1">(already a Git repo)</span>
+					{:else}
+						<span class="text-[10px] text-yellow-500 ml-1 font-medium">(folder not empty)</span>
+					{/if}
+				</label>
+			</div>
+
+			<div class="flex justify-end gap-2">
+				<button
+					type="button"
+					onclick={() => (showSidebarGitConfirmModal = false)}
+					class="rounded bg-gray-700 px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-gray-600"
+				>
+					Cancel
+				</button>
+				<button
+					type="button"
+					onclick={handleSidebarConfirmModalSubmit}
+					class="rounded bg-blue-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-blue-700"
+				>
+					Confirm & Create
+				</button>
+			</div>
+		</div>
 	</div>
 {/if}

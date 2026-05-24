@@ -123,6 +123,43 @@ function getToken(): string {
 	return '';
 }
 
+export const gitInitDefaultStore = writable<boolean>(false);
+
+export interface PathCheckResult {
+	exists: boolean;
+	isGit: boolean;
+	resolvedPath: string;
+}
+
+export async function checkPath(pathStr: string): Promise<PathCheckResult | null> {
+	if (!pathStr.trim()) return null;
+	try {
+		const baseUrl = getBaseUrl();
+		const token = getToken();
+		const url = `${baseUrl}/check-path?path=${encodeURIComponent(pathStr)}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
+		const res = await fetch(url);
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		return await res.json() as PathCheckResult;
+	} catch (err) {
+		console.error('Failed to check path:', err);
+		return null;
+	}
+}
+
+export async function fetchConfig(): Promise<void> {
+	try {
+		const baseUrl = getBaseUrl();
+		const token = getToken();
+		const url = `${baseUrl}/config${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+		const res = await fetch(url);
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		const data = await res.json();
+		gitInitDefaultStore.set(!!data.gitInitDefault);
+	} catch (err) {
+		console.error('Failed to fetch config:', err);
+	}
+}
+
 export function setCurrentSession(sessionId: string | null): void {
 	sessionFolders.update((s) => ({...s, currentSession: sessionId}));
 }

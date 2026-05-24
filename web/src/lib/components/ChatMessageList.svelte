@@ -5,9 +5,89 @@
 		abort,
 		clearMessages,
 		activeSessionInfo,
+		createSession,
+		piState,
 	} from '$lib/pi-remote';
+	import {
+		availableModels,
+		gitInitDefaultStore,
+		checkPath,
+	} from '$lib/session-store';
 	import type {ChatMessage} from '$lib/pi-remote';
 	import {onMount} from 'svelte';
+
+	let newFolderCwd = $state('');
+	let newFolderModel = $state('');
+	let newFolderGitInit = $state(false);
+	let userManualGitInit = $state<boolean | null>(null);
+	let showGitInitConfirmModal = $state(false);
+
+	let appState = $derived($piState);
+	let modelsData = $derived($availableModels);
+	let defaultGitInit = $derived($gitInitDefaultStore);
+
+	// Sync git init default
+	$effect(() => {
+		if (userManualGitInit === null) {
+			newFolderGitInit = defaultGitInit;
+		}
+	});
+
+	let pathStatus = $state<{
+		exists: boolean | null;
+		isGit: boolean;
+		resolvedPath: string;
+	}>({
+		exists: null,
+		isGit: false,
+		resolvedPath: '',
+	});
+
+	let pathCheckTimeout: ReturnType<typeof setTimeout> | null = null;
+
+	$effect(() => {
+		const pathValue = newFolderCwd;
+		if (pathCheckTimeout) clearTimeout(pathCheckTimeout);
+
+		if (!pathValue.trim()) {
+			pathStatus = { exists: null, isGit: false, resolvedPath: '' };
+			return;
+		}
+
+		pathCheckTimeout = setTimeout(async () => {
+			const res = await checkPath(pathValue);
+			if (res) {
+				pathStatus = res;
+				if (!res.exists) {
+					newFolderGitInit = userManualGitInit !== null ? userManualGitInit : defaultGitInit;
+				}
+			} else {
+				pathStatus = { exists: null, isGit: false, resolvedPath: '' };
+			}
+		}, 300);
+	});
+
+	// Select default model if any
+	$effect(() => {
+		if (modelsData.models.length > 0 && !newFolderModel) {
+			const defaultModel = modelsData.models.find(m => m.isDefault);
+			if (defaultModel) {
+				newFolderModel = `${defaultModel.provider}:${defaultModel.modelId}`;
+			} else {
+				newFolderModel = `${modelsData.models[0].provider}:${modelsData.models[0].modelId}`;
+			}
+		}
+	});
+
+	function handleFormCreateSession() {
+		if (!newFolderCwd.trim()) return;
+		if (pathStatus.exists === true) {
+			newFolderGitInit = false; // toggled off by default in modal
+			showGitInitConfirmModal = true;
+		} else {
+			createSession(newFolderCwd.trim(), newFolderModel || undefined, newFolderGitInit);
+		}
+	}
 
 	let messageList = $state<HTMLDivElement>();
 	let {onMessageSent}: {onMessageSent: () => void} = $props();
@@ -261,14 +341,134 @@
 	}
 </script>
 
-<div class="flex flex-1 flex-col overflow-hidden">
-	{#if msgList.length === 0}
+<div class="flex flex-1 flex-col overflow-hidden bg-gray-900">
+	{#if appState.connecting}
+		<div class="flex flex-1 flex-col items-center justify-center p-6 bg-gray-900 text-gray-500">
+			<div class="text-center">
+				<div class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent mb-4"></div>
+				<p class="text-base font-medium text-gray-300">Connecting to Pi Remote Server...</p>
+				<p class="text-xs text-gray-500 mt-1">Establishing secure connection to your agent</p>
+			</div>
+		</div>
+	{:else if !appState.connected}
+		<div class="flex flex-1 flex-col items-center justify-center p-6 bg-gray-900 text-gray-500">
+			<div class="w-full max-w-md rounded-lg border border-red-500/30 bg-red-900/10 p-6 text-center text-gray-300">
+				<div class="mb-3 text-4xl">⚠️</div>
+				<h3 class="text-lg font-bold text-red-400">Not Connected to Server</h3>
+				<p class="text-sm text-gray-400 mt-2">
+					We couldn't connect to the Pi Remote Server. Please verify the server is running and check your connection settings in the sidebar.
+				</p>
+				{#if appState.error}
+					<p class="mt-3 rounded bg-red-950/40 p-2 font-mono text-xs text-red-300/80 max-h-24 overflow-y-auto">
+						{appState.error}
+					</p>
+				{/if}
+				<button
+					onclick={() => {
+						import('$lib/pi-remote').then(m => m.connect());
+					}}
+					class="mt-5 rounded bg-gray-800 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-750"
+				>
+					Retry Connection
+				</button>
+			</div>
+		</div>
+	{:else if !sessionInfo.sessionFile && typeof window !== 'undefined' && window.location.hash}
+		<div class="flex flex-1 flex-col items-center justify-center p-6 bg-gray-900 text-gray-500">
+			<div class="text-center">
+				<div class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent mb-4"></div>
+				<p class="text-base font-medium text-gray-300">Loading session...</p>
+				<p class="text-xs text-gray-500 mt-1">Retrieving workspace session history</p>
+			</div>
+		</div>
+	{:else if !sessionInfo.sessionFile}
+		<div class="flex flex-1 items-center justify-center p-6">
+			<div class="w-full max-w-md rounded-lg border border-gray-700 bg-gray-800/40 p-6 text-gray-300">
+				<div class="mb-5 text-center">
+					<div class="mb-2 text-4xl">📁</div>
+					<h3 class="text-lg font-bold text-white">Create a New Session</h3>
+					<p class="text-xs text-gray-400 mt-1">Start a coding session in any folder on your machine</p>
+				</div>
+				
+				<form onsubmit={(e) => { e.preventDefault(); handleFormCreateSession(); }} class="space-y-4">
+					<div>
+						<label class="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1" for="main-folder-path">Folder Path</label>
+						<input
+							id="main-folder-path"
+							type="text"
+							placeholder="e.g. ~/projects/my-new-app"
+							bind:value={newFolderCwd}
+							class="w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+						/>
+						{#if pathStatus.exists === true}
+							<span class="text-xs text-yellow-400 mt-1.5 block font-medium">
+								📁 Folder already exists. Joining will create a session in it.
+								{#if pathStatus.isGit}
+									<span class="text-green-400 font-medium ml-1">(Git repo detected)</span>
+								{/if}
+							</span>
+						{:else}
+							<span class="text-[10px] text-gray-500 mt-1 block">Relative paths are created inside your home folder.</span>
+						{/if}
+					</div>
+
+					<div>
+						<label class="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1" for="main-model-select">Model</label>
+						{#if modelsData.models.length > 0}
+							<select
+								id="main-model-select"
+								bind:value={newFolderModel}
+								class="w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none"
+							>
+								{#each modelsData.models as model}
+									<option value={`${model.provider}:${model.modelId}`}>
+										{model.label}{model.isDefault ? ' (default)' : ''}
+									</option>
+								{/each}
+							</select>
+						{:else}
+							<input
+								id="main-model-select"
+								type="text"
+								bind:value={newFolderModel}
+								placeholder="provider:model"
+								class="w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+							/>
+						{/if}
+					</div>
+
+					{#if pathStatus.exists !== true}
+						<div class="flex items-center gap-2 pt-1">
+							<input
+								id="main-git-init"
+								type="checkbox"
+								bind:checked={newFolderGitInit}
+								onchange={(e) => { userManualGitInit = e.currentTarget.checked; }}
+								class="h-4 w-4 rounded border-gray-600 bg-gray-750 text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-800"
+							/>
+							<label for="main-git-init" class="text-sm text-gray-300 select-none cursor-pointer">
+								Initialize Git repository
+							</label>
+						</div>
+					{/if}
+
+					<button
+						type="submit"
+						disabled={!newFolderCwd.trim()}
+						class="w-full rounded bg-blue-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+					>
+						Create & Start Session
+					</button>
+				</form>
+			</div>
+		</div>
+	{:else if msgList.length === 0}
 		<div class="flex flex-1 items-center justify-center text-gray-500">
 			<div class="text-center">
-				<div class="mb-4 text-4xl">🤖</div>
-				<p class="mb-2 text-lg font-medium">Pi Remote Chat</p>
+				<div class="mb-4 text-4xl">💬</div>
+				<p class="mb-2 text-lg font-medium">New Session Started</p>
 				<p class="text-sm">
-					Select a session from the sidebar to start chatting
+					Type a message below to start chatting with your Pi coding agent
 				</p>
 			</div>
 		</div>
@@ -443,6 +643,56 @@
 					Abort
 				</button>
 			{/if}
+		</div>
+	{/if}
+
+	<!-- Custom Confirm Modal for Existing Folders -->
+	{#if showGitInitConfirmModal}
+		<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4" role="dialog" aria-modal="true">
+			<div class="w-full max-w-sm rounded-lg border border-gray-700 bg-gray-800 p-6 text-gray-300">
+				<h3 class="text-base font-bold text-white mb-2">Folder Already Exists</h3>
+				<p class="text-sm text-gray-400 mb-4">
+					The folder <span class="text-gray-200 font-mono text-xs">{newFolderCwd}</span> already exists. Do you want to initialize a Git repository in it?
+				</p>
+
+				<div class="flex items-center gap-2 mb-6">
+					<input
+						id="modal-git-init"
+						type="checkbox"
+						bind:checked={newFolderGitInit}
+						disabled={pathStatus.isGit}
+						class="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
+					/>
+					<label for="modal-git-init" class="text-sm text-gray-300 select-none cursor-pointer disabled:opacity-50">
+						Initialize Git repository
+						{#if pathStatus.isGit}
+							<span class="text-xs text-gray-500 ml-1">(already a Git repository)</span>
+						{:else}
+							<span class="text-xs text-yellow-500 ml-1 font-medium">(folder not empty)</span>
+						{/if}
+					</label>
+				</div>
+
+				<div class="flex justify-end gap-2.5">
+					<button
+						type="button"
+						onclick={() => (showGitInitConfirmModal = false)}
+						class="rounded bg-gray-700 px-3.5 py-1.5 text-xs font-semibold text-gray-300 transition-colors hover:bg-gray-600"
+					>
+						Cancel
+					</button>
+					<button
+						type="button"
+						onclick={() => {
+							showGitInitConfirmModal = false;
+							createSession(newFolderCwd.trim(), newFolderModel || undefined, newFolderGitInit);
+						}}
+						class="rounded bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
+					>
+						Confirm & Create
+					</button>
+				</div>
+			</div>
 		</div>
 	{/if}
 </div>

@@ -1,4 +1,45 @@
 import path from 'path';
+import os from 'node:os';
+import fs from 'node:fs';
+import { execSync } from 'node:child_process';
+
+export interface RemoteRepoRule {
+  pattern: string;
+  provider: 'github' | 'codeberg' | 'gitea' | 'forgejo';
+  visibility?: 'private' | 'public';
+}
+
+export interface PiRemoteConfig {
+  gitInitDefault?: boolean;
+  remoteRepoRules?: RemoteRepoRule[];
+}
+
+export function getPiRemoteConfig(): PiRemoteConfig {
+  const configDir = path.join(os.homedir(), '.pi', 'remote');
+  const configPath = path.join(configDir, 'config.json');
+  if (!fs.existsSync(configPath)) {
+    try {
+      fs.mkdirSync(configDir, { recursive: true });
+      const defaultConfig: PiRemoteConfig = {
+        gitInitDefault: false,
+        remoteRepoRules: []
+      };
+      fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2), 'utf8');
+      return defaultConfig;
+    } catch (err) {
+      console.error('Failed to create default pi-remote config:', err);
+    }
+  } else {
+    try {
+      const content = fs.readFileSync(configPath, 'utf8');
+      return JSON.parse(content);
+    } catch (err) {
+      console.error('Failed to parse pi-remote config file:', err);
+    }
+  }
+  return {};
+}
+
 import { createAgentSession, AuthStorage, ModelRegistry, DefaultResourceLoader, SettingsManager, getAgentDir, SessionManager } from '@earendil-works/pi-coding-agent';
 import type { AgentSession, AgentSessionEvent } from '@earendil-works/pi-coding-agent';
 import type { Model, Api } from '@earendil-works/pi-ai';
@@ -186,20 +227,132 @@ export class SessionPool {
     return loadPromise;
   }
 
-  async createNewSession(cwd: string, modelStr?: string): Promise<{ tracked: TrackedSession; error?: string; sessionFile?: string }> {
-    const existing = this.findActiveSessionByCwd(cwd);
+  async createNewSession(cwd: string, modelStr?: string, gitInit?: boolean): Promise<{ tracked: TrackedSession; error?: string; sessionFile?: string }> {
+    let resolvedCwd = cwd;
+    if (cwd.startsWith('~')) {
+      resolvedCwd = path.join(os.homedir(), cwd.slice(1));
+    } else if (!path.isAbsolute(cwd)) {
+      resolvedCwd = path.join(os.homedir(), cwd);
+    } else {
+      resolvedCwd = path.resolve(cwd);
+    }
+
+    const existing = this.findActiveSessionByCwd(resolvedCwd);
     if (existing && existing.clients.size > 0) {
       return { tracked: existing };
     }
 
-    const resolvedCwd = path.resolve(cwd);
     if (this.pendingCreateSessions.has(resolvedCwd)) {
       return this.pendingCreateSessions.get(resolvedCwd)!;
     }
 
     const createPromise = (async () => {
       try {
-        const sessionManager = SessionManager.create(cwd);
+        if (!fs.existsSync(resolvedCwd)) {
+          fs.mkdirSync(resolvedCwd, { recursive: true });
+        }
+
+        // Git initialization if requested
+        if (gitInit) {
+          try {
+            if (!fs.existsSync(path.join(resolvedCwd, '.git'))) {
+              execSync('git init', { cwd: resolvedCwd, stdio: 'ignore' });
+              console.log(`Initialized empty Git repository in ${resolvedCwd}`);
+            }
+          } catch (err) {
+            console.error(`Failed to initialize git repository in ${resolvedCwd}:`, err);
+          }
+        }
+
+        // Check if we should create a remote repo (GitHub/Codeberg etc) based on config patterns
+        const config = getPiRemoteConfig();
+        if (config.remoteRepoRules && Array.isArray(config.remoteRepoRules)) {
+          const rule = config.remoteRepoRules.find(r => new RegExp(r.pattern).test(resolvedCwd));
+          if (rule) {
+            const provider = rule.provider;
+            const visibility = rule.visibility || 'private';
+            const repoName = path.basename(resolvedCwd);
+
+            // Initialize Git if matching rules and not yet a Git repo
+            if (!fs.existsSync(path.join(resolvedCwd, '.git'))) {
+              try {
+                execSync('git init', { cwd: resolvedCwd, stdio: 'ignore' });
+                console.log(`Initialized empty Git repository in ${resolvedCwd} (due to matching remote rule)`);
+              } catch (e) {
+                console.error(`Failed to initialize git repository in ${resolvedCwd} for remote rule:`, e);
+              }
+            }
+
+            // Check if remote already exists
+            let hasOrigin = false;
+            try {
+              const remotes = execSync('git remote', { cwd: resolvedCwd }).toString();
+              hasOrigin = remotes.split('\n').map(r => r.trim()).includes('origin');
+            } catch (e) {}
+
+            if (!hasOrigin) {
+              if (provider === 'github') {
+                try {
+                  console.log(`Creating GitHub repository: ${repoName} (${visibility})...`);
+                  execSync(`gh repo create "${repoName}" --${visibility} --source=. --remote=origin`, { cwd: resolvedCwd, stdio: 'ignore' });
+                  console.log(`Successfully created GitHub repo ${repoName} and added remote 'origin'`);
+                } catch (err) {
+                  console.error('Failed to create GitHub repository:', err);
+                }
+              } else if (provider === 'codeberg' || provider === 'gitea' || provider === 'forgejo') {
+                try {
+                  let created = false;
+                  let repoUrl = '';
+                  console.log(`Creating Codeberg/Gitea repository: ${repoName}...`);
+
+                  try {
+                    // Try tea CLI
+                    const output = execSync(`tea repo create --name "${repoName}" ${visibility === 'private' ? '--private' : ''}`, { cwd: resolvedCwd }).toString();
+                    created = true;
+                    const urlMatch = output.match(/https?:\/\/\S+/i) || output.match(/git@\S+/i);
+                    if (urlMatch) repoUrl = urlMatch[0];
+                  } catch (err) {
+                    try {
+                      // Try cb CLI
+                      const output = execSync(`cb repo create --name "${repoName}" ${visibility === 'private' ? '--private' : ''}`, { cwd: resolvedCwd }).toString();
+                      created = true;
+                      const urlMatch = output.match(/https?:\/\/\S+/i) || output.match(/git@\S+/i);
+                      if (urlMatch) repoUrl = urlMatch[0];
+                    } catch (err2) {
+                      console.error('Failed to create repository with tea or cb CLI:', err, err2);
+                    }
+                  }
+
+                  if (created) {
+                    if (!repoUrl) {
+                      // fallback to constructing the URL
+                      const domain = provider === 'codeberg' ? 'codeberg.org' : 'gitea.com';
+                      let user = '';
+                      try {
+                        user = execSync('tea whoami').toString().trim().split(/\s+/).pop() || '';
+                      } catch (e) {
+                        try {
+                          const cbWho = execSync('cb auth whoami').toString().trim();
+                          user = cbWho.split(/\s+/).pop() || '';
+                        } catch (e2) {}
+                      }
+                      if (!user) {
+                        user = 'username_placeholder';
+                      }
+                      repoUrl = `git@${domain}:${user}/${repoName}.git`;
+                    }
+                    execSync(`git remote add origin "${repoUrl}"`, { cwd: resolvedCwd, stdio: 'ignore' });
+                    console.log(`Successfully created Codeberg/Gitea repo and added remote origin: ${repoUrl}`);
+                  }
+                } catch (err) {
+                  console.error('Failed to configure remote repository:', err);
+                }
+              }
+            }
+          }
+        }
+
+        const sessionManager = SessionManager.create(resolvedCwd);
         let model: Model<Api> | undefined;
 
         if (modelStr) {
@@ -209,16 +362,16 @@ export class SessionPool {
           }
         }
 
-        const settingsManager = SettingsManager.create(cwd, this.agentDir);
+        const settingsManager = SettingsManager.create(resolvedCwd, this.agentDir);
         const resourceLoader = new DefaultResourceLoader({
-          cwd,
+          cwd: resolvedCwd,
           agentDir: this.agentDir,
           settingsManager,
         });
         await resourceLoader.reload();
 
         const { session: agentSession } = await createAgentSession({
-          cwd,
+          cwd: resolvedCwd,
           authStorage: this.authStorage,
           modelRegistry: this.modelRegistry,
           model,
@@ -234,7 +387,7 @@ export class SessionPool {
           type: 'server',
           sessionId: agentSession.sessionId,
           sessionFile,
-          cwd,
+          cwd: resolvedCwd,
           model: modelLabel,
           agentSession,
           clients: new Set(),

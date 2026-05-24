@@ -3,7 +3,7 @@ import { createServer as createHttpServer, type IncomingMessage, type ServerResp
 import { createServer as createHttpsServer } from 'node:https';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent';
-import { SessionPool } from './session-pool.js';
+import { SessionPool, getPiRemoteConfig } from './session-pool.js';
 import type { ClientMessage, ServerMessage } from './protocol.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -322,6 +322,8 @@ async function main(): Promise<void> {
 
     const isApiRequest = pathname.startsWith('/sessions') || 
                           pathname.startsWith('/models') || 
+                          pathname.startsWith('/config') || 
+                          pathname.startsWith('/check-path') || 
                           pathname.startsWith('/session/');
 
     if (isApiRequest && !authenticate(req, token)) {
@@ -339,6 +341,36 @@ async function main(): Promise<void> {
     if (pathname === '/models' && req.method === 'GET') {
       const models = sessionPool.getAvailableModels();
       sendJSON(res, 200, { models });
+      return;
+    }
+
+    if (pathname === '/config' && req.method === 'GET') {
+      const config = getPiRemoteConfig();
+      sendJSON(res, 200, { gitInitDefault: !!config.gitInitDefault });
+      return;
+    }
+
+    if (pathname === '/check-path' && req.method === 'GET') {
+      const qPath = url.searchParams.get('path');
+      if (!qPath) {
+        sendJSON(res, 400, { error: 'Missing path' });
+        return;
+      }
+      let resolved = qPath;
+      if (qPath.startsWith('~')) {
+        resolved = path.join(os.homedir(), qPath.slice(1));
+      } else if (!path.isAbsolute(qPath)) {
+        resolved = path.join(os.homedir(), qPath);
+      } else {
+        resolved = path.resolve(qPath);
+      }
+
+      const exists = fs.existsSync(resolved);
+      let isGit = false;
+      if (exists) {
+        isGit = fs.existsSync(path.join(resolved, '.git'));
+      }
+      sendJSON(res, 200, { exists, isGit, resolvedPath: resolved });
       return;
     }
 
@@ -411,12 +443,12 @@ async function main(): Promise<void> {
     if (pathname === '/session/new' && req.method === 'POST') {
       try {
         const body = await readBody(req);
-        const { cwd, model } = JSON.parse(body) as { cwd: string; model?: string };
+        const { cwd, model, gitInit } = JSON.parse(body) as { cwd: string; model?: string; gitInit?: boolean };
         if (!cwd) {
           sendJSON(res, 400, { error: 'Missing cwd' });
           return;
         }
-        const result = await sessionPool.createNewSession(cwd, model);
+        const result = await sessionPool.createNewSession(cwd, model, gitInit);
         if (result.error) {
           sendJSON(res, 500, { error: result.error });
         } else {
@@ -691,7 +723,7 @@ async function handleWSMessage(
         return;
       }
 
-      const result = await pool.createNewSession(msg.cwd, msg.model);
+      const result = await pool.createNewSession(msg.cwd, msg.model, msg.gitInit);
       if (result.error) {
         sendWS(client.ws, { type: 'session_error', error: result.error });
         return;
