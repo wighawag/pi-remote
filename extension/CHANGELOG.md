@@ -1,5 +1,11 @@
 # pi-remote
 
+## 0.0.3
+
+### Patch Changes
+
+- a0120e2: Fix auto-scrolling bug by guarding the force-scroll effect to trigger only when the active session's file actually changes, rather than on every state/token update.
+
 ## 0.0.2
 
 ### Patch Changes
