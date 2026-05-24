@@ -157,6 +157,15 @@ The configuration file is located at `~/.pi/remote/config.json` on the server ma
 * **`remoteRepoRules`** (array of rule objects, Default: `[]`):
   A list of rules to automatically create a remote repository (on GitHub, Codeberg, etc.) and configure the git remote whenever a new session folder matches a RegExp pattern.
 
+* **`uploads`** (object, Default: `{ "type": "tmp" }`):
+  Configuration for local file uploads (images or documents) sent via the remote client:
+  * `type` (string, optional, Default: `'tmp'`): Where to store the uploaded files on the server.
+    * `'tmp'`: Saves to the operating system's temporary directory (e.g. `/tmp`).
+    * `'session'`: Saves inside the active session's workspace directory (`cwd`), under a sub-folder.
+    * `'custom'`: Saves to a specified custom directory on the server.
+  * `subDir` (string, optional, Default: `'.pi-remote/uploads'`): The relative directory to use when `type` is set to `'session'`.
+  * `dir` (string, optional): The absolute or tilde-expanded (e.g. `~/uploads`) folder path to use when `type` is set to `'custom'`.
+
 ### Rule Object Properties
 Each rule in `remoteRepoRules` can contain:
 * `pattern` (string, required): A regular expression matched against the absolute resolved path of the folder.
@@ -183,7 +192,11 @@ Each rule in `remoteRepoRules` can contain:
       "provider": "codeberg",
       "visibility": "private"
     }
-  ]
+  ],
+  "uploads": {
+    "type": "session",
+    "subDir": ".pi-remote/uploads"
+  }
 }
 ```
 

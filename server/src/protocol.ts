@@ -10,6 +10,7 @@ export type ClientMessage =
   | { type: 'session_leave'; sessionId: string }
   | { type: 'session_resolve_conflict'; action: 'take_over' | 'read_only'; sessionId: string; cwd?: string }
   | { type: 'model_change'; model: string }
+  | { type: 'file_upload'; uploadId: string; sessionId: string; filename: string; data: string }
   | { type: 'cli_register'; sessionFile: string; cwd: string; model?: string }
   | { type: 'cli_event'; sessionFile: string; event: any }
   | { type: 'cli_message'; message: string; streamingBehavior?: 'steer' | 'followUp' }
@@ -32,4 +33,6 @@ export type ServerMessage =
   | { type: 'session_interrupted'; sessionId: string; reason: string }
   | { type: 'message_history'; sessionId: string; messages: HistoryMessage[] }
   | { type: 'model_changed'; sessionId: string; model: string }
+  | { type: 'file_uploaded'; uploadId: string; sessionId: string; filename: string; savedPath: string }
+  | { type: 'file_upload_error'; uploadId: string; sessionId: string; error: string }
   | { type: 'pong'; timestamp: number };

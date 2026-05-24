@@ -1,6 +1,6 @@
 import {writable, derived, get} from 'svelte/store';
 import type {ConflictInfo} from './session-store';
-import {setCurrentSession} from './session-store';
+import {setCurrentSession, getBaseUrl, getToken} from './session-store';
 
 export interface ChatMessage {
 	id: string;
@@ -53,6 +53,7 @@ const defaultState: PiRemoteState = {
 
 const state = writable<PiRemoteState>(defaultState);
 let ws: WebSocket | null = null;
+const pendingUploads = new Map<string, { resolve: (val: any) => void, reject: (err: any) => void }>();
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
@@ -160,6 +161,24 @@ export function connect() {
 						error: null,
 					}));
 					break;
+
+				case 'file_uploaded': {
+					const pending = pendingUploads.get(msg.uploadId);
+					if (pending) {
+						pending.resolve({ savedPath: msg.savedPath, filename: msg.filename });
+						pendingUploads.delete(msg.uploadId);
+					}
+					break;
+				}
+
+				case 'file_upload_error': {
+					const pending = pendingUploads.get(msg.uploadId);
+					if (pending) {
+						pending.reject(new Error(msg.error));
+						pendingUploads.delete(msg.uploadId);
+					}
+					break;
+				}
 
 				case 'agent_start':
 					state.update((s: PiRemoteState) => ({...s, isStreaming: true}));
@@ -734,3 +753,46 @@ export const activeSessionInfo = derived(piState, ($s) => ({
 	model: $s.activeModel,
 	sessionId: $s.sessionId,
 }));
+
+export async function uploadFile(
+	sessionId: string,
+	file: File,
+): Promise<{savedPath: string; filename: string}> {
+	return new Promise((resolve, reject) => {
+		if (!ws || ws.readyState !== WebSocket.OPEN) {
+			reject(new Error('WebSocket is not connected'));
+			return;
+		}
+
+		try {
+			const reader = new FileReader();
+			reader.onload = () => {
+				try {
+					const result = reader.result as string;
+					const base64Data = result.split(',')[1] || '';
+
+					const uploadId = generateId();
+					pendingUploads.set(uploadId, { resolve, reject });
+
+					ws!.send(
+						JSON.stringify({
+							type: 'file_upload',
+							uploadId,
+							sessionId,
+							filename: file.name,
+							data: base64Data,
+						}),
+					);
+				} catch (err) {
+					reject(new Error(`Failed to process file data: ${(err as Error).message}`));
+				}
+			};
+			reader.onerror = () => {
+				reject(new Error('Failed to read file contents'));
+			};
+			reader.readAsDataURL(file);
+		} catch (err) {
+			reject(err);
+		}
+	});
+}

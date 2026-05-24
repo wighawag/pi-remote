@@ -18,6 +18,11 @@ export interface PiRemoteConfig {
     apiUrl?: string;
     model?: string;
   };
+  uploads?: {
+    type?: 'tmp' | 'session' | 'custom';
+    dir?: string;
+    subDir?: string;
+  };
 }
 
 export function getPiRemoteConfig(): PiRemoteConfig {

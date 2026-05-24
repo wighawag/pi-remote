@@ -17,6 +17,29 @@
 	import type {ChatMessage} from '$lib/pi-remote';
 	import {onMount} from 'svelte';
 
+	function parseUserMessage(content: string) {
+		if (!content) return { cleanContent: '', attachments: [] };
+		const lines = content.split('\n');
+		const fileRegex = /^\[Uploaded file: (.+)\]$/;
+		const cleanLines: string[] = [];
+		const attachments: string[] = [];
+
+		for (const line of lines) {
+			const match = line.match(fileRegex);
+			if (match) {
+				attachments.push(match[1]);
+			} else {
+				cleanLines.push(line);
+			}
+		}
+
+		let cleanContent = cleanLines.join('\n').trim();
+		if (cleanContent === 'I have uploaded the following file(s) for you:') {
+			cleanContent = '';
+		}
+		return { cleanContent, attachments };
+	}
+
 	let newFolderCwd = $state('');
 	let completions = $state<string[]>([]);
 	let inputFocused = $state(false);
@@ -826,14 +849,31 @@
 							<pre
 								class="font-sans text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</pre>
 						{:else}
+							{@const parsedUserMsg = parseUserMessage(msg.content)}
 							<div class="text-sm leading-relaxed whitespace-pre-wrap">
-								{msg.content || (msg.isStreaming ? 'Thinking...' : '')}
+								{#if parsedUserMsg.cleanContent}
+									{parsedUserMsg.cleanContent}
+								{:else if parsedUserMsg.attachments.length > 0}
+									<span class="italic text-blue-200">Shared file{parsedUserMsg.attachments.length > 1 ? 's' : ''} with agent:</span>
+								{:else}
+									{msg.content || (msg.isStreaming ? 'Thinking...' : '')}
+								{/if}
 								{#if msg.isStreaming && streaming}
 									<span
 										class="ml-1 inline-block h-4 w-1.5 animate-pulse bg-blue-400"
 									></span>
 								{/if}
 							</div>
+							{#if parsedUserMsg.attachments.length > 0}
+								<div class="mt-2 flex flex-col gap-1 border-t border-blue-500/30 pt-2">
+									{#each parsedUserMsg.attachments as filePath}
+										<div class="flex items-center gap-1.5 rounded bg-blue-700/50 px-2 py-1 font-mono text-xs text-blue-100 select-all">
+											<span>📎</span>
+											<span class="truncate" title={filePath}>{filePath}</span>
+										</div>
+									{/each}
+								</div>
+							{/if}
 						{/if}
 						<div
 							class="mt-1 text-xs opacity-50 {msg.role === 'user'

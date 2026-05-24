@@ -7,8 +7,10 @@
 		createSession,
 		clearMessages,
 		leaveSession,
+		uploadFile,
 	} from '$lib/pi-remote';
 	import {isStreaming, isReadOnly, activeSessionInfo} from '$lib/pi-remote';
+	import {getBaseUrl, getToken} from '$lib/session-store';
 	import SpeechButton from './speech/SpeechButton.svelte';
 
 	let {disabled, onSend}: {disabled: boolean; onSend?: () => void} = $props();
@@ -16,6 +18,9 @@
 	let text = $state('');
 	let enterToSend = $state(true);
 	let queuedText = $state<string | null>(null);
+
+	let fileInput = $state<HTMLInputElement>();
+	let attachments = $state<{ name: string; path?: string; error?: string; uploading: boolean }[]>([]);
 
 	let streaming = $derived($isStreaming);
 	let readOnly = $derived($isReadOnly);
@@ -25,6 +30,13 @@
 
 	let effectivelyDisabled = $derived(
 		disabled || readOnly || !sessionInfo.sessionId || !!queuedText,
+	);
+
+	let isAnyUploading = $derived(attachments.some(a => a.uploading));
+	let canSend = $derived(
+		!effectivelyDisabled &&
+		!isAnyUploading &&
+		(text.trim().length > 0 || attachments.length > 0)
 	);
 
 	let textarea = $state<HTMLTextAreaElement>();
@@ -72,12 +84,78 @@
 		setTimeout(() => textarea?.focus(), 0);
 	}
 
+	async function handleFileChange(e: Event) {
+		const target = e.target as HTMLInputElement;
+		if (!target.files) return;
+		const files = Array.from(target.files);
+		target.value = '';
+
+		const startIdx = attachments.length;
+		attachments = [
+			...attachments,
+			...files.map((f) => ({ name: f.name, uploading: true })),
+		];
+
+		for (let i = 0; i < files.length; i++) {
+			const file = files[i];
+			const idx = startIdx + i;
+			try {
+				if (!sessionInfo.sessionId) {
+					throw new Error('No active session');
+				}
+				const res = await uploadFile(sessionInfo.sessionId, file);
+				attachments = attachments.map((a, currentIdx) =>
+					currentIdx === idx
+						? { name: file.name, path: res.savedPath, uploading: false }
+						: a,
+				);
+			} catch (err) {
+				const errMsg = (err as Error).message || 'Failed to upload';
+				console.error('File upload error details:', err);
+
+				// Build a diagnostics target URL (/health)
+				let targetUrl = '';
+				try {
+					const baseUrl = getBaseUrl();
+					const token = getToken();
+					targetUrl = `${baseUrl}/health${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+				} catch (e) {}
+
+				attachments = attachments.map((a, currentIdx) =>
+					currentIdx === idx
+						? { name: file.name, error: errMsg, url: targetUrl, uploading: false } as any
+						: a,
+				);
+			}
+		}
+	}
+
+	function removeAttachment(index: number) {
+		attachments = attachments.filter((_, idx) => idx !== index);
+	}
+
 	function handleSend() {
 		const trimmed = text.trim();
-		if (!trimmed) return;
+		if (!trimmed && attachments.length === 0) return;
+
+		let messageToSend = trimmed;
+		if (attachments.length > 0) {
+			const validAttachments = attachments.filter((a) => a.path);
+			if (validAttachments.length > 0) {
+				const fileLines = validAttachments
+					.map((a) => `[Uploaded file: ${a.path}]`)
+					.join('\n');
+
+				if (messageToSend) {
+					messageToSend += '\n\n' + fileLines;
+				} else {
+					messageToSend = `I have uploaded the following file(s) for you:\n${fileLines}`;
+				}
+			}
+		}
 
 		// Handle local slash commands to match terminal behavior
-		if (trimmed.startsWith('/')) {
+		if (trimmed.startsWith('/') && attachments.length === 0) {
 			const lower = trimmed.toLowerCase();
 			if (lower === '/new' || lower === '/reset') {
 				if (sessionInfo.cwd) {
@@ -100,10 +178,13 @@
 		}
 
 		if (streaming) {
-			queuedText = trimmed;
-		} else {
-			sendMessage(trimmed);
+			queuedText = messageToSend;
 			text = '';
+			attachments = [];
+		} else {
+			sendMessage(messageToSend);
+			text = '';
+			attachments = [];
 			onSend?.();
 		}
 	}
@@ -146,56 +227,111 @@
 			{/if}
 		</div>
 	{/if}
+	{#if attachments.length > 0}
+		<div class="mb-3 flex flex-wrap gap-2">
+			{#each attachments as attachment, index}
+				<div class="flex items-center gap-2 rounded bg-gray-800 px-2.5 py-1.5 text-xs border border-gray-700">
+					<span class="max-w-[150px] truncate font-medium text-gray-200" title={attachment.name}>
+						{attachment.name}
+					</span>
+					{#if attachment.uploading}
+						<span class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-blue-500 border-t-transparent"></span>
+					{:else if attachment.error}
+						<span class="text-red-400 font-medium text-[10px] flex items-center gap-1" title={attachment.error}>
+							<span class="truncate max-w-[120px]">⚠️ {attachment.error}</span>
+							{#if (attachment as any).url}
+								<a href={(attachment as any).url} target="_blank" class="underline text-blue-400 hover:text-blue-300 font-semibold shrink-0 ml-1">
+									[Test Link]
+								</a>
+							{/if}
+						</span>
+					{:else}
+						<span class="text-emerald-500">✓</span>
+					{/if}
+					<button
+						type="button"
+						onclick={() => removeAttachment(index)}
+						class="ml-1 text-gray-400 hover:text-white font-bold"
+					>
+						×
+					</button>
+				</div>
+			{/each}
+		</div>
+	{/if}
 	<form
 		onsubmit={(e) => {
 			e.preventDefault();
 			handleSend();
 		}}
-		class="flex items-end gap-2"
+		class="flex items-stretch gap-3"
 	>
-		<textarea
-			bind:this={textarea}
-			bind:value={text}
-			onkeydown={handleKeydown}
-			disabled={effectivelyDisabled}
-			rows={1}
-			placeholder={queuedText
-				? 'Message is queued...'
-				: streaming
-					? 'Agent is working (type next message...)'
-					: readOnly
-						? 'Read-only mode'
-						: !sessionInfo.sessionId
-							? 'Select a session first...'
-							: 'Type a message...'}
-			class="h-auto max-h-48 min-h-[48px] flex-1 resize-none overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 px-4 py-3 leading-relaxed text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none disabled:opacity-50"
-		></textarea>
-		<SpeechButton
-			bind:text
-			disabled={effectivelyDisabled}
-			onSend={handleSend}
-		/>
-		{#if queuedText}
+		<div class="flex-1 min-w-0">
+			<textarea
+				bind:this={textarea}
+				bind:value={text}
+				onkeydown={handleKeydown}
+				disabled={effectivelyDisabled}
+				rows={1}
+				placeholder={queuedText
+					? 'Message is queued...'
+					: streaming
+						? 'Agent is working (type next message...)'
+						: readOnly
+							? 'Read-only mode'
+							: !sessionInfo.sessionId
+								? 'Select a session first...'
+								: 'Type a message...'}
+				class="h-full min-h-[120px] max-h-48 w-full resize-none overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 px-4 py-3 leading-relaxed text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none disabled:opacity-50"
+			></textarea>
+		</div>
+
+		<div class="flex flex-col gap-2 justify-end shrink-0 w-[80px]">
 			<button
 				type="button"
-				onclick={handleUnqueue}
-				class="flex h-[48px] shrink-0 items-center justify-center rounded-lg bg-amber-600 px-6 py-3 font-medium text-white transition-colors hover:bg-amber-700"
+				onclick={() => fileInput?.click()}
+				disabled={effectivelyDisabled}
+				class="flex h-[40px] w-full items-center justify-center rounded-lg border border-gray-600 bg-gray-800 text-gray-400 transition-colors hover:bg-gray-700 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+				title="Attach file (image or document)"
 			>
-				Unqueue
+				📎
 			</button>
-		{:else}
-			<button
-				type="submit"
-				disabled={effectivelyDisabled || !text.trim()}
-				class="flex h-[48px] shrink-0 items-center justify-center rounded-lg bg-blue-600 px-6 py-3 font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-600"
-			>
-				{#if streaming}
-					Queue
-				{:else}
-					Send
-				{/if}
-			</button>
-		{/if}
+			<input
+				bind:this={fileInput}
+				type="file"
+				multiple
+				onchange={handleFileChange}
+				class="hidden"
+			/>
+			<div class="w-full flex justify-center">
+				<SpeechButton
+					bind:text
+					disabled={effectivelyDisabled}
+					onSend={handleSend}
+				/>
+			</div>
+			{#if queuedText}
+				<button
+					type="button"
+					onclick={handleUnqueue}
+					class="flex h-[40px] w-full items-center justify-center rounded-lg bg-amber-600 text-xs font-medium text-white transition-colors hover:bg-amber-700"
+				>
+					Unqueue
+				</button>
+			{:else}
+				<button
+					type="submit"
+					disabled={!canSend}
+					class="flex h-[40px] w-full items-center justify-center rounded-lg bg-blue-600 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-600"
+				>
+					{#if streaming}
+						Queue
+					{:else}
+						Send
+					{/if}
+				</button>
+			{/if}
+		</div>
 	</form>
 
 	<div

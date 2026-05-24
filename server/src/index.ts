@@ -3,7 +3,7 @@ import { createServer as createHttpServer, type IncomingMessage, type ServerResp
 import { createServer as createHttpsServer, request as httpRequest } from 'node:https';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent';
-import { SessionPool, getPiRemoteConfig } from './session-pool.js';
+import { SessionPool, getPiRemoteConfig, type PiRemoteConfig } from './session-pool.js';
 import type { ClientMessage, ServerMessage } from './protocol.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -118,6 +118,27 @@ function authenticate(req: IncomingMessage, token?: string): boolean {
   const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
   const provided = url.searchParams.get('token') || req.headers.authorization?.replace('Bearer ', '') || '';
   return provided === token;
+}
+
+function resolveUploadDir(config: PiRemoteConfig, cwd?: string): string {
+  const type = config.uploads?.type || 'tmp';
+
+  if (type === 'session' && cwd) {
+    const subDir = config.uploads?.subDir || '.pi-remote/uploads';
+    const resolved = path.resolve(cwd, subDir);
+    return resolved;
+  }
+
+  if (type === 'custom' && config.uploads?.dir) {
+    let customDir = config.uploads.dir;
+    if (customDir.startsWith('~')) {
+      customDir = path.join(os.homedir(), customDir.slice(1));
+    }
+    return path.resolve(customDir);
+  }
+
+  // Default to tmp
+  return os.tmpdir();
 }
 
 function sendJSON(res: ServerResponse, status: number, data: unknown): void {
@@ -618,6 +639,48 @@ async function main(): Promise<void> {
       return;
     }
 
+    if (pathname === '/session/upload' && req.method === 'POST') {
+      try {
+        const qSessionId = url.searchParams.get('sessionId') || '';
+        const qFilename = url.searchParams.get('filename') || '';
+
+        if (!qSessionId || !qFilename) {
+          sendJSON(res, 400, { error: 'Missing sessionId or filename' });
+          return;
+        }
+
+        const tracked = sessionPool.getSession(qSessionId);
+        const cwd = tracked?.cwd;
+
+        const config = getPiRemoteConfig();
+        const targetDir = resolveUploadDir(config, cwd);
+
+        fs.mkdirSync(targetDir, { recursive: true });
+
+        const timestamp = Date.now();
+        const safeFilename = `${timestamp}_${path.basename(qFilename)}`;
+        const destPath = path.join(targetDir, safeFilename);
+
+        const writeStream = fs.createWriteStream(destPath);
+        req.pipe(writeStream);
+
+        writeStream.on('finish', () => {
+          sendJSON(res, 200, {
+            status: 'uploaded',
+            filename: qFilename,
+            savedPath: destPath
+          });
+        });
+
+        writeStream.on('error', (err) => {
+          sendJSON(res, 500, { error: `Failed to write file: ${err.message}` });
+        });
+      } catch (err) {
+        sendJSON(res, 500, { error: `Upload error: ${(err as Error).message}` });
+      }
+      return;
+    }
+
     if (pathname === '/session/transcribe' && req.method === 'POST') {
       const config = getPiRemoteConfig();
       const apiKey = config.speech?.apiKey || process.env.SPEECH_API_KEY;
@@ -1113,6 +1176,52 @@ async function handleWSMessage(
             sendWS(c.ws, modelChangedMsg);
           }
         }
+      }
+      break;
+    }
+
+    case 'file_upload': {
+      const { uploadId, sessionId, filename, data } = msg as any;
+      if (!uploadId || !sessionId || !filename || !data) {
+        sendWS(client.ws, {
+          type: 'file_upload_error',
+          uploadId: uploadId || '',
+          sessionId: sessionId || '',
+          error: 'Missing parameters for file upload'
+        });
+        break;
+      }
+
+      try {
+        const tracked = pool.getSession(sessionId);
+        const cwd = tracked?.cwd;
+
+        const config = getPiRemoteConfig();
+        const targetDir = resolveUploadDir(config, cwd);
+
+        fs.mkdirSync(targetDir, { recursive: true });
+
+        const timestamp = Date.now();
+        const safeFilename = `${timestamp}_${path.basename(filename)}`;
+        const destPath = path.join(targetDir, safeFilename);
+
+        const fileBuffer = Buffer.from(data, 'base64');
+        fs.writeFileSync(destPath, fileBuffer);
+
+        sendWS(client.ws, {
+          type: 'file_uploaded',
+          uploadId,
+          sessionId,
+          filename,
+          savedPath: destPath
+        });
+      } catch (err) {
+        sendWS(client.ws, {
+          type: 'file_upload_error',
+          uploadId,
+          sessionId,
+          error: (err as Error).message || 'Failed to save file'
+        });
       }
       break;
     }

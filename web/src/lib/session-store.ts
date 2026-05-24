@@ -57,15 +57,25 @@ export const availableModels = writable<ModelsStoreData>({
 	loading: false,
 });
 
-function getBaseUrl(): string {
+export function getBaseUrl(): string {
 	const config = localStorage.getItem('pi-remote-config');
+	const defaultHost = typeof window !== 'undefined' && window.location && window.location.hostname
+		? window.location.hostname
+		: 'localhost';
+
 	if (config) {
 		const parsed = JSON.parse(config);
 		const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
-		const host = parsed.host.startsWith('http')
-			? parsed.host.replace(/^wss?:\/\//, '')
-			: parsed.host;
-		return `${protocol}//${host}:${parsed.port}`;
+		let host = parsed.host || defaultHost;
+		if (host === 'localhost' || host === '127.0.0.1') {
+			if (defaultHost && defaultHost !== 'localhost' && defaultHost !== '127.0.0.1') {
+				host = defaultHost;
+			}
+		}
+		host = host.startsWith('http')
+			? host.replace(/^wss?:\/\//, '')
+			: host;
+		return `${protocol}//${host}:${parsed.port || 8765}`;
 	}
 	return `${window.location.protocol}//${window.location.host}`;
 }
@@ -112,7 +122,7 @@ export async function fetchModels(): Promise<void> {
 	}
 }
 
-function getToken(): string {
+export function getToken(): string {
 	try {
 		const config = localStorage.getItem('pi-remote-config');
 		if (config) {

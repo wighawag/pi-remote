@@ -22,3 +22,6 @@ This project uses `@changesets/cli` for versioning and package publishing.
 
 ## 2. Document Your Changes
 If you modify APIs, protocols, or core behaviors, update `CONTEXT.md` or any relevant files under `docs/` so subsequent sessions stay perfectly aligned.
+
+## 3. Never Stage or Commit Changes unless Explicitly Asked
+Do not run `git add` or stage files, and never create a commit yourself unless the user explicitly asks you to do so. Leave all changed files unstaged in the working directory.
