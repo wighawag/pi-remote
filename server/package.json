@@ -1,6 +1,6 @@
 {
   "name": "pi-remote-server",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Standalone multi-session server for pi coding agent",
   "homepage": "https://github.com/wighawag/pi-remote#readme",
   "repository": {
