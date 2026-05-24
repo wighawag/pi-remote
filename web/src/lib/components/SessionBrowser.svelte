@@ -623,7 +623,8 @@
 												class="h-2 w-2 flex-shrink-0 rounded-full bg-green-500"
 											></span>
 										{:else}
-											<span class="h-2 w-2 flex-shrink-0 rounded-full bg-gray-600"
+											<span
+												class="h-2 w-2 flex-shrink-0 rounded-full bg-gray-600"
 											></span>
 										{/if}
 										<div class="min-w-0 flex-1">
@@ -648,13 +649,15 @@
 									<!-- Delete button with confirm state -->
 									<div class="flex-shrink-0">
 										{#if confirmingDelete === session.path}
-											<div class="flex items-center gap-1 bg-gray-800/80 px-1 py-0.5 rounded border border-red-500/30">
+											<div
+												class="flex items-center gap-1 rounded border border-red-500/30 bg-gray-800/80 px-1 py-0.5"
+											>
 												<button
 													onclick={(e) => {
 														e.stopPropagation();
 														handleDeleteSession(session.path);
 													}}
-													class="text-red-500 font-bold px-1.5 text-xs hover:text-red-400 focus:outline-none"
+													class="px-1.5 text-xs font-bold text-red-500 hover:text-red-400 focus:outline-none"
 													title="Confirm Delete"
 												>
 													❓
@@ -664,7 +667,7 @@
 														e.stopPropagation();
 														confirmingDelete = null;
 													}}
-													class="text-gray-400 hover:text-white px-1.5 text-[10px] focus:outline-none"
+													class="px-1.5 text-[10px] text-gray-400 hover:text-white focus:outline-none"
 													title="Cancel"
 												>
 													✕
@@ -676,7 +679,7 @@
 													e.stopPropagation();
 													confirmingDelete = session.path;
 												}}
-												class="text-gray-500 hover:text-red-400 p-1 text-xs focus:outline-none md:opacity-0 md:group-hover:opacity-100 transition-opacity"
+												class="p-1 text-xs text-gray-500 transition-opacity hover:text-red-400 focus:outline-none md:opacity-0 md:group-hover:opacity-100"
 												title="Delete session"
 											>
 												✕

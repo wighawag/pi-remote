@@ -59,22 +59,25 @@ export const availableModels = writable<ModelsStoreData>({
 
 export function getBaseUrl(): string {
 	const config = localStorage.getItem('pi-remote-config');
-	const defaultHost = typeof window !== 'undefined' && window.location && window.location.hostname
-		? window.location.hostname
-		: 'localhost';
+	const defaultHost =
+		typeof window !== 'undefined' && window.location && window.location.hostname
+			? window.location.hostname
+			: 'localhost';
 
 	if (config) {
 		const parsed = JSON.parse(config);
 		const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
 		let host = parsed.host || defaultHost;
 		if (host === 'localhost' || host === '127.0.0.1') {
-			if (defaultHost && defaultHost !== 'localhost' && defaultHost !== '127.0.0.1') {
+			if (
+				defaultHost &&
+				defaultHost !== 'localhost' &&
+				defaultHost !== '127.0.0.1'
+			) {
 				host = defaultHost;
 			}
 		}
-		host = host.startsWith('http')
-			? host.replace(/^wss?:\/\//, '')
-			: host;
+		host = host.startsWith('http') ? host.replace(/^wss?:\/\//, '') : host;
 		return `${protocol}//${host}:${parsed.port || 8765}`;
 	}
 	return `${window.location.protocol}//${window.location.host}`;

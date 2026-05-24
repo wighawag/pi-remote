@@ -17,7 +17,7 @@
 	import {onMount} from 'svelte';
 
 	function parseUserMessage(content: string) {
-		if (!content) return { cleanContent: '', attachments: [] };
+		if (!content) return {cleanContent: '', attachments: []};
 		const lines = content.split('\n');
 		const fileRegex = /^\[Uploaded file: (.+)\]$/;
 		const cleanLines: string[] = [];
@@ -36,7 +36,7 @@
 		if (cleanContent === 'I have uploaded the following file(s) for you:') {
 			cleanContent = '';
 		}
-		return { cleanContent, attachments };
+		return {cleanContent, attachments};
 	}
 
 	let newFolderCwd = $state('');
@@ -720,7 +720,10 @@
 			</div>
 		</div>
 	{:else}
-		<div bind:this={messageList} class="flex-1 space-y-4 overflow-y-auto overscroll-y-contain p-4">
+		<div
+			bind:this={messageList}
+			class="flex-1 space-y-4 overflow-y-auto overscroll-y-contain p-4"
+		>
 			{#each msgList as msg (msg.id)}
 				<div
 					class="flex {msg.role === 'user' ? 'justify-end' : 'justify-start'}"
@@ -853,7 +856,11 @@
 								{#if parsedUserMsg.cleanContent}
 									{parsedUserMsg.cleanContent}
 								{:else if parsedUserMsg.attachments.length > 0}
-									<span class="italic text-blue-200">Shared file{parsedUserMsg.attachments.length > 1 ? 's' : ''} with agent:</span>
+									<span class="text-blue-200 italic"
+										>Shared file{parsedUserMsg.attachments.length > 1
+											? 's'
+											: ''} with agent:</span
+									>
 								{:else}
 									{msg.content || (msg.isStreaming ? 'Thinking...' : '')}
 								{/if}
@@ -864,9 +871,13 @@
 								{/if}
 							</div>
 							{#if parsedUserMsg.attachments.length > 0}
-								<div class="mt-2 flex flex-col gap-1 border-t border-blue-500/30 pt-2">
+								<div
+									class="mt-2 flex flex-col gap-1 border-t border-blue-500/30 pt-2"
+								>
 									{#each parsedUserMsg.attachments as filePath}
-										<div class="flex items-center gap-1.5 rounded bg-blue-700/50 px-2 py-1 font-mono text-xs text-blue-100 select-all">
+										<div
+											class="flex items-center gap-1.5 rounded bg-blue-700/50 px-2 py-1 font-mono text-xs text-blue-100 select-all"
+										>
 											<span>📎</span>
 											<span class="truncate" title={filePath}>{filePath}</span>
 										</div>

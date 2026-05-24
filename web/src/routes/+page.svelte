@@ -146,7 +146,9 @@
 
 <Head title="Pi Remote" description="Chat with your Pi coding agent remotely" />
 
-<div class="fixed inset-0 flex overflow-hidden bg-gray-900 text-white overscroll-none">
+<div
+	class="fixed inset-0 flex overflow-hidden overscroll-none bg-gray-900 text-white"
+>
 	<!-- Sidebar -->
 	<div
 		class="{sidebarOpen

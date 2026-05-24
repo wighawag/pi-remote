@@ -1,6 +1,12 @@
 import {writable, derived, get} from 'svelte/store';
 import type {ConflictInfo} from './session-store';
-import {setCurrentSession, getBaseUrl, getToken, uploadMethodStore, fetchSessions} from './session-store';
+import {
+	setCurrentSession,
+	getBaseUrl,
+	getToken,
+	uploadMethodStore,
+	fetchSessions,
+} from './session-store';
 
 export interface ChatMessage {
 	id: string;
@@ -53,7 +59,10 @@ const defaultState: PiRemoteState = {
 
 const state = writable<PiRemoteState>(defaultState);
 let ws: WebSocket | null = null;
-const pendingUploads = new Map<string, { resolve: (val: any) => void, reject: (err: any) => void }>();
+const pendingUploads = new Map<
+	string,
+	{resolve: (val: any) => void; reject: (err: any) => void}
+>();
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
@@ -165,7 +174,7 @@ export function connect() {
 				case 'file_uploaded': {
 					const pending = pendingUploads.get(msg.uploadId);
 					if (pending) {
-						pending.resolve({ savedPath: msg.savedPath, filename: msg.filename });
+						pending.resolve({savedPath: msg.savedPath, filename: msg.filename});
 						pendingUploads.delete(msg.uploadId);
 					}
 					break;
@@ -808,9 +817,7 @@ async function uploadFileViaPost(
 
 	if (!res.ok) {
 		const errData = await res.json().catch(() => ({}));
-		throw new Error(
-			errData.error || `Upload failed with status ${res.status}`,
-		);
+		throw new Error(errData.error || `Upload failed with status ${res.status}`);
 	}
 
 	return await res.json();
@@ -834,7 +841,7 @@ function uploadFileViaWebSocket(
 					const base64Data = result.split(',')[1] || '';
 
 					const uploadId = generateId();
-					pendingUploads.set(uploadId, { resolve, reject });
+					pendingUploads.set(uploadId, {resolve, reject});
 
 					ws!.send(
 						JSON.stringify({
@@ -846,7 +853,9 @@ function uploadFileViaWebSocket(
 						}),
 					);
 				} catch (err) {
-					reject(new Error(`Failed to process file data: ${(err as Error).message}`));
+					reject(
+						new Error(`Failed to process file data: ${(err as Error).message}`),
+					);
 				}
 			};
 			reader.onerror = () => {
@@ -882,7 +891,7 @@ export async function deleteSession(sessionFile: string): Promise<void> {
 			headers: {
 				'Content-Type': 'application/json',
 			},
-			body: JSON.stringify({ sessionFile }),
+			body: JSON.stringify({sessionFile}),
 		});
 
 		if (!res.ok) {

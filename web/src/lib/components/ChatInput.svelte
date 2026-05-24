@@ -21,7 +21,9 @@
 	let isCollapsed = $state(false);
 
 	let fileInput = $state<HTMLInputElement>();
-	let attachments = $state<{ name: string; path?: string; error?: string; uploading: boolean }[]>([]);
+	let attachments = $state<
+		{name: string; path?: string; error?: string; uploading: boolean}[]
+	>([]);
 
 	let streaming = $derived($isStreaming);
 	let readOnly = $derived($isReadOnly);
@@ -33,11 +35,11 @@
 		disabled || readOnly || !sessionInfo.sessionId || !!queuedText,
 	);
 
-	let isAnyUploading = $derived(attachments.some(a => a.uploading));
+	let isAnyUploading = $derived(attachments.some((a) => a.uploading));
 	let canSend = $derived(
 		!effectivelyDisabled &&
-		!isAnyUploading &&
-		(text.trim().length > 0 || attachments.length > 0)
+			!isAnyUploading &&
+			(text.trim().length > 0 || attachments.length > 0),
 	);
 
 	let textarea = $state<HTMLTextAreaElement>();
@@ -94,7 +96,7 @@
 		const startIdx = attachments.length;
 		attachments = [
 			...attachments,
-			...files.map((f) => ({ name: f.name, uploading: true })),
+			...files.map((f) => ({name: f.name, uploading: true})),
 		];
 
 		for (let i = 0; i < files.length; i++) {
@@ -107,7 +109,7 @@
 				const res = await uploadFile(sessionInfo.sessionId, file);
 				attachments = attachments.map((a, currentIdx) =>
 					currentIdx === idx
-						? { name: file.name, path: res.savedPath, uploading: false }
+						? {name: file.name, path: res.savedPath, uploading: false}
 						: a,
 				);
 			} catch (err) {
@@ -124,7 +126,12 @@
 
 				attachments = attachments.map((a, currentIdx) =>
 					currentIdx === idx
-						? { name: file.name, error: errMsg, url: targetUrl, uploading: false } as any
+						? ({
+								name: file.name,
+								error: errMsg,
+								url: targetUrl,
+								uploading: false,
+							} as any)
 						: a,
 				);
 			}
@@ -236,7 +243,7 @@
 					isCollapsed = false;
 					setTimeout(() => textarea?.focus(), 50);
 				}}
-				class="w-full flex items-center justify-between rounded-lg border border-gray-600 bg-gray-800 px-4 py-2.5 text-gray-400 hover:bg-gray-700 hover:text-white transition-all text-sm"
+				class="flex w-full items-center justify-between rounded-lg border border-gray-600 bg-gray-800 px-4 py-2.5 text-sm text-gray-400 transition-all hover:bg-gray-700 hover:text-white"
 			>
 				<span class="flex items-center gap-2">
 					<span>💬</span>
@@ -254,24 +261,42 @@
 						{/if}
 					</span>
 				</span>
-				<span class="text-xs bg-gray-700 px-2 py-1 rounded text-gray-300 font-medium hover:bg-gray-600 transition-colors">Expand ▲</span>
+				<span
+					class="rounded bg-gray-700 px-2 py-1 text-xs font-medium text-gray-300 transition-colors hover:bg-gray-600"
+					>Expand ▲</span
+				>
 			</button>
 		</div>
 	{:else}
 		{#if attachments.length > 0}
 			<div class="mb-3 flex flex-wrap gap-2">
 				{#each attachments as attachment, index}
-					<div class="flex items-center gap-2 rounded bg-gray-800 px-2.5 py-1.5 text-xs border border-gray-700">
-						<span class="max-w-[150px] truncate font-medium text-gray-200" title={attachment.name}>
+					<div
+						class="flex items-center gap-2 rounded border border-gray-700 bg-gray-800 px-2.5 py-1.5 text-xs"
+					>
+						<span
+							class="max-w-[150px] truncate font-medium text-gray-200"
+							title={attachment.name}
+						>
 							{attachment.name}
 						</span>
 						{#if attachment.uploading}
-							<span class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-blue-500 border-t-transparent"></span>
+							<span
+								class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-blue-500 border-t-transparent"
+							></span>
 						{:else if attachment.error}
-							<span class="text-red-400 font-medium text-[10px] flex items-center gap-1" title={attachment.error}>
-								<span class="truncate max-w-[120px]">⚠️ {attachment.error}</span>
+							<span
+								class="flex items-center gap-1 text-[10px] font-medium text-red-400"
+								title={attachment.error}
+							>
+								<span class="max-w-[120px] truncate">⚠️ {attachment.error}</span
+								>
 								{#if (attachment as any).url}
-									<a href={(attachment as any).url} target="_blank" class="underline text-blue-400 hover:text-blue-300 font-semibold shrink-0 ml-1">
+									<a
+										href={(attachment as any).url}
+										target="_blank"
+										class="ml-1 shrink-0 font-semibold text-blue-400 underline hover:text-blue-300"
+									>
 										[Test Link]
 									</a>
 								{/if}
@@ -282,7 +307,7 @@
 						<button
 							type="button"
 							onclick={() => removeAttachment(index)}
-							class="ml-1 text-gray-400 hover:text-white font-bold"
+							class="ml-1 font-bold text-gray-400 hover:text-white"
 						>
 							×
 						</button>
@@ -297,7 +322,7 @@
 			}}
 			class="flex items-stretch gap-3"
 		>
-			<div class="flex-1 min-w-0">
+			<div class="min-w-0 flex-1">
 				<textarea
 					bind:this={textarea}
 					bind:value={text}
@@ -313,16 +338,16 @@
 								: !sessionInfo.sessionId
 									? 'Select a session first...'
 									: 'Type a message...'}
-					class="h-full min-h-[120px] max-h-48 w-full resize-none overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 px-4 py-3 leading-relaxed text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none disabled:opacity-50"
+					class="h-full max-h-48 min-h-[120px] w-full resize-none overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 px-4 py-3 leading-relaxed text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none disabled:opacity-50"
 				></textarea>
 			</div>
 
-			<div class="flex flex-col gap-2 justify-end shrink-0 w-[80px]">
+			<div class="flex w-[80px] shrink-0 flex-col justify-end gap-2">
 				<button
 					type="button"
 					onclick={() => fileInput?.click()}
 					disabled={effectivelyDisabled}
-					class="flex h-[40px] w-full items-center justify-center rounded-lg border border-gray-600 bg-gray-800 text-gray-400 transition-colors hover:bg-gray-700 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+					class="flex h-[40px] w-full items-center justify-center rounded-lg border border-gray-600 bg-gray-800 text-gray-400 transition-colors hover:bg-gray-700 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
 					title="Attach file (image or document)"
 				>
 					📎
@@ -334,7 +359,7 @@
 					onchange={handleFileChange}
 					class="hidden"
 				/>
-				<div class="w-full flex justify-center">
+				<div class="flex w-full justify-center">
 					<SpeechButton
 						bind:text
 						disabled={effectivelyDisabled}
@@ -368,7 +393,9 @@
 		<div
 			class="mt-2 flex items-center justify-between px-1 text-[11px] text-gray-400 select-none"
 		>
-			<label class="flex cursor-pointer items-center gap-1.5 hover:text-gray-300">
+			<label
+				class="flex cursor-pointer items-center gap-1.5 hover:text-gray-300"
+			>
 				<input
 					type="checkbox"
 					checked={enterToSend}
@@ -380,13 +407,13 @@
 			<div class="flex items-center gap-3">
 				<button
 					type="button"
-					onclick={() => isCollapsed = true}
-					class="rounded bg-gray-700/50 px-2 py-0.5 text-xs text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
+					onclick={() => (isCollapsed = true)}
+					class="rounded bg-gray-700/50 px-2 py-0.5 text-xs text-gray-300 transition-colors hover:bg-gray-700 hover:text-white"
 				>
 					Collapse ▽
 				</button>
 				{#if !enterToSend}
-					<span class="font-mono opacity-60 hidden sm:inline">
+					<span class="hidden font-mono opacity-60 sm:inline">
 						Shift+Enter to send
 					</span>
 				{/if}
