@@ -279,7 +279,13 @@ export function connect() {
 					break;
 
 				case 'agent_end':
-					state.update((s: PiRemoteState) => ({...s, isStreaming: false}));
+					state.update((s: PiRemoteState) => ({
+						...s,
+						isStreaming: false,
+						messages: s.messages.map((m: ChatMessage) =>
+							m.isStreaming ? {...m, isStreaming: false} : m,
+						),
+					}));
 					break;
 
 				case 'tool_start':
@@ -289,15 +295,29 @@ export function connect() {
 								.map(([k, v]) => `${k}=${JSON.stringify(v)}`)
 								.join(' ')
 						: '';
-					addMessage({
-						role: 'tool',
-						content: toolArgs
-							? `$ ${msg.toolName} ${toolArgs}`
-							: `$ ${msg.toolName}`,
-						isStreaming: true,
-						toolName: msg.toolName,
-						toolArgs: toolArgs,
-						toolOutput: '',
+					state.update((s: PiRemoteState) => {
+						// Finalize any streaming assistant or thinking messages
+						const finalizedMessages = s.messages.map((m: ChatMessage) =>
+							m.isStreaming && (m.role === 'assistant' || m.role === 'thinking')
+								? {...m, isStreaming: false}
+								: m,
+						);
+						const newMsg: ChatMessage = {
+							id: generateId(),
+							role: 'tool',
+							content: toolArgs
+								? `$ ${msg.toolName} ${toolArgs}`
+								: `$ ${msg.toolName}`,
+							timestamp: Date.now(),
+							isStreaming: true,
+							toolName: msg.toolName,
+							toolArgs: toolArgs,
+							toolOutput: '',
+						};
+						return {
+							...s,
+							messages: [...finalizedMessages, newMsg],
+						};
 					});
 					break;
 
@@ -347,7 +367,13 @@ export function connect() {
 				}
 
 				case 'aborted':
-					state.update((s: PiRemoteState) => ({...s, isStreaming: false}));
+					state.update((s: PiRemoteState) => ({
+						...s,
+						isStreaming: false,
+						messages: s.messages.map((m: ChatMessage) =>
+							m.isStreaming ? {...m, isStreaming: false} : m,
+						),
+					}));
 					break;
 
 				case 'session_created':

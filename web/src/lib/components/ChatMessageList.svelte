@@ -242,6 +242,7 @@
 		$messages.filter(
 			(msg) =>
 				(msg.role !== 'assistant' && msg.role !== 'thinking') ||
+				msg.isStreaming ||
 				msg.content.trim() !== '',
 		),
 	);
