@@ -20,18 +20,69 @@ It allows you to manage multiple pi sessions concurrently across your workspace 
 └────────────────────────────────────────────────────────┘
 ```
 
+---
+
+## Key Features Breakdown
+
+### 🔄 Collaborative CLI Mirroring & Reconnection
+* **Bidirectional Sync:** The terminal CLI process and Svelte web dashboard mirror each other's inputs, agent reasoning/thinking steps, tool execution starts, tool outputs, and results in real-time.
+* **Auto-Recovery:** Built-in background reconnection with exponential backoff guarantees that the CLI bridge and Standalone Server automatically pair up whenever either process starts or restarts.
+
+### 🔌 Seamless Headless / Bridge Handover
+* **Continuous Flow:** Close your terminal CLI, and the Standalone Server automatically transitions the active session to a server-side headless session running on the Pi SDK.
+* **Zero Disruption:** Re-open your terminal CLI, and control is instantly handed back to your CLI—with zero data loss, zero database lock conflicts, and perfect continuity.
+
+### 🎙️ WAV Dictation & Speech-to-Text (Voice Control)
+* **Direct PCM Web Audio Capture:** Bypasses heavy `MediaRecorder` browser encoding, streaming raw audio chunks directly to an in-memory buffer for instant, zero-latency WAV creation.
+* **Audible Chime Cue:** Emits a synthesized starting beep so you know exactly when the microphone is listening and when to speak.
+* **Dual Gesture Control:** Supports both standard click-to-start/stop recording or hold-to-talk (walkie-talkie style) controls.
+* **Color-Coded Feedback:** Features distinct pulsing red indicators for active recording and solid orange/yellow indicators during cloud processing & downsampling.
+* **Dual Transcription Engines:** Transcribe locally using the browser’s Web Speech API, or route to highly accurate server-side cloud speech-to-text engines (configured to Zhipu GLM-ASR-2512 or any OpenAI-compatible Whisper endpoint).
+
+### 💻 Direct Bash Execution (`!` and `!!`)
+* **Terminal Power:** Execute bash commands directly from the Svelte web frontend by prefixing them with `!` or `!!` (e.g., `!ls`, `!!git status`), matching the pi CLI's interactive behavior.
+* **Real-Time Streaming:** Streams tool execution stdout/stderr chunks back to the dashboard in real-time, capturing output and exit codes directly into the session history.
+
+### 📁 Multi-Modal File & Image Uploads
+* **Rich Context Support:** Upload documents, screenshots, and diagrams for multi-modal agent processing, automatically appending absolute paths to your active message box.
+* **Secure Hybrid Transport:** Upload via Base64 over WebSockets (immune to mobile browser self-signed SSL certificate blocks or CORS limitations) or standard HTTP multipart POST.
+* **Custom Storage Backends:** Highly configurable file target backends, allowing you to save files to `/tmp`, store them directly within the session's workspace (`cwd`) under a custom subdirectory (e.g. `.pi-remote/uploads`), or save them to a custom absolute directory on the server.
+
+### 🔍 Smart Path Autocomplete & Verification
+* **Path Suggestions:** Autocompletes folder path inputs on session creation from preset lists (`commonFolders`) and real-time directory lookups.
+* **Folder Validation:** Instantly queries path status to verify if the directory exists and check if it is already initialized as a Git repository.
+
+### 🐙 Automatic Git & Remote Repo Setup
+* **Automatic Init:** Automatically runs `git init` on newly created folders that are not already under git source control.
+* **CLI Remote Provisioning:** When a folder matches configured regular expression rules, the server automatically executes the provider's CLI (such as `gh` for GitHub, or `tea`/`cb` for Gitea/Codeberg/Forgejo) to provision a new public or private repository on the host, setting up your `origin` remote automatically.
+
+### 🗂️ Polished Folder Browser & Sidebar
+* **Folder Grouping:** Displays active and archived sessions grouped neatly by folder.
+* **Collapsible Trees:** Folders are compressed by default to keep the sidebar extremely clean.
+* **Inline Deletion:** Support for direct session deletion with an inline double-confirmation step, syncing deletions across all connected clients.
+* **Unified Search:** Search and filter active or archived sessions by title, first message, or workspace folder names.
+
+### 🛑 Collision & Conflict Resolution
+* **Directory Overlap Protection:** If you open a workspace in one browser tab while another tab (or device) is actively driving it, the server triggers a **Conflict Resolution Dialog**.
+* **Take Over / Read-Only:** Choose to **Take Over** control (which places the other client into Read-Only Observer Mode) or join as **Read-Only** (to view agent steps, logs, and inputs safely in real-time without interfering).
+
+### 📱 Mobile-Optimized UX & Layout Locks
+* **Visual Viewport Constraining:** Lock page overscroll bouncing specifically tuned for mobile browsers (Firefox/Safari) to prevent visual breakages during keyboard popups and text inputs.
+* **Collapsible Text Input:** Expand or collapse the chat input area on demand for maximum readability and space efficiency on small screens. Click to automatically focus and expand.
+* **Input Queueing:** If you type and send a message while the agent is currently streaming or processing a tool, the input is queued and automatically submitted the instant the agent finishes.
+
+---
+
 ## Installation
 
 There are two ways to install and run Pi Remote: **Quick Install via NPM** (recommended for users), or **Local Development Setup** (for active contributors).
-
----
 
 ### Method A: Quick Install (via NPM) 🚀
 
 This is the easiest and most robust way to run Pi Remote. No cloning or local compiling required!
 
 #### 1. Install the Standalone Server Globally
-Install the Pi Remote Standalone Server command-line tool globally using npm or your favorite package manager:
+Install the Pi Remote Standalone Server command-line tool globally:
 ```bash
 npm install -g pi-remote-server
 ```
@@ -48,6 +99,7 @@ Start the standalone multi-session server:
 pi-remote-server
 ```
 The server will boot up and automatically generate self-signed SSL certificates for a secure `https`/`wss` local environment. Open `https://localhost:8765` in your browser. (The first time, proceed past your browser's SSL warning).
+*(Note: Automatic certificate generation requires `openssl` to be installed on your host system. If `openssl` is missing, the server will gracefully fall back to HTTP/WS).*
 
 #### 4. Run Pi
 Run `pi` as normal in any project folder:
@@ -99,16 +151,6 @@ pnpm --filter ./web dev
 
 ---
 
-## Architecture & Features
-
-- **Multi-Session Management:** Run separate independent pi sessions concurrently across different projects or directories.
-- **Collaborative CLI Mirroring:** Open `pi` in any directory and it automatically connects to the Standalone Server. Your CLI and Web Frontend become mirror images of each other, bidirectionally syncing user inputs, agent thinking, tool executions, and results in real-time.
-- **Robust Connection Recovery:** Built-in background reconnection with exponential backoff makes the CLI and Standalone Server pair automatically whenever either process starts or restarts.
-- **Headless Handover:** Close your terminal CLI, and the Standalone Server automatically transitions the session to a server-side headless session. Re-open your terminal, and control is instantly handed back to your CLI—zero data loss, zero DB lock conflicts.
-- **Folder Session Browser:** Browse active or archived sessions grouped elegantly by workspace folders in your sidebar.
-
----
-
 ## Directory Structure
 
 * **`server/`** — Node.js Standalone HTTP/WebSocket Server managing independent in-process SDK sessions.
@@ -157,7 +199,7 @@ The configuration file is located at `~/.pi/remote/config.json` on the server ma
 * **`remoteRepoRules`** (array of rule objects, Default: `[]`):
   A list of rules to automatically create a remote repository (on GitHub, Codeberg, etc.) and configure the git remote whenever a new session folder matches a RegExp pattern.
 
-* **`uploads`** (object, Default: `{ "type": "tmp" }`):
+* **`uploads`** (object, Default: `{ "type": "tmp", "method": "websocket" }`):
   Configuration for local file uploads (images or documents) sent via the remote client:
   * `type` (string, optional, Default: `'tmp'`): Where to store the uploaded files on the server.
     * `'tmp'`: Saves to the operating system's temporary directory (e.g. `/tmp`).
@@ -165,6 +207,13 @@ The configuration file is located at `~/.pi/remote/config.json` on the server ma
     * `'custom'`: Saves to a specified custom directory on the server.
   * `subDir` (string, optional, Default: `'.pi-remote/uploads'`): The relative directory to use when `type` is set to `'session'`.
   * `dir` (string, optional): The absolute or tilde-expanded (e.g. `~/uploads`) folder path to use when `type` is set to `'custom'`.
+  * `method` (string, optional, Default: `'websocket'`): File transport method. Set to `'websocket'` for secure Base64 WebSocket transfer or `'post'` to fallback to HTTP multipart POST.
+
+* **`speech`** (object, optional):
+  Configuration for cloud speech-to-text transcription:
+  * `apiKey` (string, optional): API Key for the cloud transcription provider. Can also be set via the `SPEECH_API_KEY` environment variable.
+  * `apiUrl` (string, optional, Default: `'https://api.z.ai/api/paas/v4/audio/transcriptions'`): The cloud transcription HTTP endpoint. Can also be set via the `SPEECH_API_URL` environment variable.
+  * `model` (string, optional, Default: `'glm-asr-2512'`): Model ID for transcription (e.g., Whisper models). Can also be set via the `SPEECH_MODEL` environment variable.
 
 ### Rule Object Properties
 Each rule in `remoteRepoRules` can contain:
@@ -195,7 +244,13 @@ Each rule in `remoteRepoRules` can contain:
   ],
   "uploads": {
     "type": "session",
-    "subDir": ".pi-remote/uploads"
+    "subDir": ".pi-remote/uploads",
+    "method": "websocket"
+  },
+  "speech": {
+    "apiKey": "your-cloud-speech-api-key",
+    "apiUrl": "https://api.z.ai/api/paas/v4/audio/transcriptions",
+    "model": "glm-asr-2512"
   }
 }
 ```

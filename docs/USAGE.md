@@ -169,6 +169,32 @@ Gracefully close and clean up an active session (saved database states are untou
   }
   ```
 
+### `POST /session/upload`
+Upload a document or image to the server via standard HTTP multipart POST.
+* **Auth required:** Yes (if token is configured)
+* **Form Data Parameters:**
+  * `sessionId`: The session identifier (UUID or custom ID).
+  * `file`: The binary file upload (image or document).
+* **Response (200 OK):**
+  ```json
+  {
+    "status": "uploaded",
+    "filename": "screenshot.png",
+    "savedPath": "/absolute/path/to/server-storage/screenshot.png"
+  }
+  ```
+
+### `POST /session/transcribe`
+Send a raw WAV voice recording to be transcribed using the configured server-side transcription API (e.g., Zhipu GLM-ASR-2512 or OpenAI Whisper).
+* **Auth required:** Yes (if token is configured)
+* **Request Body:** Raw binary WAV audio data stream.
+* **Response (200 OK):**
+  ```json
+  {
+    "text": "Hello, please list files in my directory."
+  }
+  ```
+
 ---
 
 ## 3. WebSocket API Protocol
@@ -209,6 +235,22 @@ Establish a connection via `ws://127.0.0.1:8765/ws?token=YOUR_TOKEN`.
   "type": "model_change",
   "model": "anthropic:claude-3-5-sonnet"
 }
+
+// Send file upload via Base64 over WebSocket (Bypasses CORS/SSL warning blocks)
+{
+  "type": "file_upload",
+  "uploadId": "upload123",
+  "sessionId": "abc123xyz",
+  "filename": "diagram.png",
+  "data": "data:image/png;base64,iVBORw0KGgoAAA..."
+}
+
+// Resolve directory collision conflict
+{
+  "type": "session_resolve_conflict",
+  "action": "take_over", // or "read_only"
+  "sessionId": "abc123xyz"
+}
 ```
 
 ### Server $\rightarrow$ Client Messages
@@ -246,6 +288,13 @@ Establish a connection via `ws://127.0.0.1:8765/ws?token=YOUR_TOKEN`.
   "delta": " Sure, here"
 }
 
+// Streaming reasoning/thinking deltas
+{
+  "type": "thinking_update",
+  "sessionId": "abc123xyz",
+  "delta": "Analyzing directory structure..."
+}
+
 // Message generation finalized
 {
   "type": "message_end",
@@ -262,6 +311,14 @@ Establish a connection via `ws://127.0.0.1:8765/ws?token=YOUR_TOKEN`.
   "args": { "command": "cargo test" }
 }
 
+// Streaming tool stdout/stderr chunk updates
+{
+  "type": "tool_update",
+  "sessionId": "abc123xyz",
+  "toolName": "bash",
+  "delta": "running 2 tests..."
+}
+
 // Tool end
 {
   "type": "tool_end",
@@ -269,6 +326,15 @@ Establish a connection via `ws://127.0.0.1:8765/ws?token=YOUR_TOKEN`.
   "toolName": "bash",
   "isError": false,
   "result": "test result output..."
+}
+
+// File upload confirmation
+{
+  "type": "file_uploaded",
+  "uploadId": "upload123",
+  "sessionId": "abc123xyz",
+  "filename": "diagram.png",
+  "savedPath": "/absolute/path/to/diagram.png"
 }
 ```
 
