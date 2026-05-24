@@ -1,6 +1,6 @@
 import {writable, derived, get} from 'svelte/store';
 import type {ConflictInfo} from './session-store';
-import {setCurrentSession, getBaseUrl, getToken, uploadMethodStore} from './session-store';
+import {setCurrentSession, getBaseUrl, getToken, uploadMethodStore, fetchSessions} from './session-store';
 
 export interface ChatMessage {
 	id: string;
@@ -426,6 +426,10 @@ export function connect() {
 					setCurrentSession(null);
 					break;
 
+				case 'sessions_updated':
+					fetchSessions();
+					break;
+
 				case 'session_error':
 					state.update((s: PiRemoteState) => ({
 						...s,
@@ -835,5 +839,31 @@ export async function uploadFile(
 		return uploadFileViaPost(sessionId, file);
 	} else {
 		return uploadFileViaWebSocket(sessionId, file);
+	}
+}
+
+export async function deleteSession(sessionFile: string): Promise<void> {
+	try {
+		const baseUrl = getBaseUrl();
+		const token = getToken();
+		const url = `${baseUrl}/session/delete${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+
+		const res = await fetch(url, {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({ sessionFile }),
+		});
+
+		if (!res.ok) {
+			const errData = await res.json().catch(() => ({}));
+			throw new Error(
+				errData.error || `Delete failed with status ${res.status}`,
+			);
+		}
+	} catch (err) {
+		console.error('Failed to delete session:', err);
+		throw err;
 	}
 }

@@ -20,6 +20,7 @@
 		isConnected,
 		sessionError,
 		dismissSessionError,
+		deleteSession,
 	} from '$lib/pi-remote';
 
 	let folders = $derived($sessionFolders.folders);
@@ -28,7 +29,8 @@
 	let connected = $derived($isConnected);
 	let models = $derived($availableModels.models);
 
-	let collapsed = $state<Record<string, boolean>>({});
+	let expanded = $state<Record<string, boolean>>({});
+	let confirmingDelete = $state<string | null>(null);
 	let searchQuery = $state('');
 	let filteredFolders = $state<FolderWithSessions[]>([]);
 
@@ -74,10 +76,18 @@
 	});
 
 	function toggleFolder(path: string) {
-		if (collapsed[path]) {
-			delete collapsed[path];
-		} else {
-			collapsed[path] = true;
+		expanded[path] = !expanded[path];
+	}
+
+	async function handleDeleteSession(sessionPath: string) {
+		try {
+			await deleteSession(sessionPath);
+			if (confirmingDelete === sessionPath) {
+				confirmingDelete = null;
+			}
+			fetchSessions();
+		} catch (err) {
+			console.error('Failed to delete session:', err);
 		}
 	}
 
@@ -574,11 +584,11 @@
 						class="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-gray-700/50"
 					>
 						<span
-							class="text-xs text-gray-500 transition-transform {collapsed[
+							class="text-xs text-gray-500 transition-transform {expanded[
 								folder.path
-							]
-								? ''
-								: 'rotate-90'}"
+							] || !!searchQuery
+								? 'rotate-90'
+								: ''}"
 						>
 							▶
 						</span>
@@ -588,7 +598,7 @@
 						<span class="text-xs text-gray-500">{folder.sessions.length}</span>
 					</button>
 
-					{#if !collapsed[folder.path]}
+					{#if expanded[folder.path] || !!searchQuery}
 						<div class="px-3 pb-2">
 							<button
 								onclick={() => openNewSessionPicker(folder.path)}
@@ -598,39 +608,82 @@
 							</button>
 
 							{#each folder.sessions as session}
-								<button
-									onclick={() => handleSessionClick(session.path)}
-									class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-gray-700/50 {currentSession ===
+								<div
+									class="group flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-gray-700/30 {currentSession ===
 									session.path
 										? 'bg-gray-700'
 										: ''}"
 								>
-									{#if session.isActive}
-										<span
-											class="h-2 w-2 flex-shrink-0 rounded-full bg-green-500"
-										></span>
-									{:else}
-										<span class="h-2 w-2 flex-shrink-0 rounded-full bg-gray-600"
-										></span>
-									{/if}
-									<div class="min-w-0 flex-1">
-										<div class="truncate text-xs text-gray-300">
-											{session.name ||
-												truncate(session.firstMessage) ||
-												'Empty session'}
+									<button
+										onclick={() => handleSessionClick(session.path)}
+										class="flex min-w-0 flex-1 items-center gap-2 text-left"
+									>
+										{#if session.isActive}
+											<span
+												class="h-2 w-2 flex-shrink-0 rounded-full bg-green-500"
+											></span>
+										{:else}
+											<span class="h-2 w-2 flex-shrink-0 rounded-full bg-gray-600"
+											></span>
+										{/if}
+										<div class="min-w-0 flex-1">
+											<div class="truncate text-xs text-gray-300">
+												{session.name ||
+													truncate(session.firstMessage) ||
+													'Empty session'}
+											</div>
+											<div class="text-xs text-gray-500">
+												{formatRelative(session.modified)} · {session.messageCount}
+												msgs
+											</div>
 										</div>
-										<div class="text-xs text-gray-500">
-											{formatRelative(session.modified)} · {session.messageCount}
-											msgs
-										</div>
+										{#if session.clientCount > 0}
+											<span
+												class="rounded bg-gray-600 px-1.5 py-0.5 text-xs text-gray-300"
+												>{session.clientCount}</span
+											>
+										{/if}
+									</button>
+
+									<!-- Delete button with confirm state -->
+									<div class="flex-shrink-0">
+										{#if confirmingDelete === session.path}
+											<div class="flex items-center gap-1 bg-gray-800/80 px-1 py-0.5 rounded border border-red-500/30">
+												<button
+													onclick={(e) => {
+														e.stopPropagation();
+														handleDeleteSession(session.path);
+													}}
+													class="text-red-500 font-bold px-1.5 text-xs hover:text-red-400 focus:outline-none"
+													title="Confirm Delete"
+												>
+													❓
+												</button>
+												<button
+													onclick={(e) => {
+														e.stopPropagation();
+														confirmingDelete = null;
+													}}
+													class="text-gray-400 hover:text-white px-1.5 text-[10px] focus:outline-none"
+													title="Cancel"
+												>
+													✕
+												</button>
+											</div>
+										{:else}
+											<button
+												onclick={(e) => {
+													e.stopPropagation();
+													confirmingDelete = session.path;
+												}}
+												class="text-gray-500 hover:text-red-400 p-1 text-xs focus:outline-none md:opacity-0 md:group-hover:opacity-100 transition-opacity"
+												title="Delete session"
+											>
+												✕
+											</button>
+										{/if}
 									</div>
-									{#if session.clientCount > 0}
-										<span
-											class="rounded bg-gray-600 px-1.5 py-0.5 text-xs text-gray-300"
-											>{session.clientCount}</span
-										>
-									{/if}
-								</button>
+								</div>
 							{/each}
 						</div>
 					{/if}

@@ -35,4 +35,5 @@ export type ServerMessage =
   | { type: 'model_changed'; sessionId: string; model: string }
   | { type: 'file_uploaded'; uploadId: string; sessionId: string; filename: string; savedPath: string }
   | { type: 'file_upload_error'; uploadId: string; sessionId: string; error: string }
+  | { type: 'sessions_updated' }
   | { type: 'pong'; timestamp: number };

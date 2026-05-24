@@ -617,6 +617,68 @@ async function main(): Promise<void> {
       return;
     }
 
+    if (pathname === '/session/delete' && req.method === 'POST') {
+      try {
+        const body = await readBody(req);
+        const { sessionFile } = JSON.parse(body) as { sessionFile: string };
+        if (!sessionFile) {
+          sendJSON(res, 400, { error: 'Missing sessionFile' });
+          return;
+        }
+
+        let resolved = sessionFile;
+        if (sessionFile.startsWith('~')) {
+          resolved = path.join(os.homedir(), sessionFile.slice(1));
+        } else if (!path.isAbsolute(sessionFile)) {
+          resolved = path.join(os.homedir(), sessionFile);
+        } else {
+          resolved = path.resolve(sessionFile);
+        }
+
+        // Security check: only allow deleting files ending with .jsonl
+        if (!resolved.endsWith('.jsonl')) {
+          sendJSON(res, 400, { error: 'Invalid session file format' });
+          return;
+        }
+
+        // Get the active session if any, using either the sessionFile path or resolved path
+        const tracked = sessionPool.getSession(sessionFile) || sessionPool.getSession(resolved);
+        if (tracked) {
+          const wsMsg: ServerMessage = {
+            type: 'session_destroyed',
+            sessionId: tracked.sessionId,
+            reason: 'Session deleted'
+          };
+          for (const cid of tracked.clients) {
+            const c = clients.get(cid);
+            if (c) {
+              sendWS(c.ws, wsMsg);
+              c.sessionId = null;
+              c.readOnly = false;
+            }
+          }
+          sessionPool.destroySession(tracked.sessionFile, 'deleted');
+        }
+
+        if (fs.existsSync(resolved)) {
+          fs.unlinkSync(resolved);
+        }
+
+        // Broadcast 'sessions_updated' to all connected websocket clients
+        const updateMsg: ServerMessage = {
+          type: 'sessions_updated'
+        };
+        for (const c of clients.values()) {
+          sendWS(c.ws, updateMsg);
+        }
+
+        sendJSON(res, 200, { status: 'deleted' });
+      } catch (err) {
+        sendJSON(res, 400, { error: (err as Error).message || 'Invalid request' });
+      }
+      return;
+    }
+
     if (pathname === '/session/new' && req.method === 'POST') {
       try {
         const body = await readBody(req);
