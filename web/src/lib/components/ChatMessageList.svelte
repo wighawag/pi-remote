@@ -720,7 +720,7 @@
 			</div>
 		</div>
 	{:else}
-		<div bind:this={messageList} class="flex-1 space-y-4 overflow-y-auto p-4">
+		<div bind:this={messageList} class="flex-1 space-y-4 overflow-y-auto overscroll-y-contain p-4">
 			{#each msgList as msg (msg.id)}
 				<div
 					class="flex {msg.role === 'user' ? 'justify-end' : 'justify-start'}"

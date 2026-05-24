@@ -25,3 +25,7 @@ If you modify APIs, protocols, or core behaviors, update `CONTEXT.md` or any rel
 
 ## 3. Never Stage or Commit Changes unless Explicitly Asked
 Do not run `git add` or stage files, and never create a commit yourself unless the user explicitly asks you to do so. Leave all changed files unstaged in the working directory.
+
+## 4. Never Revert or Perform Destructive Operations Without Asking
+- If the user asks to "revert to the last working state", clarify which specific visual or logical state they want to restore.
+- Never discard or stash code changes, and never do broad git reverts unless explicitly asked or confirmed by the user. Always err on the side of preserving progress.
