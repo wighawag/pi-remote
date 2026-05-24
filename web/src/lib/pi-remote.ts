@@ -384,6 +384,7 @@ export function connect() {
 						activeSessionFile: msg.sessionFile,
 						activeCwd: msg.cwd,
 						activeModel: msg.model,
+						isStreaming: msg.isStreaming ?? false,
 					}));
 					setCurrentSession(msg.sessionFile);
 					break;
@@ -489,6 +490,35 @@ export function connect() {
 									toolName: m.toolName,
 									sessionId: msg.sessionId,
 								});
+							}
+						}
+
+						// Add any pending tool calls that didn't have a result yet
+						for (const [tName, argsList] of Object.entries(pendingCalls)) {
+							for (const args of argsList) {
+								mapped.push({
+									id: generateId(),
+									role: 'tool',
+									content: args ? `$ ${tName} ${args}` : `$ ${tName}`,
+									timestamp: mapped.length > 0 ? mapped[mapped.length - 1].timestamp + 1 : Date.now(),
+									isStreaming: s.isStreaming,
+									toolName: tName,
+									toolArgs: args,
+									toolOutput: '',
+									sessionId: msg.sessionId,
+								});
+							}
+						}
+
+						// If the session is currently streaming and the last message in history is assistant or thinking, mark it as streaming
+						if (s.isStreaming && mapped.length > 0) {
+							const lastIndex = mapped.length - 1;
+							const lastMsg = mapped[lastIndex];
+							if (lastMsg.role === 'assistant' || lastMsg.role === 'thinking') {
+								mapped[lastIndex] = {
+									...lastMsg,
+									isStreaming: true,
+								};
 							}
 						}
 

@@ -653,6 +653,7 @@ async function handleWSMessage(
           sessionFile: msg.sessionFile,
           cwd: msg.cwd,
           model: msg.model || '',
+          isStreaming: pool.isStreaming(msg.sessionFile),
         };
         for (const c of clients.values()) {
           if (c.sessionId === msg.sessionFile && !c.isCliBridge) {
@@ -710,6 +711,7 @@ async function handleWSMessage(
         sessionFile: result.tracked.sessionFile,
         cwd: result.tracked.cwd,
         model: result.tracked.model,
+        isStreaming: pool.isStreaming(result.tracked.sessionFile),
       });
 
       const history = pool.getSessionHistory(result.tracked.sessionFile);
@@ -753,6 +755,7 @@ async function handleWSMessage(
         sessionFile: result.tracked.sessionFile,
         cwd: result.tracked.cwd,
         model: result.tracked.model,
+        isStreaming: pool.isStreaming(result.tracked.sessionFile),
       });
 
       sendWS(client.ws, {
@@ -816,6 +819,7 @@ async function handleWSMessage(
               sessionFile: result.tracked.sessionFile,
               cwd: result.tracked.cwd,
               model: result.tracked.model,
+              isStreaming: pool.isStreaming(result.tracked.sessionFile),
             });
 
             sendWS(client.ws, {
@@ -829,6 +833,15 @@ async function handleWSMessage(
             switchClientSession(client, tracked.sessionFile, pool);
             client.readOnly = false;
 
+            sendWS(client.ws, {
+              type: 'session_created',
+              sessionId: tracked.sessionId,
+              sessionFile: tracked.sessionFile,
+              cwd: tracked.cwd,
+              model: tracked.model,
+              isStreaming: pool.isStreaming(tracked.sessionFile),
+            });
+
             const history = pool.getSessionHistory(tracked.sessionFile);
             sendWS(client.ws, {
               type: 'message_history',
@@ -841,6 +854,15 @@ async function handleWSMessage(
           pool.addClient(existingTracked.sessionFile, client.id);
           switchClientSession(client, existingTracked.sessionFile, pool);
           client.readOnly = true;
+
+          sendWS(client.ws, {
+            type: 'session_created',
+            sessionId: existingTracked.sessionId,
+            sessionFile: existingTracked.sessionFile,
+            cwd: existingTracked.cwd,
+            model: existingTracked.model,
+            isStreaming: pool.isStreaming(existingTracked.sessionFile),
+          });
 
           const history = pool.getSessionHistory(existingTracked.sessionFile);
           sendWS(client.ws, {

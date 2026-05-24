@@ -25,7 +25,7 @@ export type ServerMessage =
   | { type: 'agent_end'; sessionId: string }
   | { type: 'tool_start'; sessionId: string; toolName: string; args: unknown }
   | { type: 'tool_end'; sessionId: string; toolName: string; isError: boolean; result?: string }
-  | { type: 'session_created'; sessionId: string; sessionFile: string; cwd: string; model: string }
+  | { type: 'session_created'; sessionId: string; sessionFile: string; cwd: string; model: string; isStreaming?: boolean }
   | { type: 'session_destroyed'; sessionId: string; reason: string }
   | { type: 'session_error'; sessionId?: string; error: string; detail?: string }
   | { type: 'session_conflict'; sessionId: string; conflictingSession: string; conflictingCwd: string }
