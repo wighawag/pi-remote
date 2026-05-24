@@ -12,6 +12,7 @@ export interface RemoteRepoRule {
 export interface PiRemoteConfig {
   gitInitDefault?: boolean;
   remoteRepoRules?: RemoteRepoRule[];
+  commonFolders?: string[];
 }
 
 export function getPiRemoteConfig(): PiRemoteConfig {
@@ -22,7 +23,8 @@ export function getPiRemoteConfig(): PiRemoteConfig {
       fs.mkdirSync(configDir, { recursive: true });
       const defaultConfig: PiRemoteConfig = {
         gitInitDefault: false,
-        remoteRepoRules: []
+        remoteRepoRules: [],
+        commonFolders: []
       };
       fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2), 'utf8');
       return defaultConfig;

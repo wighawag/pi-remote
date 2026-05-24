@@ -71,7 +71,15 @@
 				resolvedPath: '',
 				matchingRule: null,
 			};
-			completions = [];
+			const fetchEmpty = async () => {
+				const list = await autocompletePath('');
+				completions = list || [];
+			};
+			if (immediate) {
+				await fetchEmpty();
+			} else {
+				pathCheckTimeout = setTimeout(fetchEmpty, 300);
+			}
 			return;
 		}
 
@@ -503,6 +511,7 @@
 								bind:value={newFolderCwd}
 								onfocus={() => {
 									inputFocused = true;
+									triggerCheck(newFolderCwd, true);
 								}}
 								onblur={(e) => {
 									if (containerEl && containerEl.contains(e.relatedTarget as Node)) {

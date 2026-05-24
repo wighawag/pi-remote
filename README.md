@@ -151,6 +151,9 @@ The configuration file is located at `~/.pi/remote/config.json` on the server ma
 * **`gitInitDefault`** (boolean, Default: `false`):
   When creating a session in a non-existent folder, this defines if the **"Initialize Git repository"** option is checked by default in the web UI.
 
+* **`commonFolders`** (array of strings, Default: `[]`):
+  A list of preset folder paths (e.g. `["~/projects/my-app", "~/dev/github"]`). These folders are displayed as quick-select completion options in the session creation panel, appearing even when the path input is empty.
+
 * **`remoteRepoRules`** (array of rule objects, Default: `[]`):
   A list of rules to automatically create a remote repository (on GitHub, Codeberg, etc.) and configure the git remote whenever a new session folder matches a RegExp pattern.
 
@@ -165,6 +168,10 @@ Each rule in `remoteRepoRules` can contain:
 ```json
 {
   "gitInitDefault": true,
+  "commonFolders": [
+    "~/projects/my-app",
+    "~/dev/github"
+  ],
   "remoteRepoRules": [
     {
       "pattern": ".*/projects/github/.*",

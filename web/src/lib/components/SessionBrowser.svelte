@@ -148,7 +148,15 @@
 				resolvedPath: '',
 				matchingRule: null,
 			};
-			sidebarCompletions = [];
+			const fetchEmpty = async () => {
+				const list = await autocompletePath('');
+				sidebarCompletions = list || [];
+			};
+			if (immediate) {
+				await fetchEmpty();
+			} else {
+				sidebarPathCheckTimeout = setTimeout(fetchEmpty, 300);
+			}
 			return;
 		}
 
@@ -383,6 +391,7 @@
 								bind:value={sidebarCwd}
 								onfocus={() => {
 									sidebarInputFocused = true;
+									triggerSidebarCheck(sidebarCwd, true);
 								}}
 								onblur={(e) => {
 									if (sidebarContainerEl && sidebarContainerEl.contains(e.relatedTarget as Node)) {

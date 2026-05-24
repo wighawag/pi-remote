@@ -412,36 +412,117 @@ async function main(): Promise<void> {
         resolvedParent = path.resolve(parentPath);
       }
 
+      const config = getPiRemoteConfig();
+      
+      // Resolve the query path
+      let resolvedQuery = qPath;
+      if (qPath.startsWith('~')) {
+        resolvedQuery = path.join(os.homedir(), qPath.slice(1));
+      } else if (!path.isAbsolute(qPath)) {
+        resolvedQuery = path.join(os.homedir(), qPath);
+      } else {
+        resolvedQuery = path.resolve(qPath);
+      }
+      const resolvedQueryLower = resolvedQuery.toLowerCase();
+
+      // Format matched common folder to match the user's input prefix style
+      const formatCommonFolder = (folderPath: string) => {
+        let resolved = folderPath;
+        if (folderPath.startsWith('~')) {
+          resolved = path.join(os.homedir(), folderPath.slice(1));
+        } else if (!path.isAbsolute(folderPath)) {
+          resolved = path.join(os.homedir(), folderPath);
+        } else {
+          resolved = path.resolve(folderPath);
+        }
+
+        // Apply trailing slash if missing
+        if (!resolved.endsWith('/')) {
+          resolved = resolved + '/';
+        }
+
+        if (qPath.startsWith('~')) {
+          const home = os.homedir() + '/';
+          if (resolved.startsWith(home)) {
+            return '~/' + resolved.slice(home.length);
+          }
+          return resolved;
+        } else if (qPath.startsWith('/')) {
+          return resolved;
+        } else {
+          const home = os.homedir() + '/';
+          if (resolved.startsWith(home)) {
+            return resolved.slice(home.length);
+          }
+          return resolved;
+        }
+      };
+
+      // Filter and format matching common folders
+      const matchingCommons = (config.commonFolders || [])
+        .filter(folder => {
+          let resolved = folder;
+          if (folder.startsWith('~')) {
+            resolved = path.join(os.homedir(), folder.slice(1));
+          } else if (!path.isAbsolute(folder)) {
+            resolved = path.join(os.homedir(), folder);
+          } else {
+            resolved = path.resolve(folder);
+          }
+          return resolved.toLowerCase().startsWith(resolvedQueryLower);
+        })
+        .map(folder => formatCommonFolder(folder));
+
       try {
         if (!fs.existsSync(resolvedParent)) {
-          sendJSON(res, 200, { completions: [] });
+          sendJSON(res, 200, { completions: matchingCommons });
           return;
         }
 
         const stat = fs.statSync(resolvedParent);
         if (!stat.isDirectory()) {
-          sendJSON(res, 200, { completions: [] });
+          sendJSON(res, 200, { completions: matchingCommons });
           return;
         }
 
         const entries = fs.readdirSync(resolvedParent, { withFileTypes: true });
-        const completions = entries
+        const actualCompletionsWithStats = entries
           .filter(entry => {
             if (!entry.isDirectory()) return false;
             if (entry.name.startsWith('.') && !prefix.startsWith('.')) return false;
             return entry.name.toLowerCase().startsWith(prefix.toLowerCase());
           })
           .map(entry => {
-            let formattedParent = parentPath;
-            if (parentPath === '~') {
-              formattedParent = '~/';
+            const entryPath = path.join(resolvedParent, entry.name);
+            let mtimeMs = 0;
+            try {
+              mtimeMs = fs.statSync(entryPath).mtimeMs;
+            } catch (e) {
+              // Ignore stats errors
             }
-            return formattedParent + entry.name + '/';
+            return {
+              name: entry.name,
+              mtimeMs
+            };
           });
 
-        sendJSON(res, 200, { completions });
+        // Sort by mtimeMs descending (most recent first)
+        actualCompletionsWithStats.sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+        const actualCompletions = actualCompletionsWithStats.map(item => {
+          let formattedParent = parentPath;
+          if (parentPath === '~') {
+            formattedParent = '~/';
+          }
+          return formattedParent + item.name + '/';
+        });
+
+        const combined = [...matchingCommons, ...actualCompletions];
+        const uniqueCompletions = Array.from(new Set(combined));
+
+        sendJSON(res, 200, { completions: uniqueCompletions });
       } catch (e) {
-        sendJSON(res, 200, { completions: [] });
+        sendJSON(res, 200, { completions: matchingCommons });
       }
       return;
     }
