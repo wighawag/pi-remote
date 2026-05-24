@@ -418,11 +418,16 @@
 		scrollToBottomIfShould();
 	});
 
+	let lastSessionFile = $state<string | null>(null);
+
 	$effect(() => {
 		// Force scroll to bottom when the active session changes
 		const sFile = sessionInfo.sessionFile;
-		forceScroll = true;
-		setTimeout(scrollToBottom, 50);
+		if (sFile !== lastSessionFile) {
+			lastSessionFile = sFile;
+			forceScroll = true;
+			setTimeout(scrollToBottom, 50);
+		}
 	});
 
 	let msgList = $derived(
