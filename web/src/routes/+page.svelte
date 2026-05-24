@@ -23,6 +23,7 @@
 	import {onMount} from 'svelte';
 
 	let sidebarOpen = $state(false);
+	let showSettings = $state(false);
 	let autoConnect = $state(true);
 	let interruptedTimeout: ReturnType<typeof setTimeout> | null = null;
 	let chatList: {forceScrollToBottom: () => void};
@@ -72,6 +73,14 @@
 
 	function handleRefresh() {
 		fetchSessions();
+	}
+
+	function handleShowMainScreen() {
+		if (typeof window !== 'undefined') {
+			window.location.hash = '';
+		}
+		leaveSession();
+		sidebarOpen = false;
 	}
 
 	let connected = $derived($isConnected);
@@ -126,6 +135,13 @@
 			wasSessionActive = false;
 		}
 	});
+
+	// Close sidebar on mobile when a session is joined
+	$effect(() => {
+		if (currentSessionId) {
+			sidebarOpen = false;
+		}
+	});
 </script>
 
 <Head title="Pi Remote" description="Chat with your Pi coding agent remotely" />
@@ -137,87 +153,130 @@
 			? 'translate-x-0'
 			: '-translate-x-full'} bg-gray-850 fixed z-20 flex h-full w-72 flex-col border-r border-gray-700 transition-transform duration-200 md:relative md:translate-x-0"
 	>
-		<div class="border-b border-gray-700 p-4">
+		<div class="border-b border-gray-700 p-4 bg-gray-800/10">
 			<div class="flex items-center justify-between">
-				<h1 class="text-lg font-bold">Pi Remote</h1>
-				<button
-					onclick={() => (sidebarOpen = false)}
-					class="text-gray-400 hover:text-white md:hidden"
-				>
-					X
-				</button>
-			</div>
-		</div>
-
-		<ConnectionSettings
-			host={appState.connected ? 'localhost' : 'localhost'}
-			port={8765}
-			token=""
-			onConnected={handleConnected}
-		/>
-
-		<!-- Connection status -->
-		<div class="border-b border-gray-700 p-4">
-			<div class="flex items-center gap-2">
-				<div
-					class="h-2.5 w-2.5 rounded-full {connected
-						? 'bg-green-500'
-						: 'bg-red-500'}"
-				></div>
-				<span class="text-sm {connected ? 'text-green-400' : 'text-red-400'}">
-					{connected ? 'Connected' : 'Disconnected'}
-				</span>
-			</div>
-			{#if sessionInfo.sessionFile}
-				<div class="mt-2 space-y-1">
-					{#if sessionInfo.cwd}
-						<div class="truncate text-xs text-gray-400" title={sessionInfo.cwd}>
-							📁 {sessionInfo.cwd.split('/').pop() || sessionInfo.cwd}
-						</div>
-					{/if}
-					{#if sessionInfo.model}
-						<div
-							class="truncate text-xs text-gray-400"
-							title={sessionInfo.model}
+				{#if showSettings}
+					<span class="text-lg font-bold text-gray-300">Connection Settings</span>
+					<button
+						onclick={() => (showSettings = false)}
+						class="rounded px-2 py-1 text-xs font-semibold text-blue-400 hover:text-blue-300 hover:bg-gray-800 transition-colors"
+					>
+						◀ Back
+					</button>
+				{:else}
+					<button
+						onclick={handleShowMainScreen}
+						class="text-left text-lg font-bold text-white hover:text-blue-400 transition-colors"
+						title="Show Main Screen / New Session"
+					>
+						Pi Remote
+					</button>
+					<div class="flex items-center gap-2">
+						<button
+							onclick={() => (showSettings = true)}
+							class="rounded px-1.5 py-1 text-gray-400 hover:text-white hover:bg-gray-800 transition-colors text-xs flex items-center gap-1 border border-gray-700"
+							title="Connection Settings"
 						>
-							🤖 {sessionInfo.model}
+							⚙️ Config
+						</button>
+						<button
+							onclick={() => (sidebarOpen = false)}
+							class="text-gray-400 hover:text-white md:hidden"
+						>
+							X
+						</button>
+					</div>
+				{/if}
+			</div>
+		</div>
+
+		{#if showSettings}
+			<div class="flex-1 overflow-y-auto">
+				<ConnectionSettings
+					host={appState.connected ? 'localhost' : 'localhost'}
+					port={8765}
+					token=""
+					onConnected={handleConnected}
+				/>
+				
+				<div class="border-t border-gray-700 p-4 mt-2">
+					<h3 class="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">Server Control</h3>
+					<div class="space-y-2">
+						<button
+							onclick={handleRefresh}
+							class="w-full rounded bg-gray-800 border border-gray-700 px-3 py-2 text-left text-sm text-gray-300 transition-colors hover:bg-gray-700 hover:text-white flex items-center justify-between"
+						>
+							<span>Refresh Session List</span>
+							<span>🔄</span>
+						</button>
+						<button
+							onclick={handleReconnect}
+							class="w-full rounded bg-gray-800 border border-gray-700 px-3 py-2 text-left text-sm text-gray-300 transition-colors hover:bg-gray-700 hover:text-white flex items-center justify-between"
+						>
+							<span>Reconnect WebSocket</span>
+							<span>🔌</span>
+						</button>
+						<button
+							onclick={handleDisconnect}
+							class="w-full rounded bg-red-950/20 border border-red-900/50 px-3 py-2 text-left text-sm text-red-400 transition-colors hover:bg-red-900/40 hover:text-red-300 flex items-center justify-between"
+						>
+							<span>Disconnect Server</span>
+							<span>🛑</span>
+						</button>
+					</div>
+				</div>
+			</div>
+		{:else}
+			<!-- Connection status -->
+			<div class="border-b border-gray-700 p-4">
+				<div class="flex items-center gap-2">
+					<div
+						class="h-2.5 w-2.5 rounded-full {connected
+							? 'bg-green-500'
+							: 'bg-red-500'}"
+					></div>
+					<span class="text-sm {connected ? 'text-green-400' : 'text-red-400'}">
+						{connected ? 'Connected' : 'Disconnected'}
+					</span>
+				</div>
+				{#if sessionInfo.sessionFile}
+					<div class="mt-2 space-y-1">
+						{#if sessionInfo.cwd}
+							<div class="truncate text-xs text-gray-400" title={sessionInfo.cwd}>
+								📁 {sessionInfo.cwd.split('/').pop() || sessionInfo.cwd}
+							</div>
+						{/if}
+						{#if sessionInfo.model}
+							<div
+								class="truncate text-xs text-gray-400"
+								title={sessionInfo.model}
+							>
+								🤖 {sessionInfo.model}
+							</div>
+						{/if}
+						<div class="pt-1.5">
+							<button
+								onclick={handleShowMainScreen}
+								class="w-full rounded bg-gray-800 hover:bg-gray-700 border border-gray-700 px-2 py-1 text-xs text-gray-300 hover:text-white transition-colors text-center"
+								title="Show Main Screen (Clear URL Hash)"
+							>
+								Close Session
+							</button>
 						</div>
-					{/if}
-				</div>
-			{/if}
-			{#if appState.error && !connected}
-				<div class="mt-2 text-xs text-red-400">
-					{appState.error}
-				</div>
-			{/if}
-		</div>
+					</div>
+				{/if}
+				{#if appState.error && !connected}
+					<div class="mt-2 text-xs text-red-400">
+						{appState.error}
+					</div>
+				{/if}
+			</div>
 
-		<!-- Session Browser -->
-		<div class="flex-1 overflow-hidden">
-			<SessionBrowser />
-		</div>
-
-		<!-- Quick actions -->
-		<div class="space-y-2 border-t border-gray-700 p-4">
-			<button
-				onclick={handleRefresh}
-				class="w-full rounded px-2 py-1.5 text-left text-sm text-gray-400 transition-colors hover:bg-gray-700 hover:text-white"
-			>
-				Refresh Sessions
-			</button>
-			<button
-				onclick={handleReconnect}
-				class="w-full rounded px-2 py-1.5 text-left text-sm text-gray-400 transition-colors hover:bg-gray-700 hover:text-white"
-			>
-				Reconnect
-			</button>
-			<button
-				onclick={handleDisconnect}
-				class="w-full rounded px-2 py-1.5 text-left text-sm text-gray-400 transition-colors hover:bg-gray-700 hover:text-white"
-			>
-				Disconnect
-			</button>
-		</div>
+			<!-- Session Browser -->
+			<div class="flex-1 overflow-hidden">
+				<SessionBrowser />
+			</div>
+		{/if}
 	</div>
 
 	<!-- Main content -->
