@@ -500,7 +500,10 @@ export function connect() {
 									id: generateId(),
 									role: 'tool',
 									content: args ? `$ ${tName} ${args}` : `$ ${tName}`,
-									timestamp: mapped.length > 0 ? mapped[mapped.length - 1].timestamp + 1 : Date.now(),
+									timestamp:
+										mapped.length > 0
+											? mapped[mapped.length - 1].timestamp + 1
+											: Date.now(),
 									isStreaming: s.isStreaming,
 									toolName: tName,
 									toolArgs: args,
@@ -626,14 +629,29 @@ export function joinSession(sessionFile: string, cwd?: string, model?: string) {
 	ws.send(JSON.stringify({type: 'session_load', sessionFile, cwd, model}));
 }
 
-export function createSession(cwd: string, model?: string, gitInit?: boolean, createRemote?: boolean, repoVisibility?: 'private' | 'public') {
+export function createSession(
+	cwd: string,
+	model?: string,
+	gitInit?: boolean,
+	createRemote?: boolean,
+	repoVisibility?: 'private' | 'public',
+) {
 	state.update((s: PiRemoteState) => ({
 		...s,
 		conflict: null,
 		sessionError: null,
 	}));
 	if (!ws || ws.readyState !== WebSocket.OPEN) return;
-	ws.send(JSON.stringify({type: 'session_new', cwd, model, gitInit, createRemote, repoVisibility}));
+	ws.send(
+		JSON.stringify({
+			type: 'session_new',
+			cwd,
+			model,
+			gitInit,
+			createRemote,
+			repoVisibility,
+		}),
+	);
 }
 
 export function leaveSession() {

@@ -116,8 +116,8 @@
 					handleSend();
 				}
 			} else {
-				// Dev mode: Enter for newline, Shift+Enter / Ctrl+Enter to send
-				if (e.shiftKey || e.ctrlKey || e.metaKey) {
+				// Enter for newline, Shift+Enter to send
+				if (e.shiftKey) {
 					e.preventDefault();
 					handleSend();
 				}
@@ -205,10 +205,8 @@
 			<span>Press Enter to send (Shift+Enter for newline)</span>
 		</label>
 		<span class="font-mono opacity-60">
-			{#if enterToSend}
-				Ctrl+Enter/Cmd+Enter also sends
-			{:else}
-				Shift+Enter or Ctrl+Enter to send
+			{#if !enterToSend}
+				Shift+Enter to send (Enter for newline)
 			{/if}
 		</span>
 	</div>

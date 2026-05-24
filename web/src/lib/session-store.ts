@@ -131,7 +131,9 @@ export interface PathCheckResult {
 	resolvedPath: string;
 }
 
-export async function checkPath(pathStr: string): Promise<PathCheckResult | null> {
+export async function checkPath(
+	pathStr: string,
+): Promise<PathCheckResult | null> {
 	if (!pathStr.trim()) return null;
 	try {
 		const baseUrl = getBaseUrl();
@@ -139,7 +141,7 @@ export async function checkPath(pathStr: string): Promise<PathCheckResult | null
 		const url = `${baseUrl}/check-path?path=${encodeURIComponent(pathStr)}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
 		const res = await fetch(url);
 		if (!res.ok) throw new Error(`HTTP ${res.status}`);
-		return await res.json() as PathCheckResult;
+		return (await res.json()) as PathCheckResult;
 	} catch (err) {
 		console.error('Failed to check path:', err);
 		return null;

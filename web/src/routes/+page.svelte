@@ -153,20 +153,22 @@
 			? 'translate-x-0'
 			: '-translate-x-full'} bg-gray-850 fixed z-20 flex h-full w-72 flex-col border-r border-gray-700 transition-transform duration-200 md:relative md:translate-x-0"
 	>
-		<div class="border-b border-gray-700 p-4 bg-gray-800/10">
+		<div class="border-b border-gray-700 bg-gray-800/10 p-4">
 			<div class="flex items-center justify-between">
 				{#if showSettings}
-					<span class="text-lg font-bold text-gray-300">Connection Settings</span>
+					<span class="text-lg font-bold text-gray-300"
+						>Connection Settings</span
+					>
 					<button
 						onclick={() => (showSettings = false)}
-						class="rounded px-2 py-1 text-xs font-semibold text-blue-400 hover:text-blue-300 hover:bg-gray-800 transition-colors"
+						class="rounded px-2 py-1 text-xs font-semibold text-blue-400 transition-colors hover:bg-gray-800 hover:text-blue-300"
 					>
 						◀ Back
 					</button>
 				{:else}
 					<button
 						onclick={handleShowMainScreen}
-						class="text-left text-lg font-bold text-white hover:text-blue-400 transition-colors"
+						class="text-left text-lg font-bold text-white transition-colors hover:text-blue-400"
 						title="Show Main Screen / New Session"
 					>
 						Pi Remote
@@ -174,7 +176,7 @@
 					<div class="flex items-center gap-2">
 						<button
 							onclick={() => (showSettings = true)}
-							class="rounded px-1.5 py-1 text-gray-400 hover:text-white hover:bg-gray-800 transition-colors text-xs flex items-center gap-1 border border-gray-700"
+							class="flex items-center gap-1 rounded border border-gray-700 px-1.5 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-white"
 							title="Connection Settings"
 						>
 							⚙️ Config
@@ -198,27 +200,31 @@
 					token=""
 					onConnected={handleConnected}
 				/>
-				
-				<div class="border-t border-gray-700 p-4 mt-2">
-					<h3 class="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">Server Control</h3>
+
+				<div class="mt-2 border-t border-gray-700 p-4">
+					<h3
+						class="mb-3 text-xs font-bold tracking-wider text-gray-400 uppercase"
+					>
+						Server Control
+					</h3>
 					<div class="space-y-2">
 						<button
 							onclick={handleRefresh}
-							class="w-full rounded bg-gray-800 border border-gray-700 px-3 py-2 text-left text-sm text-gray-300 transition-colors hover:bg-gray-700 hover:text-white flex items-center justify-between"
+							class="flex w-full items-center justify-between rounded border border-gray-700 bg-gray-800 px-3 py-2 text-left text-sm text-gray-300 transition-colors hover:bg-gray-700 hover:text-white"
 						>
 							<span>Refresh Session List</span>
 							<span>🔄</span>
 						</button>
 						<button
 							onclick={handleReconnect}
-							class="w-full rounded bg-gray-800 border border-gray-700 px-3 py-2 text-left text-sm text-gray-300 transition-colors hover:bg-gray-700 hover:text-white flex items-center justify-between"
+							class="flex w-full items-center justify-between rounded border border-gray-700 bg-gray-800 px-3 py-2 text-left text-sm text-gray-300 transition-colors hover:bg-gray-700 hover:text-white"
 						>
 							<span>Reconnect WebSocket</span>
 							<span>🔌</span>
 						</button>
 						<button
 							onclick={handleDisconnect}
-							class="w-full rounded bg-red-950/20 border border-red-900/50 px-3 py-2 text-left text-sm text-red-400 transition-colors hover:bg-red-900/40 hover:text-red-300 flex items-center justify-between"
+							class="flex w-full items-center justify-between rounded border border-red-900/50 bg-red-950/20 px-3 py-2 text-left text-sm text-red-400 transition-colors hover:bg-red-900/40 hover:text-red-300"
 						>
 							<span>Disconnect Server</span>
 							<span>🛑</span>
@@ -242,7 +248,10 @@
 				{#if sessionInfo.sessionFile}
 					<div class="mt-2 space-y-1">
 						{#if sessionInfo.cwd}
-							<div class="truncate text-xs text-gray-400" title={sessionInfo.cwd}>
+							<div
+								class="truncate text-xs text-gray-400"
+								title={sessionInfo.cwd}
+							>
 								📁 {sessionInfo.cwd.split('/').pop() || sessionInfo.cwd}
 							</div>
 						{/if}
@@ -257,7 +266,7 @@
 						<div class="pt-1.5">
 							<button
 								onclick={handleShowMainScreen}
-								class="w-full rounded bg-gray-800 hover:bg-gray-700 border border-gray-700 px-2 py-1 text-xs text-gray-300 hover:text-white transition-colors text-center"
+								class="w-full rounded border border-gray-700 bg-gray-800 px-2 py-1 text-center text-xs text-gray-300 transition-colors hover:bg-gray-700 hover:text-white"
 								title="Show Main Screen (Clear URL Hash)"
 							>
 								Close Session

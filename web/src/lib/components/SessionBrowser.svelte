@@ -116,7 +116,7 @@
 		exists: boolean | null;
 		isGit: boolean;
 		resolvedPath: string;
-		matchingRule: { provider: string; visibility: string } | null;
+		matchingRule: {provider: string; visibility: string} | null;
 	}>({
 		exists: null,
 		isGit: false,
@@ -131,7 +131,12 @@
 		if (sidebarPathCheckTimeout) clearTimeout(sidebarPathCheckTimeout);
 
 		if (!pathValue.trim()) {
-			sidebarPathStatus = { exists: null, isGit: false, resolvedPath: '', matchingRule: null };
+			sidebarPathStatus = {
+				exists: null,
+				isGit: false,
+				resolvedPath: '',
+				matchingRule: null,
+			};
 			return;
 		}
 
@@ -142,17 +147,27 @@
 					exists: res.exists,
 					isGit: res.isGit,
 					resolvedPath: res.resolvedPath,
-					matchingRule: (res as any).matchingRule || null
+					matchingRule: (res as any).matchingRule || null,
 				};
 				if (!res.exists) {
-					sidebarGitInit = userManualSidebarGitInit !== null ? userManualSidebarGitInit : defaultGitInit;
+					sidebarGitInit =
+						userManualSidebarGitInit !== null
+							? userManualSidebarGitInit
+							: defaultGitInit;
 					sidebarCreateRemote = true; // reset to true for non-existing folders
 					if ((res as any).matchingRule) {
-						sidebarRepoVisibility = (res as any).matchingRule.visibility as 'private' | 'public';
+						sidebarRepoVisibility = (res as any).matchingRule.visibility as
+							| 'private'
+							| 'public';
 					}
 				}
 			} else {
-				sidebarPathStatus = { exists: null, isGit: false, resolvedPath: '', matchingRule: null };
+				sidebarPathStatus = {
+					exists: null,
+					isGit: false,
+					resolvedPath: '',
+					matchingRule: null,
+				};
 			}
 		}, 300);
 	});
@@ -175,7 +190,9 @@
 			sidebarGitInit = false; // toggled off by default in modal
 			sidebarCreateRemote = false; // toggled off by default in modal
 			if (sidebarPathStatus.matchingRule) {
-				sidebarRepoVisibility = sidebarPathStatus.matchingRule.visibility as 'private' | 'public';
+				sidebarRepoVisibility = sidebarPathStatus.matchingRule.visibility as
+					| 'private'
+					| 'public';
 			}
 			showSidebarGitConfirmModal = true;
 		} else {
@@ -183,9 +200,13 @@
 			const cwd = sidebarCwd.trim();
 			const model = sidebarModel || undefined;
 			const gitInit = sidebarGitInit;
-			const createRemote = sidebarPathStatus.matchingRule ? sidebarCreateRemote : undefined;
-			const repoVisibility = sidebarPathStatus.matchingRule ? sidebarRepoVisibility : undefined;
-			
+			const createRemote = sidebarPathStatus.matchingRule
+				? sidebarCreateRemote
+				: undefined;
+			const repoVisibility = sidebarPathStatus.matchingRule
+				? sidebarRepoVisibility
+				: undefined;
+
 			// Reset state
 			sidebarCwd = '';
 			createFormOpen = false;
@@ -207,8 +228,12 @@
 		const cwd = sidebarCwd.trim();
 		const model = sidebarModel || undefined;
 		const gitInit = sidebarGitInit;
-		const createRemote = sidebarPathStatus.matchingRule ? sidebarCreateRemote : undefined;
-		const repoVisibility = sidebarPathStatus.matchingRule ? sidebarRepoVisibility : undefined;
+		const createRemote = sidebarPathStatus.matchingRule
+			? sidebarCreateRemote
+			: undefined;
+		const repoVisibility = sidebarPathStatus.matchingRule
+			? sidebarRepoVisibility
+			: undefined;
 
 		// Reset state
 		sidebarCwd = '';
@@ -300,13 +325,26 @@
 				onclick={() => (createFormOpen = !createFormOpen)}
 				class="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-semibold text-blue-400 transition-colors hover:bg-gray-700/30"
 			>
-				<span>{createFormOpen ? '▼ Close Create Session' : '✚ Create New Session'}</span>
+				<span
+					>{createFormOpen
+						? '▼ Close Create Session'
+						: '✚ Create New Session'}</span
+				>
 			</button>
-			
+
 			{#if createFormOpen}
-				<form onsubmit={(e) => { e.preventDefault(); handleSidebarCreateSession(); }} class="space-y-2.5 p-3 border-t border-gray-700/30 bg-gray-800/30">
+				<form
+					onsubmit={(e) => {
+						e.preventDefault();
+						handleSidebarCreateSession();
+					}}
+					class="space-y-2.5 border-t border-gray-700/30 bg-gray-800/30 p-3"
+				>
 					<div>
-						<label class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1" for="sidebar-folder">Folder Path</label>
+						<label
+							class="mb-1 block text-[10px] font-bold tracking-wider text-gray-400 uppercase"
+							for="sidebar-folder">Folder Path</label
+						>
 						<input
 							id="sidebar-folder"
 							type="text"
@@ -315,17 +353,22 @@
 							class="w-full rounded border border-gray-600 bg-gray-900/60 px-2 py-1 text-xs text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
 						/>
 						{#if sidebarPathStatus.exists === true}
-							<span class="text-[10px] text-yellow-400 mt-1 block font-medium">
+							<span class="mt-1 block text-[10px] font-medium text-yellow-400">
 								📁 Folder already exists.
 								{#if sidebarPathStatus.isGit}
-									<span class="text-green-400 ml-1 font-semibold">(Git repo)</span>
+									<span class="ml-1 font-semibold text-green-400"
+										>(Git repo)</span
+									>
 								{/if}
 							</span>
 						{/if}
 					</div>
-					
+
 					<div>
-						<label class="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1" for="sidebar-model">Model</label>
+						<label
+							class="mb-1 block text-[10px] font-bold tracking-wider text-gray-400 uppercase"
+							for="sidebar-model">Model</label
+						>
 						{#if models.length > 0}
 							<select
 								id="sidebar-model"
@@ -358,20 +401,41 @@
 									bind:checked={sidebarCreateRemote}
 									class="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-800"
 								/>
-								<label for="sidebar-create-remote" class="text-xs text-gray-300 select-none cursor-pointer">
+								<label
+									for="sidebar-create-remote"
+									class="cursor-pointer text-xs text-gray-300 select-none"
+								>
 									Create remote {sidebarPathStatus.matchingRule.provider} repository
 								</label>
 							</div>
-							
+
 							{#if sidebarCreateRemote}
-								<div class="flex items-center gap-3 pl-5 text-[10px] text-gray-400">
+								<div
+									class="flex items-center gap-3 pl-5 text-[10px] text-gray-400"
+								>
 									<span>Visibility:</span>
-									<label class="flex items-center gap-1 select-none cursor-pointer hover:text-white transition-colors">
-										<input type="radio" name="sidebar-visibility" value="private" bind:group={sidebarRepoVisibility} class="text-blue-600 bg-gray-800 border-gray-750 focus:ring-blue-500" />
+									<label
+										class="flex cursor-pointer items-center gap-1 transition-colors select-none hover:text-white"
+									>
+										<input
+											type="radio"
+											name="sidebar-visibility"
+											value="private"
+											bind:group={sidebarRepoVisibility}
+											class="border-gray-750 bg-gray-800 text-blue-600 focus:ring-blue-500"
+										/>
 										Private
 									</label>
-									<label class="flex items-center gap-1 select-none cursor-pointer hover:text-white transition-colors">
-										<input type="radio" name="sidebar-visibility" value="public" bind:group={sidebarRepoVisibility} class="text-blue-600 bg-gray-800 border-gray-750 focus:ring-blue-500" />
+									<label
+										class="flex cursor-pointer items-center gap-1 transition-colors select-none hover:text-white"
+									>
+										<input
+											type="radio"
+											name="sidebar-visibility"
+											value="public"
+											bind:group={sidebarRepoVisibility}
+											class="border-gray-750 bg-gray-800 text-blue-600 focus:ring-blue-500"
+										/>
 										Public
 									</label>
 								</div>
@@ -385,10 +449,15 @@
 								id="sidebar-git-init"
 								type="checkbox"
 								bind:checked={sidebarGitInit}
-								onchange={(e) => { userManualSidebarGitInit = e.currentTarget.checked; }}
+								onchange={(e) => {
+									userManualSidebarGitInit = e.currentTarget.checked;
+								}}
 								class="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-800"
 							/>
-							<label for="sidebar-git-init" class="text-xs text-gray-300 select-none cursor-pointer">
+							<label
+								for="sidebar-git-init"
+								class="cursor-pointer text-xs text-gray-300 select-none"
+							>
 								Initialize Git repository
 							</label>
 						</div>
@@ -397,7 +466,7 @@
 					<button
 						type="submit"
 						disabled={!sidebarCwd.trim()}
-						class="w-full rounded bg-blue-600 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+						class="w-full rounded bg-blue-600 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
 					>
 						Create Session
 					</button>
@@ -570,14 +639,22 @@
 
 <!-- Sidebar Git Init Confirm Dialog -->
 {#if showSidebarGitConfirmModal}
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4" role="dialog" aria-modal="true">
-		<div class="w-80 rounded-lg border border-gray-700 bg-gray-800 p-5 text-gray-300">
-			<h3 class="text-sm font-bold text-white mb-2">Folder Already Exists</h3>
-			<p class="text-xs text-gray-400 mb-3">
-				The folder <span class="text-gray-200 font-mono text-[11px] break-all">{sidebarCwd}</span> already exists. Do you want to initialize a Git repository in it?
+	<div
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4"
+		role="dialog"
+		aria-modal="true"
+	>
+		<div
+			class="w-80 rounded-lg border border-gray-700 bg-gray-800 p-5 text-gray-300"
+		>
+			<h3 class="mb-2 text-sm font-bold text-white">Folder Already Exists</h3>
+			<p class="mb-3 text-xs text-gray-400">
+				The folder <span class="font-mono text-[11px] break-all text-gray-200"
+					>{sidebarCwd}</span
+				> already exists. Do you want to initialize a Git repository in it?
 			</p>
 
-			<div class="flex flex-col gap-3 mb-4">
+			<div class="mb-4 flex flex-col gap-3">
 				<div class="flex items-center gap-1.5">
 					<input
 						id="sidebar-modal-git-init"
@@ -586,12 +663,19 @@
 						disabled={sidebarPathStatus.isGit}
 						class="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
 					/>
-					<label for="sidebar-modal-git-init" class="text-xs text-gray-300 select-none cursor-pointer disabled:opacity-50">
+					<label
+						for="sidebar-modal-git-init"
+						class="cursor-pointer text-xs text-gray-300 select-none disabled:opacity-50"
+					>
 						Initialize Git repository
 						{#if sidebarPathStatus.isGit}
-							<span class="text-[10px] text-gray-500 ml-1">(already a Git repo)</span>
+							<span class="ml-1 text-[10px] text-gray-500"
+								>(already a Git repo)</span
+							>
 						{:else}
-							<span class="text-[10px] text-yellow-500 ml-1 font-medium">(folder not empty)</span>
+							<span class="ml-1 text-[10px] font-medium text-yellow-500"
+								>(folder not empty)</span
+							>
 						{/if}
 					</label>
 				</div>
@@ -605,20 +689,41 @@
 								bind:checked={sidebarCreateRemote}
 								class="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500"
 							/>
-							<label for="sidebar-modal-create-remote" class="text-xs text-gray-300 select-none cursor-pointer">
+							<label
+								for="sidebar-modal-create-remote"
+								class="cursor-pointer text-xs text-gray-300 select-none"
+							>
 								Create remote {sidebarPathStatus.matchingRule.provider} repository
 							</label>
 						</div>
-						
+
 						{#if sidebarCreateRemote}
-							<div class="flex items-center gap-3 pl-5 text-[10px] text-gray-400">
+							<div
+								class="flex items-center gap-3 pl-5 text-[10px] text-gray-400"
+							>
 								<span>Visibility:</span>
-								<label class="flex items-center gap-1 select-none cursor-pointer hover:text-white transition-colors">
-									<input type="radio" name="sidebar-modal-visibility" value="private" bind:group={sidebarRepoVisibility} class="text-blue-600 bg-gray-800 border-gray-750 focus:ring-blue-500" />
+								<label
+									class="flex cursor-pointer items-center gap-1 transition-colors select-none hover:text-white"
+								>
+									<input
+										type="radio"
+										name="sidebar-modal-visibility"
+										value="private"
+										bind:group={sidebarRepoVisibility}
+										class="border-gray-750 bg-gray-800 text-blue-600 focus:ring-blue-500"
+									/>
 									Private
 								</label>
-								<label class="flex items-center gap-1 select-none cursor-pointer hover:text-white transition-colors">
-									<input type="radio" name="sidebar-modal-visibility" value="public" bind:group={sidebarRepoVisibility} class="text-blue-600 bg-gray-800 border-gray-750 focus:ring-blue-500" />
+								<label
+									class="flex cursor-pointer items-center gap-1 transition-colors select-none hover:text-white"
+								>
+									<input
+										type="radio"
+										name="sidebar-modal-visibility"
+										value="public"
+										bind:group={sidebarRepoVisibility}
+										class="border-gray-750 bg-gray-800 text-blue-600 focus:ring-blue-500"
+									/>
 									Public
 								</label>
 							</div>

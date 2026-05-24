@@ -39,7 +39,7 @@
 		exists: boolean | null;
 		isGit: boolean;
 		resolvedPath: string;
-		matchingRule: { provider: string; visibility: string } | null;
+		matchingRule: {provider: string; visibility: string} | null;
 	}>({
 		exists: null,
 		isGit: false,
@@ -54,7 +54,12 @@
 		if (pathCheckTimeout) clearTimeout(pathCheckTimeout);
 
 		if (!pathValue.trim()) {
-			pathStatus = { exists: null, isGit: false, resolvedPath: '', matchingRule: null };
+			pathStatus = {
+				exists: null,
+				isGit: false,
+				resolvedPath: '',
+				matchingRule: null,
+			};
 			return;
 		}
 
@@ -65,17 +70,25 @@
 					exists: res.exists,
 					isGit: res.isGit,
 					resolvedPath: res.resolvedPath,
-					matchingRule: (res as any).matchingRule || null
+					matchingRule: (res as any).matchingRule || null,
 				};
 				if (!res.exists) {
-					newFolderGitInit = userManualGitInit !== null ? userManualGitInit : defaultGitInit;
+					newFolderGitInit =
+						userManualGitInit !== null ? userManualGitInit : defaultGitInit;
 					createRemoteRepo = true; // reset to true for non-existing folders
 					if ((res as any).matchingRule) {
-						repoVisibility = (res as any).matchingRule.visibility as 'private' | 'public';
+						repoVisibility = (res as any).matchingRule.visibility as
+							| 'private'
+							| 'public';
 					}
 				}
 			} else {
-				pathStatus = { exists: null, isGit: false, resolvedPath: '', matchingRule: null };
+				pathStatus = {
+					exists: null,
+					isGit: false,
+					resolvedPath: '',
+					matchingRule: null,
+				};
 			}
 		}, 300);
 	});
@@ -83,7 +96,7 @@
 	// Select default model if any
 	$effect(() => {
 		if (modelsData.models.length > 0 && !newFolderModel) {
-			const defaultModel = modelsData.models.find(m => m.isDefault);
+			const defaultModel = modelsData.models.find((m) => m.isDefault);
 			if (defaultModel) {
 				newFolderModel = `${defaultModel.provider}:${defaultModel.modelId}`;
 			} else {
@@ -98,16 +111,18 @@
 			newFolderGitInit = false; // toggled off by default in modal
 			createRemoteRepo = false; // toggled off by default in modal
 			if (pathStatus.matchingRule) {
-				repoVisibility = pathStatus.matchingRule.visibility as 'private' | 'public';
+				repoVisibility = pathStatus.matchingRule.visibility as
+					| 'private'
+					| 'public';
 			}
 			showGitInitConfirmModal = true;
 		} else {
 			createSession(
-				newFolderCwd.trim(), 
-				newFolderModel || undefined, 
-				newFolderGitInit, 
+				newFolderCwd.trim(),
+				newFolderModel || undefined,
+				newFolderGitInit,
 				pathStatus.matchingRule ? createRemoteRepo : undefined,
-				pathStatus.matchingRule ? repoVisibility : undefined
+				pathStatus.matchingRule ? repoVisibility : undefined,
 			);
 		}
 	}
@@ -366,56 +381,90 @@
 
 <div class="flex flex-1 flex-col overflow-hidden bg-gray-900">
 	{#if appState.connecting}
-		<div class="flex flex-1 flex-col items-center justify-center p-6 bg-gray-900 text-gray-500">
+		<div
+			class="flex flex-1 flex-col items-center justify-center bg-gray-900 p-6 text-gray-500"
+		>
 			<div class="text-center">
-				<div class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent mb-4"></div>
-				<p class="text-base font-medium text-gray-300">Connecting to Pi Remote Server...</p>
-				<p class="text-xs text-gray-500 mt-1">Establishing secure connection to your agent</p>
+				<div
+					class="mb-4 inline-block h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent"
+				></div>
+				<p class="text-base font-medium text-gray-300">
+					Connecting to Pi Remote Server...
+				</p>
+				<p class="mt-1 text-xs text-gray-500">
+					Establishing secure connection to your agent
+				</p>
 			</div>
 		</div>
 	{:else if !appState.connected}
-		<div class="flex flex-1 flex-col items-center justify-center p-6 bg-gray-900 text-gray-500">
-			<div class="w-full max-w-md rounded-lg border border-red-500/30 bg-red-900/10 p-6 text-center text-gray-300">
+		<div
+			class="flex flex-1 flex-col items-center justify-center bg-gray-900 p-6 text-gray-500"
+		>
+			<div
+				class="w-full max-w-md rounded-lg border border-red-500/30 bg-red-900/10 p-6 text-center text-gray-300"
+			>
 				<div class="mb-3 text-4xl">⚠️</div>
 				<h3 class="text-lg font-bold text-red-400">Not Connected to Server</h3>
-				<p class="text-sm text-gray-400 mt-2">
-					We couldn't connect to the Pi Remote Server. Please verify the server is running and check your connection settings in the sidebar.
+				<p class="mt-2 text-sm text-gray-400">
+					We couldn't connect to the Pi Remote Server. Please verify the server
+					is running and check your connection settings in the sidebar.
 				</p>
 				{#if appState.error}
-					<p class="mt-3 rounded bg-red-950/40 p-2 font-mono text-xs text-red-300/80 max-h-24 overflow-y-auto">
+					<p
+						class="mt-3 max-h-24 overflow-y-auto rounded bg-red-950/40 p-2 font-mono text-xs text-red-300/80"
+					>
 						{appState.error}
 					</p>
 				{/if}
 				<button
 					onclick={() => {
-						import('$lib/pi-remote').then(m => m.connect());
+						import('$lib/pi-remote').then((m) => m.connect());
 					}}
-					class="mt-5 rounded bg-gray-800 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-750"
+					class="hover:bg-gray-750 mt-5 rounded bg-gray-800 px-4 py-2 text-sm font-semibold text-white transition-colors"
 				>
 					Retry Connection
 				</button>
 			</div>
 		</div>
 	{:else if !sessionInfo.sessionFile && typeof window !== 'undefined' && window.location.hash}
-		<div class="flex flex-1 flex-col items-center justify-center p-6 bg-gray-900 text-gray-500">
+		<div
+			class="flex flex-1 flex-col items-center justify-center bg-gray-900 p-6 text-gray-500"
+		>
 			<div class="text-center">
-				<div class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent mb-4"></div>
+				<div
+					class="mb-4 inline-block h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent"
+				></div>
 				<p class="text-base font-medium text-gray-300">Loading session...</p>
-				<p class="text-xs text-gray-500 mt-1">Retrieving workspace session history</p>
+				<p class="mt-1 text-xs text-gray-500">
+					Retrieving workspace session history
+				</p>
 			</div>
 		</div>
 	{:else if !sessionInfo.sessionFile}
 		<div class="flex flex-1 items-center justify-center p-6">
-			<div class="w-full max-w-md rounded-lg border border-gray-700 bg-gray-800/40 p-6 text-gray-300">
+			<div
+				class="w-full max-w-md rounded-lg border border-gray-700 bg-gray-800/40 p-6 text-gray-300"
+			>
 				<div class="mb-5 text-center">
 					<div class="mb-2 text-4xl">📁</div>
 					<h3 class="text-lg font-bold text-white">Create a New Session</h3>
-					<p class="text-xs text-gray-400 mt-1">Start a coding session in any folder on your machine</p>
+					<p class="mt-1 text-xs text-gray-400">
+						Start a coding session in any folder on your machine
+					</p>
 				</div>
-				
-				<form onsubmit={(e) => { e.preventDefault(); handleFormCreateSession(); }} class="space-y-4">
+
+				<form
+					onsubmit={(e) => {
+						e.preventDefault();
+						handleFormCreateSession();
+					}}
+					class="space-y-4"
+				>
 					<div>
-						<label class="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1" for="main-folder-path">Folder Path</label>
+						<label
+							class="mb-1 block text-xs font-bold tracking-wider text-gray-400 uppercase"
+							for="main-folder-path">Folder Path</label
+						>
 						<input
 							id="main-folder-path"
 							type="text"
@@ -424,19 +473,26 @@
 							class="w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
 						/>
 						{#if pathStatus.exists === true}
-							<span class="text-xs text-yellow-400 mt-1.5 block font-medium">
+							<span class="mt-1.5 block text-xs font-medium text-yellow-400">
 								📁 Folder already exists. Joining will create a session in it.
 								{#if pathStatus.isGit}
-									<span class="text-green-400 font-medium ml-1">(Git repo detected)</span>
+									<span class="ml-1 font-medium text-green-400"
+										>(Git repo detected)</span
+									>
 								{/if}
 							</span>
 						{:else}
-							<span class="text-[10px] text-gray-500 mt-1 block">Relative paths are created inside your home folder.</span>
+							<span class="mt-1 block text-[10px] text-gray-500"
+								>Relative paths are created inside your home folder.</span
+							>
 						{/if}
 					</div>
 
 					<div>
-						<label class="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-1" for="main-model-select">Model</label>
+						<label
+							class="mb-1 block text-xs font-bold tracking-wider text-gray-400 uppercase"
+							for="main-model-select">Model</label
+						>
 						{#if modelsData.models.length > 0}
 							<select
 								id="main-model-select"
@@ -467,22 +523,41 @@
 									id="main-create-remote"
 									type="checkbox"
 									bind:checked={createRemoteRepo}
-									class="h-4 w-4 rounded border-gray-600 bg-gray-750 text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-800"
+									class="bg-gray-750 h-4 w-4 rounded border-gray-600 text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-800"
 								/>
-								<label for="main-create-remote" class="text-sm text-gray-300 select-none cursor-pointer">
+								<label
+									for="main-create-remote"
+									class="cursor-pointer text-sm text-gray-300 select-none"
+								>
 									Create remote {pathStatus.matchingRule.provider} repository
 								</label>
 							</div>
-							
+
 							{#if createRemoteRepo}
 								<div class="flex items-center gap-4 pl-6 text-xs text-gray-400">
 									<span>Visibility:</span>
-									<label class="flex items-center gap-1.5 select-none cursor-pointer hover:text-white transition-colors">
-										<input type="radio" name="main-visibility" value="private" bind:group={repoVisibility} class="text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500" />
+									<label
+										class="flex cursor-pointer items-center gap-1.5 transition-colors select-none hover:text-white"
+									>
+										<input
+											type="radio"
+											name="main-visibility"
+											value="private"
+											bind:group={repoVisibility}
+											class="border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500"
+										/>
 										Private
 									</label>
-									<label class="flex items-center gap-1.5 select-none cursor-pointer hover:text-white transition-colors">
-										<input type="radio" name="main-visibility" value="public" bind:group={repoVisibility} class="text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500" />
+									<label
+										class="flex cursor-pointer items-center gap-1.5 transition-colors select-none hover:text-white"
+									>
+										<input
+											type="radio"
+											name="main-visibility"
+											value="public"
+											bind:group={repoVisibility}
+											class="border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500"
+										/>
 										Public
 									</label>
 								</div>
@@ -496,10 +571,15 @@
 								id="main-git-init"
 								type="checkbox"
 								bind:checked={newFolderGitInit}
-								onchange={(e) => { userManualGitInit = e.currentTarget.checked; }}
-								class="h-4 w-4 rounded border-gray-600 bg-gray-750 text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-800"
+								onchange={(e) => {
+									userManualGitInit = e.currentTarget.checked;
+								}}
+								class="bg-gray-750 h-4 w-4 rounded border-gray-600 text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-800"
 							/>
-							<label for="main-git-init" class="text-sm text-gray-300 select-none cursor-pointer">
+							<label
+								for="main-git-init"
+								class="cursor-pointer text-sm text-gray-300 select-none"
+							>
 								Initialize Git repository
 							</label>
 						</div>
@@ -508,7 +588,7 @@
 					<button
 						type="submit"
 						disabled={!newFolderCwd.trim()}
-						class="w-full rounded bg-blue-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+						class="w-full rounded bg-blue-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
 					>
 						Create & Start Session
 					</button>
@@ -701,14 +781,24 @@
 
 	<!-- Custom Confirm Modal for Existing Folders -->
 	{#if showGitInitConfirmModal}
-		<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4" role="dialog" aria-modal="true">
-			<div class="w-full max-w-sm rounded-lg border border-gray-700 bg-gray-800 p-6 text-gray-300">
-				<h3 class="text-base font-bold text-white mb-2">Folder Already Exists</h3>
-				<p class="text-sm text-gray-400 mb-4">
-					The folder <span class="text-gray-200 font-mono text-xs">{newFolderCwd}</span> already exists. Do you want to initialize a Git repository in it?
+		<div
+			class="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4"
+			role="dialog"
+			aria-modal="true"
+		>
+			<div
+				class="w-full max-w-sm rounded-lg border border-gray-700 bg-gray-800 p-6 text-gray-300"
+			>
+				<h3 class="mb-2 text-base font-bold text-white">
+					Folder Already Exists
+				</h3>
+				<p class="mb-4 text-sm text-gray-400">
+					The folder <span class="font-mono text-xs text-gray-200"
+						>{newFolderCwd}</span
+					> already exists. Do you want to initialize a Git repository in it?
 				</p>
 
-				<div class="flex flex-col gap-3.5 mb-6">
+				<div class="mb-6 flex flex-col gap-3.5">
 					<div class="flex items-center gap-2">
 						<input
 							id="modal-git-init"
@@ -717,12 +807,19 @@
 							disabled={pathStatus.isGit}
 							class="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
 						/>
-						<label for="modal-git-init" class="text-sm text-gray-300 select-none cursor-pointer disabled:opacity-50">
+						<label
+							for="modal-git-init"
+							class="cursor-pointer text-sm text-gray-300 select-none disabled:opacity-50"
+						>
 							Initialize Git repository
 							{#if pathStatus.isGit}
-								<span class="text-xs text-gray-500 ml-1">(already a Git repository)</span>
+								<span class="ml-1 text-xs text-gray-500"
+									>(already a Git repository)</span
+								>
 							{:else}
-								<span class="text-xs text-yellow-500 ml-1 font-medium">(folder not empty)</span>
+								<span class="ml-1 text-xs font-medium text-yellow-500"
+									>(folder not empty)</span
+								>
 							{/if}
 						</label>
 					</div>
@@ -736,20 +833,39 @@
 									bind:checked={createRemoteRepo}
 									class="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500"
 								/>
-								<label for="modal-create-remote" class="text-sm text-gray-300 select-none cursor-pointer">
+								<label
+									for="modal-create-remote"
+									class="cursor-pointer text-sm text-gray-300 select-none"
+								>
 									Create remote {pathStatus.matchingRule.provider} repository
 								</label>
 							</div>
-							
+
 							{#if createRemoteRepo}
 								<div class="flex items-center gap-4 pl-6 text-xs text-gray-400">
 									<span>Visibility:</span>
-									<label class="flex items-center gap-1.5 select-none cursor-pointer hover:text-white transition-colors">
-										<input type="radio" name="modal-visibility" value="private" bind:group={repoVisibility} class="text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500" />
+									<label
+										class="flex cursor-pointer items-center gap-1.5 transition-colors select-none hover:text-white"
+									>
+										<input
+											type="radio"
+											name="modal-visibility"
+											value="private"
+											bind:group={repoVisibility}
+											class="border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500"
+										/>
 										Private
 									</label>
-									<label class="flex items-center gap-1.5 select-none cursor-pointer hover:text-white transition-colors">
-										<input type="radio" name="modal-visibility" value="public" bind:group={repoVisibility} class="text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500" />
+									<label
+										class="flex cursor-pointer items-center gap-1.5 transition-colors select-none hover:text-white"
+									>
+										<input
+											type="radio"
+											name="modal-visibility"
+											value="public"
+											bind:group={repoVisibility}
+											class="border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500"
+										/>
 										Public
 									</label>
 								</div>
@@ -771,11 +887,11 @@
 						onclick={() => {
 							showGitInitConfirmModal = false;
 							createSession(
-								newFolderCwd.trim(), 
-								newFolderModel || undefined, 
-								newFolderGitInit, 
+								newFolderCwd.trim(),
+								newFolderModel || undefined,
+								newFolderGitInit,
 								pathStatus.matchingRule ? createRemoteRepo : undefined,
-								pathStatus.matchingRule ? repoVisibility : undefined
+								pathStatus.matchingRule ? repoVisibility : undefined,
 							);
 						}}
 						class="rounded bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
