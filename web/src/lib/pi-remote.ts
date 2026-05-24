@@ -340,6 +340,35 @@ export function connect() {
 					});
 					break;
 
+				case 'tool_update': {
+					const current = get(state);
+					const toolMsg = [...current.messages]
+						.reverse()
+						.find(
+							(m: ChatMessage) =>
+								m.role === 'tool' &&
+								m.toolName === msg.toolName &&
+								m.isStreaming,
+						);
+					if (toolMsg) {
+						state.update((s: PiRemoteState) => ({
+							...s,
+							messages: s.messages.map((m: ChatMessage) =>
+								m.id === toolMsg.id
+									? {
+											...m,
+											content: m.content.includes('\n')
+												? m.content + msg.delta
+												: `${m.content}\n${msg.delta}`,
+											toolOutput: `${m.toolOutput}${msg.delta}`,
+										}
+									: m,
+							),
+						}));
+					}
+					break;
+				}
+
 				case 'tool_end': {
 					const current = get(state);
 					const toolMsg = [...current.messages]

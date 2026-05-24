@@ -653,6 +653,62 @@ export class SessionPool {
     if (!tracked) return;
     tracked.lastActivity = Date.now();
     this.cancelIdleCheck(tracked.sessionFile);
+
+    const isBash = text.trimStart().startsWith('!');
+    if (isBash) {
+      const isExcluded = text.trimStart().startsWith('!!');
+      const command = isExcluded ? text.trimStart().slice(2).trim() : text.trimStart().slice(1).trim();
+
+      if (command) {
+        if (tracked.type === 'server') {
+          if (this.onEvent) {
+            this.onEvent(tracked.sessionFile, {
+              type: 'tool_execution_start',
+              toolName: 'bash',
+              args: { command },
+            } as any);
+          }
+
+          try {
+            const result = await tracked.agentSession.executeBash(command, (chunk) => {
+              if (this.onEvent) {
+                this.onEvent(tracked.sessionFile, {
+                  type: 'tool_execution_update',
+                  toolName: 'bash',
+                  delta: chunk,
+                } as any);
+              }
+            }, { excludeFromContext: isExcluded });
+
+            if (this.onEvent) {
+              this.onEvent(tracked.sessionFile, {
+                type: 'tool_execution_end',
+                toolName: 'bash',
+                result: result.output,
+                isError: result.exitCode !== 0,
+              } as any);
+            }
+          } catch (err) {
+            if (this.onEvent) {
+              this.onEvent(tracked.sessionFile, {
+                type: 'tool_execution_end',
+                toolName: 'bash',
+                result: (err as Error).message,
+                isError: true,
+              } as any);
+            }
+          }
+        } else if (tracked.type === 'cli') {
+          tracked.cliWs.send(JSON.stringify({
+            type: 'cli_bash',
+            command,
+            excludeFromContext: isExcluded,
+          }));
+        }
+      }
+      return;
+    }
+
     if (tracked.type === 'server') {
       await tracked.agentSession.sendUserMessage(text, { deliverAs: streamingBehavior });
     } else if (tracked.type === 'cli') {

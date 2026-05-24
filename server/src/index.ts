@@ -305,6 +305,11 @@ async function main(): Promise<void> {
       case 'tool_execution_start':
         msg = { type: 'tool_start', sessionId, toolName: event.toolName, args: event.args };
         break;
+      case 'tool_execution_update': {
+        const evt = event as any;
+        msg = { type: 'tool_update', sessionId, toolName: event.toolName, delta: evt.delta || '' };
+        break;
+      }
       case 'tool_execution_end':
         const toolResult = extractToolResult(event as any);
         msg = { type: 'tool_end', sessionId, toolName: event.toolName, isError: event.isError, result: toolResult };

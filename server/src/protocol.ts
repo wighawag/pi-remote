@@ -15,6 +15,7 @@ export type ClientMessage =
   | { type: 'cli_event'; sessionFile: string; event: any }
   | { type: 'cli_message'; message: string; streamingBehavior?: 'steer' | 'followUp' }
   | { type: 'cli_abort' }
+  | { type: 'cli_bash'; command: string; excludeFromContext?: boolean }
   | { type: 'cli_model_change'; model: string };
 
 export type ServerMessage =
@@ -25,7 +26,9 @@ export type ServerMessage =
   | { type: 'message_end'; sessionId: string; content: string; role?: 'user' | 'assistant' }
   | { type: 'agent_end'; sessionId: string }
   | { type: 'tool_start'; sessionId: string; toolName: string; args: unknown }
+  | { type: 'tool_update'; sessionId: string; toolName: string; delta: string }
   | { type: 'tool_end'; sessionId: string; toolName: string; isError: boolean; result?: string }
+  | { type: 'cli_bash'; command: string; excludeFromContext?: boolean }
   | { type: 'session_created'; sessionId: string; sessionFile: string; cwd: string; model: string; isStreaming?: boolean }
   | { type: 'session_destroyed'; sessionId: string; reason: string }
   | { type: 'session_error'; sessionId?: string; error: string; detail?: string }

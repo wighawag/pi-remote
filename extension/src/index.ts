@@ -13,6 +13,7 @@
  */
 
 import WebSocket from "ws";
+import { spawn } from "node:child_process";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -170,6 +171,79 @@ export default async function (pi: ExtensionAPI) {
             ctxVal?.ui.notify(`[Pi Remote] Received remote command: ${msg.message.slice(0, 40)}...`, "info");
             pi.sendUserMessage(msg.message, {
               deliverAs: msg.streamingBehavior,
+            });
+            break;
+          }
+          case "cli_bash": {
+            const { command, excludeFromContext } = msg;
+            ctxVal?.ui.notify(`[Pi Remote] Executing remote bash command: ${command.slice(0, 40)}...`, "info");
+
+            sendCliEvent({
+              type: "tool_execution_start",
+              toolName: "bash",
+              args: { command },
+            });
+
+            const shell = process.platform === "win32" ? "cmd.exe" : "bash";
+            const shellArgs = process.platform === "win32" ? ["/c", command] : ["-c", command];
+            const child = spawn(shell, shellArgs, { cwd: ctxVal?.cwd });
+            let output = "";
+
+            child.stdout?.on("data", (data: any) => {
+              const chunk = data.toString();
+              output += chunk;
+              sendCliEvent({
+                type: "tool_execution_update",
+                toolName: "bash",
+                delta: chunk,
+              });
+            });
+
+            child.stderr?.on("data", (data: any) => {
+              const chunk = data.toString();
+              output += chunk;
+              sendCliEvent({
+                type: "tool_execution_update",
+                toolName: "bash",
+                delta: chunk,
+              });
+            });
+
+            child.on("close", (code: number) => {
+              sendCliEvent({
+                type: "tool_execution_end",
+                toolName: "bash",
+                result: output,
+                isError: code !== 0,
+              });
+
+              // Record bash result locally
+              const bashMessage = {
+                role: "bashExecution",
+                command,
+                output,
+                exitCode: code,
+                timestamp: Date.now(),
+                excludeFromContext,
+              };
+
+              try {
+                if (ctxVal?.sessionManager) {
+                  (ctxVal.sessionManager as any).appendMessage(bashMessage);
+                }
+              } catch (err) {
+                console.error("[Pi Remote] Failed to append bash message locally:", err);
+              }
+            });
+
+            child.on("error", (err: any) => {
+              const errMsg = err.message || String(err);
+              sendCliEvent({
+                type: "tool_execution_end",
+                toolName: "bash",
+                result: errMsg,
+                isError: true,
+              });
             });
             break;
           }
