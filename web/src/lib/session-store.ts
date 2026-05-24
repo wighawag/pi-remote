@@ -134,6 +134,7 @@ export function getToken(): string {
 }
 
 export const gitInitDefaultStore = writable<boolean>(false);
+export const uploadMethodStore = writable<'websocket' | 'post'>('websocket');
 
 export interface PathCheckResult {
 	exists: boolean;
@@ -186,6 +187,7 @@ export async function fetchConfig(): Promise<void> {
 		if (!res.ok) throw new Error(`HTTP ${res.status}`);
 		const data = await res.json();
 		gitInitDefaultStore.set(!!data.gitInitDefault);
+		uploadMethodStore.set(data.uploadMethod || 'websocket');
 	} catch (err) {
 		console.error('Failed to fetch config:', err);
 	}

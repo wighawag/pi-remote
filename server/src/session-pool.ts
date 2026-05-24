@@ -22,6 +22,7 @@ export interface PiRemoteConfig {
     type?: 'tmp' | 'session' | 'custom';
     dir?: string;
     subDir?: string;
+    method?: 'post' | 'websocket';
   };
 }
 

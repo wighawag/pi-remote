@@ -1,6 +1,6 @@
 import {writable, derived, get} from 'svelte/store';
 import type {ConflictInfo} from './session-store';
-import {setCurrentSession, getBaseUrl, getToken} from './session-store';
+import {setCurrentSession, getBaseUrl, getToken, uploadMethodStore} from './session-store';
 
 export interface ChatMessage {
 	id: string;
@@ -754,7 +754,36 @@ export const activeSessionInfo = derived(piState, ($s) => ({
 	sessionId: $s.sessionId,
 }));
 
-export async function uploadFile(
+async function uploadFileViaPost(
+	sessionId: string,
+	file: File,
+): Promise<{savedPath: string; filename: string}> {
+	const baseUrl = getBaseUrl();
+	const token = getToken();
+	const url = `${baseUrl}/session/upload?sessionId=${encodeURIComponent(sessionId)}&filename=${encodeURIComponent(file.name)}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
+
+	// Read file fully into memory as ArrayBuffer before sending to bypass mobile file sandbox/lazy-loading streaming issues
+	const fileData = await file.arrayBuffer();
+
+	const res = await fetch(url, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'text/plain', // CORS-simple content type to bypass mobile preflight strict-origin blocks
+		},
+		body: fileData,
+	});
+
+	if (!res.ok) {
+		const errData = await res.json().catch(() => ({}));
+		throw new Error(
+			errData.error || `Upload failed with status ${res.status}`,
+		);
+	}
+
+	return await res.json();
+}
+
+function uploadFileViaWebSocket(
 	sessionId: string,
 	file: File,
 ): Promise<{savedPath: string; filename: string}> {
@@ -795,4 +824,16 @@ export async function uploadFile(
 			reject(err);
 		}
 	});
+}
+
+export async function uploadFile(
+	sessionId: string,
+	file: File,
+): Promise<{savedPath: string; filename: string}> {
+	const method = get(uploadMethodStore);
+	if (method === 'post') {
+		return uploadFileViaPost(sessionId, file);
+	} else {
+		return uploadFileViaWebSocket(sessionId, file);
+	}
 }

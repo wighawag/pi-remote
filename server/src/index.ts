@@ -368,7 +368,10 @@ async function main(): Promise<void> {
 
     if (pathname === '/config' && req.method === 'GET') {
       const config = getPiRemoteConfig();
-      sendJSON(res, 200, { gitInitDefault: !!config.gitInitDefault });
+      sendJSON(res, 200, {
+        gitInitDefault: !!config.gitInitDefault,
+        uploadMethod: config.uploads?.method || 'websocket'
+      });
       return;
     }
 
