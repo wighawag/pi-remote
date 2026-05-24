@@ -179,6 +179,11 @@ pi-remote/
 5. **Message queuing** - Messages queued if no client connected (up to 100)
 6. **No web UI (yet)** - Keep core simple, UI can be separate
 
+## Agent Guidelines
+
+⚠️ **Important for AI Agents:**
+Please review **`AGENTS.md`** in the root of the project before completing any work. It contains essential guidelines, including the requirement to **always create a changeset** with a good description when done.
+
 ## Known Limitations
 
 - No built-in web interface (by design - separate concern)

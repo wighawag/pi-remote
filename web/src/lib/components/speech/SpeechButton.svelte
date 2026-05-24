@@ -20,6 +20,7 @@
 
 	// State
 	let isRecording = $state(false);
+	let isProcessing = $state(false);
 	let isHolding = $state(false);
 	let showSettings = $state(false);
 	let directSend = $state(false);
@@ -30,8 +31,14 @@
 	// Gesture & API Tracking
 	let pressTimer = $state<any>(null);
 	let recognitionInstance: any = null;
-	let mediaRecorder = $state<MediaRecorder | null>(null);
-	let audioChunks: Blob[] = [];
+	
+	// Direct WAV / Web Audio PCM Recording State
+	let audioContext: AudioContext | null = null;
+	let micSource: MediaStreamAudioSourceNode | null = null;
+	let scriptProcessor: any = null;
+	let audioStream: MediaStream | null = null;
+	let pcmChunks: Float32Array[] = [];
+
 	let baseText = '';
 	let textModified = false;
 
@@ -68,10 +75,25 @@
 					recognitionInstance.abort();
 				} catch (e) {}
 			}
-			if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+			if (scriptProcessor) {
 				try {
-					mediaRecorder.stop();
-				} catch (e) {}
+					scriptProcessor.disconnect();
+				} catch {}
+			}
+			if (micSource) {
+				try {
+					micSource.disconnect();
+				} catch {}
+			}
+			if (audioStream) {
+				try {
+					audioStream.getTracks().forEach((track) => track.stop());
+				} catch {}
+			}
+			if (audioContext) {
+				try {
+					audioContext.close();
+				} catch {}
 			}
 			if (pressTimer) clearTimeout(pressTimer);
 		};
@@ -107,6 +129,56 @@
 		return '';
 	}
 
+	// Synthesize a brief audible beep to indicate recording start
+	function playBeep() {
+		try {
+			const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+			if (!AudioContextClass) return;
+			const ctx = new AudioContextClass();
+			const osc = ctx.createOscillator();
+			const gain = ctx.createGain();
+
+			osc.type = 'sine';
+			osc.frequency.setValueAtTime(400, ctx.currentTime); // 400 Hz tone
+			
+			gain.gain.setValueAtTime(0.08, ctx.currentTime);
+			gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12); // smooth fade out
+
+			osc.connect(gain);
+			gain.connect(ctx.destination);
+
+			osc.start();
+			osc.stop(ctx.currentTime + 0.12);
+		} catch (e) {
+			console.warn('Could not play audio beep feedback:', e);
+		}
+	}
+
+	// Downsamples audio buffers to target sample rate (e.g. 16kHz)
+	function downsampleBuffer(buffer: Float32Array, inputSampleRate: number, outputSampleRate: number): Float32Array {
+		if (inputSampleRate === outputSampleRate) {
+			return buffer;
+		}
+		const sampleRateRatio = inputSampleRate / outputSampleRate;
+		const newLength = Math.round(buffer.length / sampleRateRatio);
+		const result = new Float32Array(newLength);
+		let offsetResult = 0;
+		let offsetBuffer = 0;
+		while (offsetResult < result.length) {
+			const nextOffsetBuffer = Math.round((offsetResult + 1) * sampleRateRatio);
+			let accum = 0;
+			let count = 0;
+			for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
+				accum += buffer[i];
+				count++;
+			}
+			result[offsetResult] = count > 0 ? accum / count : 0;
+			offsetResult++;
+			offsetBuffer = nextOffsetBuffer;
+		}
+		return result;
+	}
+
 	// ==========================================
 	// NATIVE BROWSER SPEECH RECOGNITION (STREAMING)
 	// ==========================================
@@ -120,6 +192,8 @@
 
 			recognitionInstance.onstart = () => {
 				isRecording = true;
+				isProcessing = false;
+				playBeep();
 			};
 
 			recognitionInstance.onresult = (event: any) => {
@@ -186,91 +260,29 @@
 	// ==========================================
 	async function startCloudRecording() {
 		try {
-			const stream = await navigator.mediaDevices.getUserMedia({audio: true});
-			audioChunks = [];
+			const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+			audioStream = stream;
+			pcmChunks = [];
 
-			let options = {};
-			if (typeof MediaRecorder !== 'undefined') {
-				if (MediaRecorder.isTypeSupported('audio/webm')) {
-					options = {mimeType: 'audio/webm'};
-				} else if (MediaRecorder.isTypeSupported('audio/mp4')) {
-					options = {mimeType: 'audio/mp4'};
-				}
-			}
+			const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+			audioContext = new AudioContextClass();
 
-			const recorder = new MediaRecorder(stream, options);
-			mediaRecorder = recorder;
-
-			recorder.ondataavailable = (event) => {
-				if (event.data.size > 0) {
-					audioChunks.push(event.data);
-				}
+			micSource = audioContext.createMediaStreamSource(stream);
+			
+			// ScriptProcessor is widely supported and simpler than module-registered AudioWorklet
+			scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+			scriptProcessor.onaudioprocess = (event: any) => {
+				const inputBuffer = event.inputBuffer.getChannelData(0);
+				// Push a snapshot/copy of Float32 audio samples
+				pcmChunks.push(new Float32Array(inputBuffer));
 			};
 
-			recorder.onstop = async () => {
-				// Stop all tracks of the stream
-				stream.getTracks().forEach((track) => track.stop());
+			micSource.connect(scriptProcessor);
+			scriptProcessor.connect(audioContext.destination);
 
-				if (audioChunks.length === 0) {
-					isRecording = false;
-					return;
-				}
-
-				const rawBlob = new Blob(audioChunks, {
-					type: (options as any).mimeType || 'audio/webm',
-				});
-
-				try {
-					speechError = null;
-
-					// Convert client raw audio blob to downsampled WAV
-					const arrayBuffer = await rawBlob.arrayBuffer();
-					const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-					const audioCtx = new AudioContextClass({ sampleRate: 16000 }); // Downsample automatically to 16kHz
-					const decodedBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-					const wavBuffer = audioBufferToWav(decodedBuffer);
-					const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' });
-
-					const baseUrl = getBaseUrl();
-					const token = getToken();
-					const url = `${baseUrl}/session/transcribe${token ? `?token=${encodeURIComponent(token)}` : ''}`;
-
-					const res = await fetch(url, {
-						method: 'POST',
-						body: wavBlob,
-						headers: {
-							'Content-Type': 'application/octet-stream',
-						},
-					});
-
-					const data = await res.json();
-					if (!res.ok) {
-						throw new Error(data.error || `HTTP ${res.status}`);
-					}
-
-					if (data.text && data.text.trim()) {
-						textModified = true;
-						text = baseText + (baseText ? ' ' : '') + data.text.trim();
-
-						// Auto dispatch if enabled
-						if (directSend && onSend) {
-							setTimeout(() => {
-								if (text.trim()) {
-									onSend();
-								}
-							}, 50);
-						}
-					}
-				} catch (err: any) {
-					console.error('Cloud transcription request failed:', err);
-					speechError = err.message || 'Cloud API failed';
-				} finally {
-					isRecording = false;
-				}
-			};
-
-			recorder.start();
 			isRecording = true;
+			isProcessing = false;
+			playBeep();
 
 			if (navigator.vibrate) {
 				navigator.vibrate(40);
@@ -279,14 +291,109 @@
 			console.error('Failed to start cloud audio recording:', err);
 			speechError = err.message || 'Microphone access denied';
 			isRecording = false;
+			isProcessing = false;
 		}
 	}
 
 	function stopCloudRecording() {
-		if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-			try {
-				mediaRecorder.stop();
-			} catch (e) {}
+		if (isRecording) {
+			isRecording = false;
+			isProcessing = true;
+
+			if (scriptProcessor) {
+				try {
+					scriptProcessor.disconnect();
+				} catch {}
+				scriptProcessor.onaudioprocess = null;
+			}
+			if (micSource) {
+				try {
+					micSource.disconnect();
+				} catch {}
+			}
+			if (audioStream) {
+				try {
+					audioStream.getTracks().forEach((track) => track.stop());
+				} catch {}
+			}
+
+			// Decouple processing asynchronously to prevent UI freezing
+			processCloudTranscription();
+		}
+	}
+
+	async function processCloudTranscription() {
+		try {
+			if (pcmChunks.length === 0) {
+				isProcessing = false;
+				return;
+			}
+
+			speechError = null;
+
+			// Concatenate Float32 chunks
+			let totalLength = 0;
+			for (const chunk of pcmChunks) {
+				totalLength += chunk.length;
+			}
+
+			const flatBuffer = new Float32Array(totalLength);
+			let offset = 0;
+			for (const chunk of pcmChunks) {
+				flatBuffer.set(chunk, offset);
+				offset += chunk.length;
+			}
+
+			// Downsample to 16kHz (Server transcriber standard)
+			const originalSampleRate = audioContext ? audioContext.sampleRate : 48000;
+			const targetSampleRate = 16000;
+			const downsampledBuffer = downsampleBuffer(flatBuffer, originalSampleRate, targetSampleRate);
+
+			// Encode directly to mono 16-bit PCM WAV buffer
+			const wavBuffer = createWav(downsampledBuffer, 1, targetSampleRate, 1, 16);
+			const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' });
+
+			const baseUrl = getBaseUrl();
+			const token = getToken();
+			const url = `${baseUrl}/session/transcribe${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+
+			const res = await fetch(url, {
+				method: 'POST',
+				body: wavBlob,
+				headers: {
+					'Content-Type': 'application/octet-stream',
+				},
+			});
+
+			const data = await res.json();
+			if (!res.ok) {
+				throw new Error(data.error || `HTTP ${res.status}`);
+			}
+
+			if (data.text && data.text.trim()) {
+				textModified = true;
+				text = baseText + (baseText ? ' ' : '') + data.text.trim();
+
+				// Auto dispatch if enabled
+				if (directSend && onSend) {
+					setTimeout(() => {
+						if (text.trim()) {
+							onSend();
+						}
+					}, 50);
+				}
+			}
+		} catch (err: any) {
+			console.error('Cloud transcription request failed:', err);
+			speechError = err.message || 'Cloud API failed';
+		} finally {
+			isProcessing = false;
+			if (audioContext) {
+				try {
+					audioContext.close();
+				} catch {}
+				audioContext = null;
+			}
 		}
 	}
 
@@ -294,7 +401,7 @@
 	// GESTURE & INTERACTION DISPATCHERS
 	// ==========================================
 	function startRecording() {
-		if (disabled || isRecording) return;
+		if (disabled || isRecording || isProcessing) return;
 		speechError = null;
 		textModified = false;
 		baseText = text;
@@ -443,17 +550,21 @@
 	<!-- Mic Button -->
 	<button
 		type="button"
-		disabled={disabled && !isRecording}
+		disabled={(disabled && !isRecording && !isProcessing) || isProcessing}
 		onpointerdown={handlePointerDown}
 		onpointerup={handlePointerUp}
 		onpointercancel={handlePointerCancel}
 		class="flex h-[48px] w-[48px] items-center justify-center rounded-lg border transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-40
 			{isRecording 
 				? 'bg-red-600 border-red-500 animate-pulse text-white' 
-				: 'bg-gray-800 border-gray-600 text-gray-400 hover:text-white hover:bg-gray-700'}"
+				: isProcessing
+					? 'bg-amber-600 border-amber-500 text-white cursor-wait'
+					: 'bg-gray-800 border-gray-600 text-gray-400 hover:text-white hover:bg-gray-700'}"
 		title={isRecording 
 			? 'Recording (release/tap to stop)...' 
-			: 'Hold to speak (walkie-talkie) or Tap to toggle recording'}
+			: isProcessing
+				? 'Processing speech...'
+				: 'Hold to speak (walkie-talkie) or Tap to toggle recording'}
 	>
 		<svg
 			xmlns="http://www.w3.org/2000/svg"
@@ -475,7 +586,7 @@
 	<button
 		type="button"
 		onclick={() => (showSettings = !showSettings)}
-		disabled={disabled && !isRecording}
+		disabled={(disabled && !isRecording && !isProcessing) || isProcessing}
 		class="flex h-[48px] w-[28px] items-center justify-center rounded-lg border border-gray-600 bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
 		title="Speech Settings"
 	>
