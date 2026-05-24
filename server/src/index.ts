@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { createServer as createHttpsServer } from 'node:https';
+import { createServer as createHttpsServer, request as httpRequest } from 'node:https';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent';
 import { SessionPool, getPiRemoteConfig } from './session-pool.js';
@@ -615,6 +615,77 @@ async function main(): Promise<void> {
       } catch (err) {
         sendJSON(res, 400, { error: (err as Error).message || 'Invalid request' });
       }
+      return;
+    }
+
+    if (pathname === '/session/transcribe' && req.method === 'POST') {
+      const config = getPiRemoteConfig();
+      const apiKey = config.speech?.apiKey || process.env.SPEECH_API_KEY;
+      const apiUrl = config.speech?.apiUrl || process.env.SPEECH_API_URL || 'https://api.z.ai/api/paas/v4/audio/transcriptions';
+      const apiModel = config.speech?.model || process.env.SPEECH_MODEL || 'glm-asr-2512';
+
+      if (!apiKey) {
+        sendJSON(res, 400, { error: 'Server speech transcription API key not configured' });
+        return;
+      }
+
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk) => chunks.push(chunk));
+      req.on('end', () => {
+        const audioBuffer = Buffer.concat(chunks);
+        if (audioBuffer.length === 0) {
+          sendJSON(res, 400, { error: 'Empty audio payload' });
+          return;
+        }
+
+        const boundary = '----SpeechBoundary' + Math.random().toString(16);
+        const header = `--${boundary}\r\n` +
+          `Content-Disposition: form-data; name="model"\r\n\r\n` +
+          `${apiModel}\r\n` +
+          `--${boundary}\r\n` +
+          `Content-Disposition: form-data; name="file"; filename="audio.wav"\r\n` +
+          `Content-Type: audio/wav\r\n\r\n`;
+
+        const footer = `\r\n--${boundary}--\r\n`;
+
+        const headerBuffer = Buffer.from(header, 'utf-8');
+        const footerBuffer = Buffer.from(footer, 'utf-8');
+        const totalPayload = Buffer.concat([headerBuffer, audioBuffer, footerBuffer]);
+
+        const parsedUrl = new URL(apiUrl);
+        const apiReq = httpRequest({
+          hostname: parsedUrl.hostname,
+          path: parsedUrl.pathname + parsedUrl.search,
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': `multipart/form-data; boundary=${boundary}`,
+            'Content-Length': totalPayload.length
+          }
+        }, (apiRes) => {
+          let responseBody = '';
+          apiRes.on('data', (chunk) => responseBody += chunk);
+          apiRes.on('end', () => {
+            try {
+              const parsed = JSON.parse(responseBody);
+              if (apiRes.statusCode && apiRes.statusCode >= 400) {
+                sendJSON(res, apiRes.statusCode, { error: parsed.error?.message || parsed.message || 'API request failed' });
+              } else {
+                sendJSON(res, 200, { text: parsed.text || '' });
+              }
+            } catch (e) {
+              sendJSON(res, 500, { error: 'Failed to parse cloud response' });
+            }
+          });
+        });
+
+        apiReq.on('error', (err) => {
+          sendJSON(res, 500, { error: err.message });
+        });
+
+        apiReq.write(totalPayload);
+        apiReq.end();
+      });
       return;
     }
 

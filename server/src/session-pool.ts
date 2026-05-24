@@ -13,6 +13,11 @@ export interface PiRemoteConfig {
   gitInitDefault?: boolean;
   remoteRepoRules?: RemoteRepoRule[];
   commonFolders?: string[];
+  speech?: {
+    apiKey?: string;
+    apiUrl?: string;
+    model?: string;
+  };
 }
 
 export function getPiRemoteConfig(): PiRemoteConfig {

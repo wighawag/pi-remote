@@ -374,6 +374,18 @@
 		}
 	});
 
+	$effect.pre(() => {
+		// React to both array length and the last message's content length (which changes on every single streamed token!)
+		const lastMsg = $messages[$messages.length - 1];
+		const triggerValue = lastMsg
+			? `${$messages.length}-${lastMsg.content.length}`
+			: '0';
+
+		if (messageList) {
+			shouldAutoScroll = isScrolledToBottom(messageList);
+		}
+	});
+
 	$effect(() => {
 		// React to both array length and the last message's content length (which changes on every single streamed token!)
 		const lastMsg = $messages[$messages.length - 1];
@@ -381,7 +393,7 @@
 			? `${$messages.length}-${lastMsg.content.length}`
 			: '0';
 
-		setTimeout(scrollToBottomIfShould, 0);
+		scrollToBottomIfShould();
 	});
 
 	$effect(() => {
