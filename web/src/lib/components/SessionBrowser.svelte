@@ -7,6 +7,7 @@
 		fetchConfig,
 		gitInitDefaultStore,
 		checkPath,
+		autocompletePath,
 		setCurrentSession,
 		type ModelInfo,
 		type FolderWithSessions,
@@ -96,6 +97,7 @@
 	// Collapsible Sidebar form state
 	let createFormOpen = $state(false);
 	let sidebarCwd = $state('');
+	let sidebarCompletions = $state<string[]>([]);
 	let sidebarModel = $state('');
 	let sidebarGitInit = $state(false);
 	let userManualSidebarGitInit = $state<boolean | null>(null);
@@ -104,6 +106,9 @@
 	let showSidebarGitConfirmModal = $state(false);
 
 	let defaultGitInit = $derived($gitInitDefaultStore);
+	let isSidebarRemoteRepoCreation = $derived(
+		sidebarPathStatus.exists !== true && sidebarPathStatus.matchingRule && sidebarCreateRemote
+	);
 
 	// Sync git init default
 	$effect(() => {
@@ -137,11 +142,16 @@
 				resolvedPath: '',
 				matchingRule: null,
 			};
+			sidebarCompletions = [];
 			return;
 		}
 
 		sidebarPathCheckTimeout = setTimeout(async () => {
-			const res = await checkPath(pathValue);
+			const [res, list] = await Promise.all([
+				checkPath(pathValue),
+				autocompletePath(pathValue),
+			]);
+			sidebarCompletions = list || [];
 			if (res) {
 				sidebarPathStatus = {
 					exists: res.exists,
@@ -350,8 +360,14 @@
 							type="text"
 							placeholder="e.g. ~/projects/my-new-app"
 							bind:value={sidebarCwd}
-							class="w-full rounded border border-gray-600 bg-gray-900/60 px-2 py-1 text-xs text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+							list="sidebar-folder-completions"
+							class="w-full rounded border px-2 py-1 text-xs text-white placeholder-gray-500 focus:outline-none transition-all duration-200 {isSidebarRemoteRepoCreation ? 'border-emerald-500/80 bg-emerald-950/20 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/30' : 'border-gray-600 bg-gray-900/60 focus:border-blue-500'}"
 						/>
+						<datalist id="sidebar-folder-completions">
+							{#each sidebarCompletions as completion}
+								<option value={completion}></option>
+							{/each}
+						</datalist>
 						{#if sidebarPathStatus.exists === true}
 							<span class="mt-1 block text-[10px] font-medium text-yellow-400">
 								📁 Folder already exists.

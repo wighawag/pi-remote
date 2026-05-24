@@ -12,11 +12,13 @@
 		availableModels,
 		gitInitDefaultStore,
 		checkPath,
+		autocompletePath,
 	} from '$lib/session-store';
 	import type {ChatMessage} from '$lib/pi-remote';
 	import {onMount} from 'svelte';
 
 	let newFolderCwd = $state('');
+	let completions = $state<string[]>([]);
 	let newFolderModel = $state('');
 	let newFolderGitInit = $state(false);
 	let userManualGitInit = $state<boolean | null>(null);
@@ -27,6 +29,9 @@
 	let appState = $derived($piState);
 	let modelsData = $derived($availableModels);
 	let defaultGitInit = $derived($gitInitDefaultStore);
+	let isRemoteRepoCreation = $derived(
+		pathStatus.exists !== true && pathStatus.matchingRule && createRemoteRepo
+	);
 
 	// Sync git init default
 	$effect(() => {
@@ -60,11 +65,16 @@
 				resolvedPath: '',
 				matchingRule: null,
 			};
+			completions = [];
 			return;
 		}
 
 		pathCheckTimeout = setTimeout(async () => {
-			const res = await checkPath(pathValue);
+			const [res, list] = await Promise.all([
+				checkPath(pathValue),
+				autocompletePath(pathValue),
+			]);
+			completions = list || [];
 			if (res) {
 				pathStatus = {
 					exists: res.exists,
@@ -470,8 +480,14 @@
 							type="text"
 							placeholder="e.g. ~/projects/my-new-app"
 							bind:value={newFolderCwd}
-							class="w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+							list="main-folder-completions"
+							class="w-full rounded border px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none transition-all duration-200 {isRemoteRepoCreation ? 'border-emerald-500/80 bg-emerald-950/20 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/30' : 'border-gray-600 bg-gray-700 focus:border-blue-500'}"
 						/>
+						<datalist id="main-folder-completions">
+							{#each completions as completion}
+								<option value={completion}></option>
+							{/each}
+						</datalist>
 						{#if pathStatus.exists === true}
 							<span class="mt-1.5 block text-xs font-medium text-yellow-400">
 								📁 Folder already exists. Joining will create a session in it.

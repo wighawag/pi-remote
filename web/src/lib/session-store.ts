@@ -148,6 +148,27 @@ export async function checkPath(
 	}
 }
 
+export interface PathAutocompleteResult {
+	completions: string[];
+}
+
+export async function autocompletePath(
+	pathStr: string,
+): Promise<string[]> {
+	try {
+		const baseUrl = getBaseUrl();
+		const token = getToken();
+		const url = `${baseUrl}/autocomplete-path?path=${encodeURIComponent(pathStr)}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
+		const res = await fetch(url);
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		const data = (await res.json()) as PathAutocompleteResult;
+		return data.completions || [];
+	} catch (err) {
+		console.error('Failed to autocomplete path:', err);
+		return [];
+	}
+}
+
 export async function fetchConfig(): Promise<void> {
 	try {
 		const baseUrl = getBaseUrl();

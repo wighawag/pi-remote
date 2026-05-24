@@ -324,6 +324,7 @@ async function main(): Promise<void> {
                           pathname.startsWith('/models') || 
                           pathname.startsWith('/config') || 
                           pathname.startsWith('/check-path') || 
+                          pathname.startsWith('/autocomplete-path') || 
                           pathname.startsWith('/session/');
 
     if (isApiRequest && !authenticate(req, token)) {
@@ -385,6 +386,63 @@ async function main(): Promise<void> {
       }
 
       sendJSON(res, 200, { exists, isGit, resolvedPath: resolved, matchingRule });
+      return;
+    }
+
+    if (pathname === '/autocomplete-path' && req.method === 'GET') {
+      const qPath = url.searchParams.get('path') || '';
+      let parentPath = '';
+      let prefix = '';
+
+      const lastSlashIndex = qPath.lastIndexOf('/');
+      if (lastSlashIndex === -1) {
+        parentPath = '~';
+        prefix = qPath;
+      } else {
+        parentPath = qPath.slice(0, lastSlashIndex + 1);
+        prefix = qPath.slice(lastSlashIndex + 1);
+      }
+
+      let resolvedParent = parentPath;
+      if (parentPath.startsWith('~')) {
+        resolvedParent = path.join(os.homedir(), parentPath.slice(1));
+      } else if (!path.isAbsolute(parentPath)) {
+        resolvedParent = path.join(os.homedir(), parentPath);
+      } else {
+        resolvedParent = path.resolve(parentPath);
+      }
+
+      try {
+        if (!fs.existsSync(resolvedParent)) {
+          sendJSON(res, 200, { completions: [] });
+          return;
+        }
+
+        const stat = fs.statSync(resolvedParent);
+        if (!stat.isDirectory()) {
+          sendJSON(res, 200, { completions: [] });
+          return;
+        }
+
+        const entries = fs.readdirSync(resolvedParent, { withFileTypes: true });
+        const completions = entries
+          .filter(entry => {
+            if (!entry.isDirectory()) return false;
+            if (entry.name.startsWith('.') && !prefix.startsWith('.')) return false;
+            return entry.name.toLowerCase().startsWith(prefix.toLowerCase());
+          })
+          .map(entry => {
+            let formattedParent = parentPath;
+            if (parentPath === '~') {
+              formattedParent = '~/';
+            }
+            return formattedParent + entry.name + '/';
+          });
+
+        sendJSON(res, 200, { completions });
+      } catch (e) {
+        sendJSON(res, 200, { completions: [] });
+      }
       return;
     }
 
