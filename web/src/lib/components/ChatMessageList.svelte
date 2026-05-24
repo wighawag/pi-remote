@@ -19,6 +19,10 @@
 
 	let newFolderCwd = $state('');
 	let completions = $state<string[]>([]);
+	let inputFocused = $state(false);
+	let inputEl = $state<HTMLInputElement | null>(null);
+	let containerEl = $state<HTMLDivElement | null>(null);
+	let lastCheckedPath = '';
 	let newFolderModel = $state('');
 	let newFolderGitInit = $state(false);
 	let userManualGitInit = $state<boolean | null>(null);
@@ -54,9 +58,11 @@
 
 	let pathCheckTimeout: ReturnType<typeof setTimeout> | null = null;
 
-	$effect(() => {
-		const pathValue = newFolderCwd;
+	async function triggerCheck(pathValue: string, immediate = false) {
 		if (pathCheckTimeout) clearTimeout(pathCheckTimeout);
+
+		if (pathValue === lastCheckedPath && !immediate) return;
+		lastCheckedPath = pathValue;
 
 		if (!pathValue.trim()) {
 			pathStatus = {
@@ -69,7 +75,7 @@
 			return;
 		}
 
-		pathCheckTimeout = setTimeout(async () => {
+		const fetchFn = async () => {
 			const [res, list] = await Promise.all([
 				checkPath(pathValue),
 				autocompletePath(pathValue),
@@ -100,7 +106,18 @@
 					matchingRule: null,
 				};
 			}
-		}, 300);
+		};
+
+		if (immediate) {
+			await fetchFn();
+		} else {
+			pathCheckTimeout = setTimeout(fetchFn, 300);
+		}
+	}
+
+	$effect(() => {
+		const pathValue = newFolderCwd;
+		triggerCheck(pathValue, false);
 	});
 
 	// Select default model if any
@@ -475,19 +492,49 @@
 							class="mb-1 block text-xs font-bold tracking-wider text-gray-400 uppercase"
 							for="main-folder-path">Folder Path</label
 						>
-						<input
-							id="main-folder-path"
-							type="text"
-							placeholder="e.g. ~/projects/my-new-app"
-							bind:value={newFolderCwd}
-							list="main-folder-completions"
-							class="w-full rounded border px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none transition-all duration-200 {isRemoteRepoCreation ? 'border-emerald-500/80 bg-emerald-950/20 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/30' : 'border-gray-600 bg-gray-700 focus:border-blue-500'}"
-						/>
-						<datalist id="main-folder-completions">
-							{#each completions as completion}
-								<option value={completion}></option>
-							{/each}
-						</datalist>
+						<div class="relative" bind:this={containerEl}>
+							<input
+								bind:this={inputEl}
+								id="main-folder-path"
+								type="text"
+								autocomplete="off"
+								spellcheck="false"
+								placeholder="e.g. ~/projects/my-new-app"
+								bind:value={newFolderCwd}
+								onfocus={() => {
+									inputFocused = true;
+								}}
+								onblur={(e) => {
+									if (containerEl && containerEl.contains(e.relatedTarget as Node)) {
+										return;
+									}
+									inputFocused = false;
+								}}
+								onkeydown={(e) => {
+									if (e.key === 'Escape') {
+										inputFocused = false;
+									}
+								}}
+								class="w-full rounded border px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none transition-all duration-200 {isRemoteRepoCreation ? 'border-emerald-500/80 bg-emerald-950/20 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/30' : 'border-gray-600 bg-gray-700 focus:border-blue-500'}"
+							/>
+							{#if inputFocused && completions.length > 0}
+								<div class="absolute left-0 right-0 z-50 mt-1 max-h-48 overflow-y-auto rounded border border-gray-600 bg-gray-800 py-1 shadow-xl">
+									{#each completions as completion}
+										<button
+											type="button"
+											onclick={() => {
+												newFolderCwd = completion;
+												triggerCheck(completion, true);
+												inputEl?.focus();
+											}}
+											class="block w-full px-3 py-1.5 text-left text-sm text-gray-200 transition-colors hover:bg-gray-700 hover:text-white"
+										>
+											{completion}
+										</button>
+									{/each}
+								</div>
+							{/if}
+						</div>
 						{#if pathStatus.exists === true}
 							<span class="mt-1.5 block text-xs font-medium text-yellow-400">
 								📁 Folder already exists. Joining will create a session in it.

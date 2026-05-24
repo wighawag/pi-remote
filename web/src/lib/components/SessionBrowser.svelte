@@ -98,6 +98,10 @@
 	let createFormOpen = $state(false);
 	let sidebarCwd = $state('');
 	let sidebarCompletions = $state<string[]>([]);
+	let sidebarInputFocused = $state(false);
+	let sidebarInputEl = $state<HTMLInputElement | null>(null);
+	let sidebarContainerEl = $state<HTMLDivElement | null>(null);
+	let lastCheckedSidebarPath = '';
 	let sidebarModel = $state('');
 	let sidebarGitInit = $state(false);
 	let userManualSidebarGitInit = $state<boolean | null>(null);
@@ -131,9 +135,11 @@
 
 	let sidebarPathCheckTimeout: ReturnType<typeof setTimeout> | null = null;
 
-	$effect(() => {
-		const pathValue = sidebarCwd;
+	async function triggerSidebarCheck(pathValue: string, immediate = false) {
 		if (sidebarPathCheckTimeout) clearTimeout(sidebarPathCheckTimeout);
+
+		if (pathValue === lastCheckedSidebarPath && !immediate) return;
+		lastCheckedSidebarPath = pathValue;
 
 		if (!pathValue.trim()) {
 			sidebarPathStatus = {
@@ -146,7 +152,7 @@
 			return;
 		}
 
-		sidebarPathCheckTimeout = setTimeout(async () => {
+		const fetchFn = async () => {
 			const [res, list] = await Promise.all([
 				checkPath(pathValue),
 				autocompletePath(pathValue),
@@ -179,7 +185,18 @@
 					matchingRule: null,
 				};
 			}
-		}, 300);
+		};
+
+		if (immediate) {
+			await fetchFn();
+		} else {
+			sidebarPathCheckTimeout = setTimeout(fetchFn, 300);
+		}
+	}
+
+	$effect(() => {
+		const pathValue = sidebarCwd;
+		triggerSidebarCheck(pathValue, false);
 	});
 
 	// Select default model if any
@@ -355,19 +372,49 @@
 							class="mb-1 block text-[10px] font-bold tracking-wider text-gray-400 uppercase"
 							for="sidebar-folder">Folder Path</label
 						>
-						<input
-							id="sidebar-folder"
-							type="text"
-							placeholder="e.g. ~/projects/my-new-app"
-							bind:value={sidebarCwd}
-							list="sidebar-folder-completions"
-							class="w-full rounded border px-2 py-1 text-xs text-white placeholder-gray-500 focus:outline-none transition-all duration-200 {isSidebarRemoteRepoCreation ? 'border-emerald-500/80 bg-emerald-950/20 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/30' : 'border-gray-600 bg-gray-900/60 focus:border-blue-500'}"
-						/>
-						<datalist id="sidebar-folder-completions">
-							{#each sidebarCompletions as completion}
-								<option value={completion}></option>
-							{/each}
-						</datalist>
+						<div class="relative" bind:this={sidebarContainerEl}>
+							<input
+								bind:this={sidebarInputEl}
+								id="sidebar-folder"
+								type="text"
+								autocomplete="off"
+								spellcheck="false"
+								placeholder="e.g. ~/projects/my-new-app"
+								bind:value={sidebarCwd}
+								onfocus={() => {
+									sidebarInputFocused = true;
+								}}
+								onblur={(e) => {
+									if (sidebarContainerEl && sidebarContainerEl.contains(e.relatedTarget as Node)) {
+										return;
+									}
+									sidebarInputFocused = false;
+								}}
+								onkeydown={(e) => {
+									if (e.key === 'Escape') {
+										sidebarInputFocused = false;
+									}
+								}}
+								class="w-full rounded border px-2 py-1 text-xs text-white placeholder-gray-500 focus:outline-none transition-all duration-200 {isSidebarRemoteRepoCreation ? 'border-emerald-500/80 bg-emerald-950/20 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/30' : 'border-gray-600 bg-gray-900/60 focus:border-blue-500'}"
+							/>
+							{#if sidebarInputFocused && sidebarCompletions.length > 0}
+								<div class="absolute left-0 right-0 z-50 mt-1 max-h-40 overflow-y-auto rounded border border-gray-700 bg-gray-800 py-1 shadow-xl">
+									{#each sidebarCompletions as completion}
+										<button
+											type="button"
+											onclick={() => {
+												sidebarCwd = completion;
+												triggerSidebarCheck(completion, true);
+												sidebarInputEl?.focus();
+											}}
+											class="block w-full px-2.5 py-1 text-left text-xs text-gray-200 transition-colors hover:bg-gray-700 hover:text-white"
+										>
+											{completion}
+										</button>
+									{/each}
+								</div>
+							{/if}
+						</div>
 						{#if sidebarPathStatus.exists === true}
 							<span class="mt-1 block text-[10px] font-medium text-yellow-400">
 								📁 Folder already exists.
