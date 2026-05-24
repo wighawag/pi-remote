@@ -40,6 +40,28 @@ export function getPiRemoteConfig(): PiRemoteConfig {
   return {};
 }
 
+export function setupUpstreamTracking(resolvedCwd: string) {
+  try {
+    let defaultBranch = '';
+    try {
+      defaultBranch = execSync('git symbolic-ref --short HEAD', { cwd: resolvedCwd }).toString().trim();
+    } catch (e) {
+      try {
+        defaultBranch = execSync('git config --get init.defaultBranch', { cwd: resolvedCwd }).toString().trim();
+      } catch (e2) {}
+    }
+    if (!defaultBranch) {
+      defaultBranch = 'main'; // fallback
+    }
+
+    execSync(`git config branch.${defaultBranch}.remote origin`, { cwd: resolvedCwd, stdio: 'ignore' });
+    execSync(`git config branch.${defaultBranch}.merge refs/heads/${defaultBranch}`, { cwd: resolvedCwd, stdio: 'ignore' });
+    console.log(`Successfully pre-configured branch '${defaultBranch}' upstream tracking to origin`);
+  } catch (err) {
+    console.error('Failed to pre-configure upstream tracking branch:', err);
+  }
+}
+
 import { createAgentSession, AuthStorage, ModelRegistry, DefaultResourceLoader, SettingsManager, getAgentDir, SessionManager } from '@earendil-works/pi-coding-agent';
 import type { AgentSession, AgentSessionEvent } from '@earendil-works/pi-coding-agent';
 import type { Model, Api } from '@earendil-works/pi-ai';
@@ -227,7 +249,7 @@ export class SessionPool {
     return loadPromise;
   }
 
-  async createNewSession(cwd: string, modelStr?: string, gitInit?: boolean): Promise<{ tracked: TrackedSession; error?: string; sessionFile?: string }> {
+  async createNewSession(cwd: string, modelStr?: string, gitInit?: boolean, createRemote?: boolean, repoVisibility?: 'private' | 'public'): Promise<{ tracked: TrackedSession; error?: string; sessionFile?: string }> {
     let resolvedCwd = cwd;
     if (cwd.startsWith('~')) {
       resolvedCwd = path.join(os.homedir(), cwd.slice(1));
@@ -266,11 +288,11 @@ export class SessionPool {
 
         // Check if we should create a remote repo (GitHub/Codeberg etc) based on config patterns
         const config = getPiRemoteConfig();
-        if (config.remoteRepoRules && Array.isArray(config.remoteRepoRules)) {
+        if (createRemote !== false && config.remoteRepoRules && Array.isArray(config.remoteRepoRules)) {
           const rule = config.remoteRepoRules.find(r => new RegExp(r.pattern).test(resolvedCwd));
           if (rule) {
             const provider = rule.provider;
-            const visibility = rule.visibility || 'private';
+            const visibility = repoVisibility || rule.visibility || 'private';
             const repoName = path.basename(resolvedCwd);
 
             // Initialize Git if matching rules and not yet a Git repo
@@ -296,6 +318,7 @@ export class SessionPool {
                   console.log(`Creating GitHub repository: ${repoName} (${visibility})...`);
                   execSync(`gh repo create "${repoName}" --${visibility} --source=. --remote=origin`, { cwd: resolvedCwd, stdio: 'ignore' });
                   console.log(`Successfully created GitHub repo ${repoName} and added remote 'origin'`);
+                  setupUpstreamTracking(resolvedCwd);
                 } catch (err) {
                   console.error('Failed to create GitHub repository:', err);
                 }
@@ -343,6 +366,7 @@ export class SessionPool {
                     }
                     execSync(`git remote add origin "${repoUrl}"`, { cwd: resolvedCwd, stdio: 'ignore' });
                     console.log(`Successfully created Codeberg/Gitea repo and added remote origin: ${repoUrl}`);
+                    setupUpstreamTracking(resolvedCwd);
                   }
                 } catch (err) {
                   console.error('Failed to configure remote repository:', err);

@@ -370,7 +370,21 @@ async function main(): Promise<void> {
       if (exists) {
         isGit = fs.existsSync(path.join(resolved, '.git'));
       }
-      sendJSON(res, 200, { exists, isGit, resolvedPath: resolved });
+
+      // Check matching remote rules
+      let matchingRule = null;
+      const config = getPiRemoteConfig();
+      if (config.remoteRepoRules && Array.isArray(config.remoteRepoRules)) {
+        const rule = config.remoteRepoRules.find(r => new RegExp(r.pattern).test(resolved));
+        if (rule) {
+          matchingRule = {
+            provider: rule.provider,
+            visibility: rule.visibility || 'private'
+          };
+        }
+      }
+
+      sendJSON(res, 200, { exists, isGit, resolvedPath: resolved, matchingRule });
       return;
     }
 
@@ -443,12 +457,12 @@ async function main(): Promise<void> {
     if (pathname === '/session/new' && req.method === 'POST') {
       try {
         const body = await readBody(req);
-        const { cwd, model, gitInit } = JSON.parse(body) as { cwd: string; model?: string; gitInit?: boolean };
+        const { cwd, model, gitInit, createRemote, repoVisibility } = JSON.parse(body) as { cwd: string; model?: string; gitInit?: boolean; createRemote?: boolean; repoVisibility?: 'private' | 'public' };
         if (!cwd) {
           sendJSON(res, 400, { error: 'Missing cwd' });
           return;
         }
-        const result = await sessionPool.createNewSession(cwd, model, gitInit);
+        const result = await sessionPool.createNewSession(cwd, model, gitInit, createRemote, repoVisibility);
         if (result.error) {
           sendJSON(res, 500, { error: result.error });
         } else {
@@ -723,7 +737,7 @@ async function handleWSMessage(
         return;
       }
 
-      const result = await pool.createNewSession(msg.cwd, msg.model, msg.gitInit);
+      const result = await pool.createNewSession(msg.cwd, msg.model, msg.gitInit, msg.createRemote, msg.repoVisibility);
       if (result.error) {
         sendWS(client.ws, { type: 'session_error', error: result.error });
         return;

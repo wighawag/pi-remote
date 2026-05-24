@@ -140,6 +140,56 @@ Whenever you run `pi`, you can override bridge defaults:
 
 ---
 
+## Configuration File (`~/.pi/remote/config.json`)
+
+Pi Remote supports user configuration to customize defaults for session creation and enable automatic Git remote repository setup.
+
+The configuration file is located at `~/.pi/remote/config.json` on the server machine.
+
+### Configuration Properties
+
+* **`gitInitDefault`** (boolean, Default: `false`):
+  When creating a session in a non-existent folder, this defines if the **"Initialize Git repository"** option is checked by default in the web UI.
+
+* **`remoteRepoRules`** (array of rule objects, Default: `[]`):
+  A list of rules to automatically create a remote repository (on GitHub, Codeberg, etc.) and configure the git remote whenever a new session folder matches a RegExp pattern.
+
+### Rule Object Properties
+Each rule in `remoteRepoRules` can contain:
+* `pattern` (string, required): A regular expression matched against the absolute resolved path of the folder.
+* `provider` (string, required): The git hosting provider (`'github'`, `'codeberg'`, `'gitea'`, or `'forgejo'`).
+* `visibility` (string, optional, Default: `'private'`): Visibility of the repository on the remote host (`'private'` or `'public'`).
+
+### Example Configuration
+
+```json
+{
+  "gitInitDefault": true,
+  "remoteRepoRules": [
+    {
+      "pattern": ".*/projects/github/.*",
+      "provider": "github",
+      "visibility": "private"
+    },
+    {
+      "pattern": ".*/projects/codeberg/.*",
+      "provider": "codeberg",
+      "visibility": "private"
+    }
+  ]
+}
+```
+
+### Auto-Remote Repository Creation Mechanics
+When a new session folder is created and matches a rule:
+1. If the folder is not already a Git repository, the server automatically initializes it (`git init`).
+2. The server executes your configured provider's CLI client locally to create the repository remotely:
+   - For **GitHub**, it runs `gh repo create "<repo-name>" --private --source=. --remote=origin` (this requires `gh` CLI to be installed and authenticated).
+   - For **Codeberg/Gitea/Forgejo**, it executes `tea repo create --name "<repo-name>" --private` or `cb repo create --name "<repo-name>" --private` (requires `tea` or `cb` CLI tools, automatically adding the corresponding remote URL under `origin`).
+3. This sets up the local repo to point directly to your remote origin, allowing your Pi Remote agent to push directly when asked!
+
+---
+
 ## Remote Access & Security (Tailscale, Headscale, & Outside Access)
 
 By default, the Standalone Server binds to `127.0.0.1` (localhost) for security. If you want to access your Pi Remote instance from outside or from other devices (like a mobile phone or tablet), you have a few options:

@@ -596,14 +596,14 @@ export function joinSession(sessionFile: string, cwd?: string, model?: string) {
 	ws.send(JSON.stringify({type: 'session_load', sessionFile, cwd, model}));
 }
 
-export function createSession(cwd: string, model?: string, gitInit?: boolean) {
+export function createSession(cwd: string, model?: string, gitInit?: boolean, createRemote?: boolean, repoVisibility?: 'private' | 'public') {
 	state.update((s: PiRemoteState) => ({
 		...s,
 		conflict: null,
 		sessionError: null,
 	}));
 	if (!ws || ws.readyState !== WebSocket.OPEN) return;
-	ws.send(JSON.stringify({type: 'session_new', cwd, model, gitInit}));
+	ws.send(JSON.stringify({type: 'session_new', cwd, model, gitInit, createRemote, repoVisibility}));
 }
 
 export function leaveSession() {

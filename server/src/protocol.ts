@@ -6,7 +6,7 @@ export type ClientMessage =
   | { type: 'abort'; sessionId: string }
   | { type: 'ping' }
   | { type: 'session_load'; sessionFile: string; cwd?: string; model?: string }
-  | { type: 'session_new'; cwd: string; model?: string; gitInit?: boolean }
+  | { type: 'session_new'; cwd: string; model?: string; gitInit?: boolean; createRemote?: boolean; repoVisibility?: 'private' | 'public' }
   | { type: 'session_leave'; sessionId: string }
   | { type: 'session_resolve_conflict'; action: 'take_over' | 'read_only'; sessionId: string; cwd?: string }
   | { type: 'model_change'; model: string }
