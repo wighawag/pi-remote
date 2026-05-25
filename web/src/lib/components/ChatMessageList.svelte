@@ -55,9 +55,6 @@
 	let appState = $derived($piState);
 	let modelsData = $derived($availableModels);
 	let defaultGitInit = $derived($gitInitDefaultStore);
-	let isRemoteRepoCreation = $derived(
-		pathStatus.exists !== true && pathStatus.matchingRule && createRemoteRepo,
-	);
 
 	// Sync git init default
 	$effect(() => {
@@ -77,6 +74,10 @@
 		resolvedPath: '',
 		matchingRule: null,
 	});
+
+	let isRemoteRepoCreation = $derived(
+		pathStatus.exists !== true && pathStatus.matchingRule && createRemoteRepo,
+	);
 
 	let pathCheckTimeout: ReturnType<typeof setTimeout> | null = null;
 

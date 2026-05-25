@@ -30,6 +30,7 @@
 	let models = $derived($availableModels.models);
 
 	let expanded = $state<Record<string, boolean>>({});
+	let searchExpanded = $state<Record<string, boolean>>({});
 	let confirmingDelete = $state<string | null>(null);
 	let confirmingDeleteFolder = $state<string | null>(null);
 	let searchQuery = $state('');
@@ -63,6 +64,7 @@
 		const foldersArr = folders;
 		if (!q) {
 			filteredFolders = foldersArr;
+			searchExpanded = {};
 		} else {
 			filteredFolders = foldersArr
 				.map((folder) => ({
@@ -76,8 +78,23 @@
 		}
 	});
 
+	function isFolderExpanded(folderPath: string): boolean {
+		if (searchQuery) {
+			if (searchExpanded[folderPath] !== undefined) {
+				return searchExpanded[folderPath];
+			}
+			return true;
+		} else {
+			return !!expanded[folderPath];
+		}
+	}
+
 	function toggleFolder(path: string) {
-		expanded[path] = !expanded[path];
+		if (searchQuery) {
+			searchExpanded[path] = !isFolderExpanded(path);
+		} else {
+			expanded[path] = !isFolderExpanded(path);
+		}
 	}
 
 	async function handleDeleteSession(sessionPath: string) {
@@ -133,11 +150,6 @@
 	let showSidebarGitConfirmModal = $state(false);
 
 	let defaultGitInit = $derived($gitInitDefaultStore);
-	let isSidebarRemoteRepoCreation = $derived(
-		sidebarPathStatus.exists !== true &&
-			sidebarPathStatus.matchingRule &&
-			sidebarCreateRemote,
-	);
 
 	// Sync git init default
 	$effect(() => {
@@ -157,6 +169,12 @@
 		resolvedPath: '',
 		matchingRule: null,
 	});
+
+	let isSidebarRemoteRepoCreation = $derived(
+		sidebarPathStatus.exists !== true &&
+			sidebarPathStatus.matchingRule &&
+			sidebarCreateRemote,
+	);
 
 	let sidebarPathCheckTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -597,9 +615,7 @@
 						class="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-gray-700/50"
 					>
 						<span
-							class="text-xs text-gray-500 transition-transform {expanded[
-								folder.path
-							] || !!searchQuery
+							class="text-xs text-gray-500 transition-transform {isFolderExpanded(folder.path)
 								? 'rotate-90'
 								: ''}"
 						>
@@ -611,7 +627,7 @@
 						<span class="text-xs text-gray-500">{folder.sessions.length}</span>
 					</button>
 
-					{#if expanded[folder.path] || !!searchQuery}
+					{#if isFolderExpanded(folder.path)}
 						<div class="px-3 pb-2">
 							<div class="mb-1.5 flex items-center justify-between">
 								<button
