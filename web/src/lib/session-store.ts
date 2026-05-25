@@ -83,27 +83,50 @@ export function getBaseUrl(): string {
 	return `${window.location.protocol}//${window.location.host}`;
 }
 
-export async function fetchSessions(): Promise<void> {
-	sessionFolders.update((s) => ({...s, loading: true}));
-	try {
-		const baseUrl = getBaseUrl();
-		const token = getToken();
-		const url = `${baseUrl}/sessions${token ? `?token=${encodeURIComponent(token)}` : ''}`;
-		const res = await fetch(url);
-		if (!res.ok) throw new Error(`HTTP ${res.status}`);
-		const data = await res.json();
-		sessionFolders.set({
-			folders: data.folders || [],
-			activeSessions: (data.activeSessions || []).map(
-				(s: any) => s.sessionFile,
-			),
-			currentSession: get(sessionFolders).currentSession,
-			loading: false,
-		});
-	} catch (err) {
-		sessionFolders.update((s) => ({...s, loading: false}));
-		console.error('Failed to fetch sessions:', err);
+let fetchTimeout: ReturnType<typeof setTimeout> | null = null;
+let resolveQueue: (() => void)[] = [];
+
+export function fetchSessions(): Promise<void> {
+	if (fetchTimeout) {
+		clearTimeout(fetchTimeout);
 	}
+	sessionFolders.update((s) => ({...s, loading: true}));
+
+	const promise = new Promise<void>((resolve) => {
+		resolveQueue.push(resolve);
+	});
+
+	fetchTimeout = setTimeout(async () => {
+		fetchTimeout = null;
+		const resolves = [...resolveQueue];
+		resolveQueue = [];
+
+		try {
+			const baseUrl = getBaseUrl();
+			const token = getToken();
+			const url = `${baseUrl}/sessions${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+			const res = await fetch(url);
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			const data = await res.json();
+			sessionFolders.set({
+				folders: data.folders || [],
+				activeSessions: (data.activeSessions || []).map(
+					(s: any) => s.sessionFile,
+				),
+				currentSession: get(sessionFolders).currentSession,
+				loading: false,
+			});
+		} catch (err) {
+			sessionFolders.update((s) => ({...s, loading: false}));
+			console.error('Failed to fetch sessions:', err);
+		} finally {
+			for (const r of resolves) {
+				r();
+			}
+		}
+	}, 100);
+
+	return promise;
 }
 
 export async function fetchModels(): Promise<void> {

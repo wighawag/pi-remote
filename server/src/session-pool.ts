@@ -581,7 +581,14 @@ export class SessionPool {
 
     for (const s of diskSessions) {
       const rawCwd = s.cwd || '';
-      const cwd = path.resolve(rawCwd);
+      let cwd = rawCwd;
+      if (rawCwd.startsWith('~')) {
+        cwd = path.join(os.homedir(), rawCwd.slice(1));
+      } else if (!path.isAbsolute(rawCwd)) {
+        cwd = path.join(os.homedir(), rawCwd);
+      }
+      cwd = path.resolve(cwd);
+
       if (!folderMap.has(cwd)) {
         folderMap.set(cwd, []);
       }
@@ -601,7 +608,7 @@ export class SessionPool {
 
     const folders: FolderWithSessions[] = [];
     for (const [cwdPath, sessions] of folderMap.entries()) {
-      const name = cwdPath.split('/').pop() || cwdPath;
+      const name = path.basename(cwdPath) || cwdPath;
       folders.push({ path: cwdPath, name, sessions: sessions.sort((a, b) => b.modified.localeCompare(a.modified)) });
     }
 

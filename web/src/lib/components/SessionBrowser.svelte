@@ -31,6 +31,7 @@
 
 	let expanded = $state<Record<string, boolean>>({});
 	let confirmingDelete = $state<string | null>(null);
+	let confirmingDeleteFolder = $state<string | null>(null);
 	let searchQuery = $state('');
 	let filteredFolders = $state<FolderWithSessions[]>([]);
 
@@ -88,6 +89,18 @@
 			fetchSessions();
 		} catch (err) {
 			console.error('Failed to delete session:', err);
+		}
+	}
+
+	async function handleDeleteAllFolderSessions(folder: FolderWithSessions) {
+		try {
+			await Promise.all(folder.sessions.map((s) => deleteSession(s.path)));
+			if (confirmingDeleteFolder === folder.path) {
+				confirmingDeleteFolder = null;
+			}
+			fetchSessions();
+		} catch (err) {
+			console.error('Failed to delete all sessions of folder:', err);
 		}
 	}
 
@@ -565,7 +578,7 @@
 			{/if}
 		</div>
 
-		{#if loading}
+		{#if loading && filteredFolders.length === 0}
 			<div class="p-4 text-center text-gray-500">
 				<div
 					class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-gray-500 border-t-transparent"
@@ -577,7 +590,7 @@
 				{searchQuery ? 'No sessions match your filter' : 'No sessions found'}
 			</div>
 		{:else}
-			{#each filteredFolders as folder}
+			{#each filteredFolders as folder (folder.path)}
 				<div class="border-b border-gray-700/50">
 					<button
 						onclick={() => toggleFolder(folder.path)}
@@ -600,14 +613,55 @@
 
 					{#if expanded[folder.path] || !!searchQuery}
 						<div class="px-3 pb-2">
-							<button
-								onclick={() => openNewSessionPicker(folder.path)}
-								class="mb-1 w-full rounded px-2 py-1 text-left text-xs text-blue-400 transition-colors hover:bg-gray-700/50 hover:text-blue-300"
-							>
-								+ New Session Here
-							</button>
+							<div class="mb-1.5 flex items-center justify-between">
+								<button
+									onclick={() => openNewSessionPicker(folder.path)}
+									class="rounded px-2 py-1 text-left text-xs text-blue-400 transition-colors hover:bg-gray-700/50 hover:text-blue-300"
+								>
+									+ New Session Here
+								</button>
+								<div class="flex-shrink-0">
+									{#if confirmingDeleteFolder === folder.path}
+										<div
+											class="flex items-center gap-1 rounded border border-red-500/30 bg-gray-800/80 px-1 py-0.5"
+										>
+											<button
+												onclick={(e) => {
+													e.stopPropagation();
+													handleDeleteAllFolderSessions(folder);
+												}}
+												class="px-1.5 text-xs font-bold text-red-500 hover:text-red-400 focus:outline-none"
+												title="Confirm Delete All"
+											>
+												Delete All?
+											</button>
+											<button
+												onclick={(e) => {
+													e.stopPropagation();
+													confirmingDeleteFolder = null;
+												}}
+												class="px-1.5 text-[10px] text-gray-400 hover:text-white focus:outline-none"
+												title="Cancel"
+											>
+												✕
+											</button>
+										</div>
+									{:else}
+										<button
+											onclick={(e) => {
+												e.stopPropagation();
+												confirmingDeleteFolder = folder.path;
+											}}
+											class="rounded px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-700/50 hover:text-red-400 focus:outline-none"
+											title="Delete all sessions in this folder"
+										>
+											Delete All
+										</button>
+									{/if}
+								</div>
+							</div>
 
-							{#each folder.sessions as session}
+							{#each folder.sessions as session (session.path)}
 								<div
 									class="group flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-gray-700/30 {currentSession ===
 									session.path
