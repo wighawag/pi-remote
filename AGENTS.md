@@ -12,13 +12,15 @@ This project uses `@changesets/cli` for versioning and package publishing.
 - Alternatively, you can create a custom changeset markdown file in `.changeset/` named randomly (or look at existing ones), containing:
   ```markdown
   ---
-  'pi-remote': patch
-  'pi-remote-server': patch
+  "pi-remote-server": patch
   ---
 
   <Good description of what was done>
   ```
-  *(Check which packages were modified and version them appropriately with `patch`, `minor`, or `major`)*.
+- **Changeset Package Mapping Rules:**
+  - For **web** and **server** changes, set `"pi-remote-server": <bump-type>`.
+  - Only for **extension** changes (`extension/`) do we set `"pi-remote": <bump-type>`.
+  - **Never** use `"pi-remote-web"`, as the `web` package is private and its built artifacts are included/served directly by `pi-remote-server`.
 
 ## 2. Document Your Changes
 If you modify APIs, protocols, or core behaviors, update `CONTEXT.md` or any relevant files under `docs/` so subsequent sessions stay perfectly aligned.
