@@ -18,6 +18,7 @@
 	let text = $state('');
 	let enterToSend = $state(true);
 	let queuedText = $state<string | null>(null);
+	let queuedTextBackup = $state<string | null>(null);
 	let isCollapsed = $state(false);
 
 	let fileInput = $state<HTMLInputElement>();
@@ -72,18 +73,27 @@
 		}
 	});
 
+	// Show queued text in the textarea so user can see it
+	$effect(() => {
+		if (queuedText) {
+			text = queuedText;
+		}
+	});
+
 	// Auto-send queued message when agent stops streaming
 	$effect(() => {
 		if (!streaming && queuedText) {
 			sendMessage(queuedText);
 			text = '';
 			queuedText = null;
+			queuedTextBackup = null;
 			onSend?.();
 		}
 	});
 
 	function handleUnqueue() {
 		queuedText = null;
+		text = '';
 		setTimeout(() => textarea?.focus(), 0);
 	}
 
@@ -187,7 +197,7 @@
 
 		if (streaming) {
 			queuedText = messageToSend;
-			text = '';
+			queuedTextBackup = messageToSend;
 			attachments = [];
 		} else {
 			sendMessage(messageToSend);
@@ -329,16 +339,14 @@
 					onkeydown={handleKeydown}
 					disabled={effectivelyDisabled}
 					rows={1}
-					placeholder={queuedText
-						? 'Message is queued...'
-						: streaming
+					placeholder={streaming
 							? 'Agent is working (type next message...)'
 							: readOnly
 								? 'Read-only mode'
 								: !sessionInfo.sessionId
 									? 'Select a session first...'
 									: 'Type a message...'}
-					class="h-full max-h-48 min-h-[120px] w-full resize-none overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 px-4 py-3 leading-relaxed text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none disabled:opacity-50"
+					class="h-full max-h-48 min-h-[120px] w-full resize-none overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 px-4 py-3 leading-relaxed placeholder-gray-500 focus:border-blue-500 focus:outline-none disabled:opacity-50 {queuedText ? 'text-gray-500 italic' : 'text-white'}"
 				></textarea>
 			</div>
 

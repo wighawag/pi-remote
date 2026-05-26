@@ -387,13 +387,23 @@
 
 <div class="flex h-full flex-col">
 	<div class="border-b border-gray-700/50 p-2">
-		<input
-			type="text"
-			placeholder="Filter sessions..."
-			value={searchQuery}
-			oninput={(e) => (searchQuery = e.currentTarget.value)}
-			class="w-full rounded border border-gray-600 bg-gray-800 px-2 py-1.5 text-xs text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
-		/>
+		<div class="flex gap-1.5">
+			<input
+				type="text"
+				placeholder="Filter sessions..."
+				value={searchQuery}
+				oninput={(e) => (searchQuery = e.currentTarget.value)}
+				class="min-w-0 flex-1 rounded border border-gray-600 bg-gray-800 px-2 py-1.5 text-xs text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+			/>
+			<button
+				type="button"
+				onclick={() => fetchSessions()}
+				class="flex shrink-0 items-center justify-center rounded border border-gray-600 bg-gray-800 px-1.5 py-1.5 text-gray-400 transition-colors hover:bg-gray-700 hover:text-white"
+				title="Refresh session list"
+			>
+				<span class="{loading ? 'animate-spin' : ''}">↻</span>
+			</button>
+		</div>
 	</div>
 
 	<div class="flex-1 overflow-y-auto">
