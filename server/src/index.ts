@@ -314,6 +314,16 @@ async function main(): Promise<void> {
         const toolResult = extractToolResult(event as any);
         msg = { type: 'tool_end', sessionId, toolName: event.toolName, isError: event.isError, result: toolResult };
         break;
+      case 'model_select' as any: {
+        const evt = event as any;
+        const modelStr = typeof evt.model === 'string'
+          ? evt.model
+          : (evt.model ? `${evt.model.provider}:${evt.model.id}` : '');
+        if (modelStr) {
+          msg = { type: 'model_changed', sessionId, model: modelStr };
+        }
+        break;
+      }
     }
 
     if (msg) {

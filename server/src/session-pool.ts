@@ -208,7 +208,7 @@ export class SessionPool {
 
         if (!model && header) {
           const entries = sessionManager.getEntries();
-          const modelChange = entries.find((e: SessionEntry) => e.type === 'model_change');
+          const modelChange = [...entries].reverse().find((e: SessionEntry) => e.type === 'model_change');
           if (modelChange && 'provider' in modelChange && 'modelId' in modelChange) {
             model = this.modelRegistry.find(modelChange.provider, modelChange.modelId);
           }
@@ -884,6 +884,11 @@ export class SessionPool {
       tracked.isIdle = true;
       tracked.isStreaming = false;
       this.scheduleIdleCheck(sessionFile);
+    } else if (event.type === 'model_select' as any) {
+      const modelStr = (event as any).model;
+      if (modelStr) {
+        tracked.model = modelStr;
+      }
     }
 
     if (this.onEvent) {
@@ -926,6 +931,15 @@ export class SessionPool {
         case 'tool_execution_end':
           tracked.lastActivity = Date.now();
           break;
+
+        case 'model_select' as any: {
+          const evt = event as any;
+          const modelStr = evt.model ? `${evt.model.provider}:${evt.model.id}` : '';
+          if (modelStr) {
+            tracked.model = modelStr;
+          }
+          break;
+        }
       }
     });
   }

@@ -157,7 +157,7 @@ export default async function (pi: ExtensionAPI) {
           type: "cli_register",
           sessionFile,
           cwd: ctxVal?.cwd,
-          model: (ctxVal?.sessionManager.getHeader() as any)?.model || "",
+          model: ctxVal?.model ? `${ctxVal.model.provider}:${ctxVal.model.id}` : "",
         })
       );
     });
@@ -250,6 +250,26 @@ export default async function (pi: ExtensionAPI) {
           case "cli_abort": {
             ctxVal?.ui.notify("[Pi Remote] Received abort command from remote client", "warning");
             ctxVal?.abort();
+            break;
+          }
+          case "cli_model_change": {
+            const { model: modelStr } = msg;
+            if (modelStr && ctxVal) {
+              const idx = modelStr.indexOf(':');
+              if (idx !== -1) {
+                const provider = modelStr.slice(0, idx);
+                const id = modelStr.slice(idx + 1);
+                const model = ctxVal.modelRegistry.find(provider, id);
+                if (model) {
+                  ctxVal.ui.notify(`[Pi Remote] Changing model to ${modelStr}...`, "info");
+                  pi.setModel(model).catch((err) => {
+                    ctxVal?.ui.notify(`[Pi Remote] Failed to set model: ${err.message || err}`, "error");
+                  });
+                } else {
+                  ctxVal.ui.notify(`[Pi Remote] Model not found in registry: ${modelStr}`, "error");
+                }
+              }
+            }
             break;
           }
         }
@@ -365,6 +385,14 @@ export default async function (pi: ExtensionAPI) {
       toolName: event.toolName,
       result: event.result,
       isError: event.isError,
+    });
+  });
+
+  pi.on("model_select", async (event: any) => {
+    const modelStr = event.model ? `${event.model.provider}:${event.model.id}` : "";
+    sendCliEvent({
+      type: "model_select",
+      model: modelStr,
     });
   });
 }
