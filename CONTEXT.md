@@ -121,10 +121,10 @@ pnpm install
 pnpm run build
 
 # Test the extension
-pi --extension ./dist/index.js --remote-port 8765 --remote-token test123
+pi --extension ./dist/index.js --remote-port 31415 --remote-token test123
 
 # Test the client
-pnpm run client -- --url ws://localhost:8765 --token test123
+pnpm run client -- --url ws://localhost:31415 --token test123
 
 # Push to GitHub
 git remote add origin git@github.com:wighawag/pi-remote.git
@@ -139,7 +139,7 @@ git push -u origin main
 - Default binding is localhost only (`127.0.0.1`)
 - For remote access, use SSH tunneling:
   ```bash
-  ssh -L 8765:localhost:8765 user@remote-machine
+  ssh -L 31415:localhost:31415 user@remote-machine
   ```
 - If binding to `0.0.0.0`, ensure strong authentication
 - Consider adding rate limiting for production use

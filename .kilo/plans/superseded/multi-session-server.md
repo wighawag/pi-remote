@@ -5,11 +5,13 @@
 ## Goal
 
 Replace the extension-based single-session architecture with a **standalone server** that manages multiple pi sessions concurrently using the in-process SDK. Sessions are:
+
 - **Created on demand** when a client requests a session
 - **Auto-saved** to disk as they run (same session files as the CLI)
 - **Destroyed** when no clients are connected AND the agent is idle (waiting for user input) for 5 minutes
 
 This enables:
+
 - Multiple sessions running concurrently, one per folder/project
 - Reusing existing session files created from the pi CLI
 - True multi-client collaboration with per-folder isolation
@@ -57,6 +59,7 @@ server/
 ```
 
 **`server/package.json`:**
+
 ```json
 {
   "name": "pi-remote-server",
@@ -89,8 +92,8 @@ interface TrackedSession {
   sessionFile: string;
   cwd: string;
   agentSession: AgentSession;
-  clients: Set<string>;       // Connected client IDs
-  isIdle: boolean;            // Agent waiting for user input
+  clients: Set<string>; // Connected client IDs
+  isIdle: boolean; // Agent waiting for user input
   idleTimer: NodeJS.Timeout | null;
   createdAt: number;
   lastActivity: number;
@@ -112,17 +115,20 @@ interface TrackedSession {
 - `disposeAll()` — clean up all sessions on shutdown
 
 **Idle detection:**
+
 - Track `isIdle` via agent events: `agent_start` → not idle, `agent_end` → idle
 - On `removeClient`: if `clients.size === 0` AND `isIdle === true`, start 5-minute timer
 - On timer expiry: destroy session
 - On any new activity (client connects, message sent): cancel timer
 
 **Shared resources (created once at server startup):**
+
 ```ts
 const authStorage = createAuthStorage();
 const modelRegistry = createModelRegistry();
 const resourceLoader = createResourceLoader();
 ```
+
 These are shared across all sessions to avoid redundant auth/model setup.
 
 ### 3. Session Types
@@ -151,7 +157,7 @@ export interface FolderWithSessions {
     modified: string;
     messageCount: number;
     firstMessage: string;
-    isActive: boolean;     // Currently loaded in server
+    isActive: boolean; // Currently loaded in server
     clientCount: number;
   }>;
 }
@@ -169,38 +175,55 @@ export interface SessionsResponse {
 All WS messages include `sessionId` for routing. Server routes events to the correct client(s).
 
 **Client → Server messages:**
+
 ```ts
 type ClientMessage =
-  | { type: 'connect' }                           // Initial handshake
-  | { type: 'message'; message: string; sessionId: string }
-  | { type: 'abort'; sessionId: string }
-  | { type: 'ping' }
-  | { type: 'session_load'; sessionFile: string; cwd?: string }
-  | { type: 'session_new'; cwd: string }
-  | { type: 'session_leave'; sessionId: string }
-  | { type: 'session_resolve_conflict'; action: 'take_over' | 'read_only'; sessionId: string };
+  | { type: "connect" } // Initial handshake
+  | { type: "message"; message: string; sessionId: string }
+  | { type: "abort"; sessionId: string }
+  | { type: "ping" }
+  | { type: "session_load"; sessionFile: string; cwd?: string }
+  | { type: "session_new"; cwd: string }
+  | { type: "session_leave"; sessionId: string }
+  | {
+      type: "session_resolve_conflict";
+      action: "take_over" | "read_only";
+      sessionId: string;
+    };
 ```
 
 **Server → Client messages:**
+
 ```ts
 type ServerMessage =
-  | { type: 'connected'; clientId: string; sessionId: string; sessionFile: string; cwd: string }
-  | { type: 'agent_start'; sessionId: string }
-  | { type: 'message_update'; sessionId: string; delta: string }
-  | { type: 'message_end'; sessionId: string; content: string }
-  | { type: 'agent_end'; sessionId: string }
-  | { type: 'tool_start'; sessionId: string; toolName: string; args: any }
-  | { type: 'tool_end'; sessionId: string; toolName: string; isError: boolean }
-  | { type: 'session_created'; sessionId: string; sessionFile: string; cwd: string }
-  | { type: 'session_destroyed'; sessionId: string; reason: string }
-  | { type: 'session_conflict'; sessionId: string; conflictingSession: string }
-  | { type: 'session_interrupted'; sessionId: string; reason: string }
-  | { type: 'session_changed'; sessionId: string; cwd: string }
-  | { type: 'message_history'; sessionId: string; messages: HistoryMessage[] }
-  | { type: 'pong'; timestamp: number };
+  | {
+      type: "connected";
+      clientId: string;
+      sessionId: string;
+      sessionFile: string;
+      cwd: string;
+    }
+  | { type: "agent_start"; sessionId: string }
+  | { type: "message_update"; sessionId: string; delta: string }
+  | { type: "message_end"; sessionId: string; content: string }
+  | { type: "agent_end"; sessionId: string }
+  | { type: "tool_start"; sessionId: string; toolName: string; args: any }
+  | { type: "tool_end"; sessionId: string; toolName: string; isError: boolean }
+  | {
+      type: "session_created";
+      sessionId: string;
+      sessionFile: string;
+      cwd: string;
+    }
+  | { type: "session_destroyed"; sessionId: string; reason: string }
+  | { type: "session_conflict"; sessionId: string; conflictingSession: string }
+  | { type: "session_interrupted"; sessionId: string; reason: string }
+  | { type: "session_changed"; sessionId: string; cwd: string }
+  | { type: "message_history"; sessionId: string; messages: HistoryMessage[] }
+  | { type: "pong"; timestamp: number };
 
 interface HistoryMessage {
-  role: 'user' | 'assistant';
+  role: "user" | "assistant";
   content: string;
   timestamp: number;
 }
@@ -213,8 +236,9 @@ interface HistoryMessage {
 Entry point. Creates HTTP server + WebSocket server. Routes requests to session pool.
 
 **CLI flags / env vars:**
+
 ```
---port, PI_REMOTE_PORT        (default: 8765)
+--port, PI_REMOTE_PORT        (default: 31415)
 --host, PI_REMOTE_HOST        (default: 127.0.0.1)
 --token, PI_REMOTE_TOKEN      (optional auth token)
 --session-dir, PI_SESSION_DIR (default: ~/.pi/agent/sessions)
@@ -222,6 +246,7 @@ Entry point. Creates HTTP server + WebSocket server. Routes requests to session 
 ```
 
 **HTTP endpoints:**
+
 ```
 GET  /health                  — Health check (no auth)
 GET  /sessions                — List all sessions grouped by folder
@@ -239,11 +264,13 @@ When a client joins a session, the server should provide the session's message h
 Approach 1 is cleaner (single protocol). The server can use `agentSession.getSessionStats()` or iterate the session manager's entries to reconstruct messages.
 
 **WebSocket:**
+
 ```
 ws://host:port/ws?token=XXX   — Main WebSocket connection
 ```
 
 On WS connect:
+
 1. Generate `clientId`
 2. Send `connected` event
 3. Client sends `session_load` or `session_new` to join a session
@@ -292,8 +319,13 @@ Same conflict dialog from plan 1, but now with **per-folder** scoping:
 - Client B tries to load **same** session as Client A → no conflict, both collaborate
 
 The `session-pool.ts` tracks which sessions are active. Conflict detection:
+
 ```ts
-function detectConflict(requestingClientId: string, targetSessionId: string, targetCwd: string) {
+function detectConflict(
+  requestingClientId: string,
+  targetSessionId: string,
+  targetCwd: string,
+) {
   // Same session = collaborate (no conflict)
   const existing = sessions.get(targetSessionId);
   if (existing) return { conflict: false };
@@ -311,6 +343,7 @@ function detectConflict(requestingClientId: string, targetSessionId: string, tar
 ### 8. Session File Compatibility
 
 Sessions created by the server use the same file format as the pi CLI:
+
 - `SessionManager.create(cwd)` creates files in `~/.pi/agent/sessions/`
 - `SessionManager.open(path)` loads existing CLI sessions
 - Sessions auto-save via the SDK's built-in persistence
@@ -331,7 +364,7 @@ Sessions created by the server use the same file format as the pi CLI:
 
 ## Notes
 
-- The server runs as a standalone process: `node server/dist/index.js --port 8765`
+- The server runs as a standalone process: `node server/dist/index.js --port 31415`
 - The extension (`extension/`) is still useful for the CLI workflow but is now **optional** — the server is the primary way to access pi remotely
 - The web frontend works with both the extension (plan 1) and the server (this plan), with the server being the full-featured option
 - Shared resources (auth, model registry) are created once at startup to minimize overhead

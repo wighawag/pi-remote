@@ -9,7 +9,7 @@
  * Standalone Server starts or stops.
  *
  * Usage:
- *   pi --extension ./extension/dist/index.js --remote-port 8765 --remote-token YOUR_TOKEN
+ *   pi --extension ./extension/dist/index.js --remote-port 31415 --remote-token YOUR_TOKEN
  */
 
 import WebSocket from "ws";
@@ -25,7 +25,7 @@ export default async function (pi: ExtensionAPI) {
   pi.registerFlag("remote-port", {
     description: "Port of the remote standalone server",
     type: "string",
-    default: "8765",
+    default: "31415",
   });
 
   pi.registerFlag("remote-host", {
@@ -131,7 +131,7 @@ export default async function (pi: ExtensionAPI) {
     updateCliWidget('connecting');
 
     const host = (pi.getFlag("remote-host") as string) || "127.0.0.1";
-    const port = (pi.getFlag("remote-port") as string) || "8765";
+    const port = (pi.getFlag("remote-port") as string) || "31415";
     const token = pi.getFlag("remote-token") as string | undefined;
     const isSecure = pi.getFlag("remote-secure") !== false;
 

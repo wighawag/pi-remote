@@ -110,7 +110,7 @@ export function getConfig() {
 		}
 		return stored;
 	}
-	return {host: defaultHost, port: 8765, token: ''};
+	return {host: defaultHost, port: 31415, token: ''};
 }
 
 function buildUrl(config: {host: string; port: number; token: string}) {

@@ -75,7 +75,7 @@ function generateId(): string {
 
 function parseArgs(): { port: number; host: string; token?: string; idleTimeout: number; sslKey?: string; sslCert?: string; noSsl: boolean } {
   const args = process.argv.slice(2);
-  let port = parseInt(process.env.PI_REMOTE_PORT || '8765', 10);
+  let port = parseInt(process.env.PI_REMOTE_PORT || '31415', 10);
   let host = process.env.PI_REMOTE_HOST || '127.0.0.1';
   let token = process.env.PI_REMOTE_TOKEN || undefined;
   let idleTimeout = parseInt(process.env.PI_IDLE_TIMEOUT || '300000', 10);
@@ -86,7 +86,7 @@ function parseArgs(): { port: number; host: string; token?: string; idleTimeout:
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
       case '--port':
-        port = parseInt(args[++i] || '8765', 10);
+        port = parseInt(args[++i] || '31415', 10);
         break;
       case '--host':
         host = args[++i] || '127.0.0.1';

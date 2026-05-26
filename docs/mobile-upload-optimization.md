@@ -11,7 +11,7 @@ To empower the Pi agent to read screenshots, diagrams, and local text documents,
 ### Stage 1: The Raw HTTP POST Approach
 * **Implementation**: Files were sent as a raw binary `fetch` POST stream directly to the `/session/upload` HTTP endpoint.
 * **The Mobile Handshake Failure**: While this worked flawlessly on desktop, **mobile browsers (especially Firefox Mobile) blocked the POST requests**, throwing a generic `TypeError: NetworkError`.
-* **The Root Cause**: Mobile browsers enforce extremely strict policies for non-standard ports (like `8765`) running over self-signed SSL/TLS certificates (including those with Common Name mismatches such as standard generated `localhost` certificates accessed over a Tailscale domain). Even if a user accepts the cert exception to load the page, the mobile browser's network layer silently aborts non-simple `POST` requests and `OPTIONS` preflight requests, blocking the transfer.
+* **The Root Cause**: Mobile browsers enforce extremely strict policies for non-standard ports (like `31415`) running over self-signed SSL/TLS certificates (including those with Common Name mismatches such as standard generated `localhost` certificates accessed over a Tailscale domain). Even if a user accepts the cert exception to load the page, the mobile browser's network layer silently aborts non-simple `POST` requests and `OPTIONS` preflight requests, blocking the transfer.
 
 ### Stage 2: The WebSocket Base64 Approach
 * **Implementation**: We bypassed HTTP entirely by routing file uploads over the **already-established, trusted WebSocket connection** using a Base64-encoded string inside a JSON frame.

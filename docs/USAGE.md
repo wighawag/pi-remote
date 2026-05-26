@@ -45,7 +45,7 @@ When you run `pi` in a local directory, the **CLI Bridge Extension** connects to
 
 ## 2. HTTP REST API Reference
 
-The standalone server binds to `127.0.0.1:8765` by default.
+The standalone server binds to `127.0.0.1:31415` by default.
 
 ### `GET /health`
 Check if the server is up and responsive.
@@ -199,7 +199,7 @@ Send a raw WAV voice recording to be transcribed using the configured server-sid
 
 ## 3. WebSocket API Protocol
 
-Establish a connection via `ws://127.0.0.1:8765/ws?token=YOUR_TOKEN`.
+Establish a connection via `ws://127.0.0.1:31415/ws?token=YOUR_TOKEN`.
 
 ### Client $\rightarrow$ Server Messages
 
@@ -355,5 +355,5 @@ If you try to load a session in `/project-a` while another browser client has an
   ```
 * **Tunnels:** For remote access (such as mobile browsing) without exposing ports, you can utilize secure SSH tunnels:
   ```bash
-  ssh -L 8765:localhost:8765 user@your-server-ip
+  ssh -L 31415:localhost:31415 user@your-server-ip
   ```

@@ -198,7 +198,7 @@
 			<div class="flex-1 overflow-y-auto">
 				<ConnectionSettings
 					host={appState.connected ? 'localhost' : 'localhost'}
-					port={8765}
+					port={31415}
 					token=""
 					onConnected={handleConnected}
 				/>

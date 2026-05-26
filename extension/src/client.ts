@@ -5,7 +5,7 @@
  * using the remote-server extension.
  *
  * Usage:
- *   npx tsx remote-client.ts --url ws://localhost:8765 --token YOUR_TOKEN
+ *   npx tsx remote-client.ts --url ws://localhost:31415 --token YOUR_TOKEN
  */
 
 import WebSocket from "ws";
@@ -17,7 +17,7 @@ interface Config {
 
 function parseArgs(): Config {
   const args = process.argv.slice(2);
-  const config: Config = { url: "ws://localhost:8765" };
+  const config: Config = { url: "ws://localhost:31415" };
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--url" && args[i + 1]) {

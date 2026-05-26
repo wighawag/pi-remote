@@ -98,7 +98,7 @@ Start the standalone multi-session server:
 ```bash
 pi-remote-server
 ```
-The server will boot up and automatically generate self-signed SSL certificates for a secure `https`/`wss` local environment. Open `https://localhost:8765` in your browser. (The first time, proceed past your browser's SSL warning).
+The server will boot up and automatically generate self-signed SSL certificates for a secure `https`/`wss` local environment. Open `https://localhost:31415` in your browser. (The first time, proceed past your browser's SSL warning).
 *(Note: Automatic certificate generation requires `openssl` to be installed on your host system. If `openssl` is missing, the server will gracefully fall back to HTTP/WS).*
 
 #### 4. Run Pi
@@ -139,7 +139,7 @@ ln -sf "$(pwd)/extension" ~/.pi/agent/extensions/pi-remote
 ```bash
 pnpm run server:dev
 ```
-Open `https://localhost:8765` in your browser.
+Open `https://localhost:31415` in your browser.
 
 #### 5. Run Pi
 Run `pi` in any directory. It will load the symlinked local extension and connect automatically!
@@ -164,7 +164,7 @@ pnpm --filter ./web dev
 Both the server and CLI bridge extension accept standard flags to customize ports, host bindings, and auth tokens.
 
 ### Standalone Server Settings
-* `--port`, `PI_REMOTE_PORT` (Default: `8765`)
+* `--port`, `PI_REMOTE_PORT` (Default: `31415`)
 * `--host`, `PI_REMOTE_HOST` (Default: `127.0.0.1`, set to `0.0.0.0` to expose to outside/local network)
 * `--token`, `PI_REMOTE_TOKEN` (Optional auth token)
 * `--idle-timeout`, `PI_IDLE_TIMEOUT` (Graceful shutdown timeout, default: `300000` = 5 minutes)
@@ -175,7 +175,7 @@ Both the server and CLI bridge extension accept standard flags to customize port
 ### CLI Bridge Settings
 Whenever you run `pi`, you can override bridge defaults:
 * `--remote-host` (Default: `127.0.0.1`)
-* `--remote-port` (Default: `8765`)
+* `--remote-port` (Default: `31415`)
 * `--remote-token` (Auth token if configured)
 * `--remote-bridge` (Set to `false` to run as offline standard CLI)
 * `--remote-secure` (Whether to connect via WSS. Default: `true`. Set to `false` if server has `--no-ssl` active)
@@ -277,7 +277,7 @@ Using a secure private mesh VPN like [Tailscale](https://tailscale.com) or [Head
    pi-remote-server --host 0.0.0.0 --token your-secure-token
    ```
    *Warning: Always use a strong `--token` when binding to any interface other than localhost!*
-3. Access your Svelte dashboard securely from your remote device's browser at `https://<your-tailscale-ip>:8765` with your token.
+3. Access your Svelte dashboard securely from your remote device's browser at `https://<your-tailscale-ip>:31415` with your token.
 
 ### 2. Local Network Access
 To allow access from devices on your local home network (Wi-Fi):
@@ -285,7 +285,7 @@ To allow access from devices on your local home network (Wi-Fi):
    ```bash
    pi-remote-server --host 0.0.0.0 --token your-secure-token
    ```
-2. Find your Pi's local network IP (e.g., `192.168.1.50`) and open `https://192.168.1.50:8765` in your client's browser.
+2. Find your Pi's local network IP (e.g., `192.168.1.50`) and open `https://192.168.1.50:31415` in your client's browser.
 3. If running the CLI `pi` command from another computer on the same local network, point it to the Pi:
    ```bash
    pi --remote-host 192.168.1.50 --remote-token your-secure-token
@@ -294,9 +294,9 @@ To allow access from devices on your local home network (Wi-Fi):
 ### 3. SSH Port Forwarding
 For an ad-hoc secure connection without exposing any port:
 ```bash
-ssh -L 8765:localhost:8765 user@your-pi-ip
+ssh -L 31415:localhost:31415 user@your-pi-ip
 ```
-Once connected, you can open `https://localhost:8765` locally on your client computer.
+Once connected, you can open `https://localhost:31415` locally on your client computer.
 
 ---
 

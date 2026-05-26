@@ -78,7 +78,7 @@ export function getBaseUrl(): string {
 			}
 		}
 		host = host.startsWith('http') ? host.replace(/^wss?:\/\//, '') : host;
-		return `${protocol}//${host}:${parsed.port || 8765}`;
+		return `${protocol}//${host}:${parsed.port || 31415}`;
 	}
 	return `${window.location.protocol}//${window.location.host}`;
 }
