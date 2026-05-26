@@ -401,7 +401,7 @@
 				class="flex shrink-0 items-center justify-center rounded border border-gray-600 bg-gray-800 px-1.5 py-1.5 text-gray-400 transition-colors hover:bg-gray-700 hover:text-white"
 				title="Refresh session list"
 			>
-				<span class="{loading ? 'animate-spin' : ''}">↻</span>
+				<span class={loading ? 'animate-spin' : ''}>↻</span>
 			</button>
 		</div>
 	</div>
@@ -625,17 +625,21 @@
 						class="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-gray-700/50"
 					>
 						<span
-							class="text-xs text-gray-500 transition-transform {isFolderExpanded(folder.path)
+							class="text-xs text-gray-500 transition-transform {isFolderExpanded(
+								folder.path,
+							)
 								? 'rotate-90'
 								: ''}"
 						>
 							▶
 						</span>
-						<div class="flex-1 min-w-0">
-							<div class="truncate text-sm font-medium text-gray-300"
-								>{folder.name}</div
-							>
-							<div class="truncate text-[10px] text-gray-600">{folder.path}</div>
+						<div class="min-w-0 flex-1">
+							<div class="truncate text-sm font-medium text-gray-300">
+								{folder.name}
+							</div>
+							<div class="truncate text-[10px] text-gray-600">
+								{folder.path}
+							</div>
 						</div>
 						<span class="text-xs text-gray-500">{folder.sessions.length}</span>
 					</button>

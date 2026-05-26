@@ -340,13 +340,15 @@
 					disabled={effectivelyDisabled}
 					rows={1}
 					placeholder={streaming
-							? 'Agent is working (type next message...)'
-							: readOnly
-								? 'Read-only mode'
-								: !sessionInfo.sessionId
-									? 'Select a session first...'
-									: 'Type a message...'}
-					class="h-full max-h-48 min-h-[120px] w-full resize-none overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 px-4 py-3 leading-relaxed placeholder-gray-500 focus:border-blue-500 focus:outline-none disabled:opacity-50 {queuedText ? 'text-gray-500 italic' : 'text-white'}"
+						? 'Agent is working (type next message...)'
+						: readOnly
+							? 'Read-only mode'
+							: !sessionInfo.sessionId
+								? 'Select a session first...'
+								: 'Type a message...'}
+					class="h-full max-h-48 min-h-[120px] w-full resize-none overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 px-4 py-3 leading-relaxed placeholder-gray-500 focus:border-blue-500 focus:outline-none disabled:opacity-50 {queuedText
+						? 'text-gray-500 italic'
+						: 'text-white'}"
 				></textarea>
 			</div>
 
