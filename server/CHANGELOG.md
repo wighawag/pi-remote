@@ -1,5 +1,11 @@
 # pi-remote-server
 
+## 0.0.4
+
+### Patch Changes
+
+- 393e8aa: update to port 31415
+
 ## 0.0.3
 
 ### Patch Changes
