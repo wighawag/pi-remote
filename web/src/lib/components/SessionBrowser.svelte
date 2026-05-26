@@ -631,9 +631,12 @@
 						>
 							▶
 						</span>
-						<span class="flex-1 truncate text-sm font-medium text-gray-300"
-							>{folder.name}</span
-						>
+						<div class="flex-1 min-w-0">
+							<div class="truncate text-sm font-medium text-gray-300"
+								>{folder.name}</div
+							>
+							<div class="truncate text-[10px] text-gray-600">{folder.path}</div>
+						</div>
 						<span class="text-xs text-gray-500">{folder.sessions.length}</span>
 					</button>
 
