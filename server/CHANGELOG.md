@@ -1,5 +1,35 @@
 # pi-remote-server
 
+## 0.0.3
+
+### Patch Changes
+
+- e54e697: Allow users to collapse folders in the session browser even when a filter query is active, with automatic reset of search-specific folder expansions when clearing the search query.
+- 948ad33: fix: show full folder path under folder name in session sidebar
+
+  When multiple directories share the same basename (e.g. `/home/user/wighawag`
+  and `/home/user/projects/wighawag`), they appeared as separate groups with the
+  same visible name, making them indistinguishable. Now the full resolved path is
+  shown in smaller gray text beneath the folder name for easy differentiation.
+
+- 14f1269: Show queued message text in input box as greyed-out italic text when agent is streaming
+
+  When a message is queued (sent while agent is working), the text is now visible in the disabled textarea in a grey italic style instead of being hidden. Unqueueing clears the text and re-enables editing. Also added a refresh button (↻) next to the session filter in the sidebar to manually refresh the session list, with a spinning animation while loading.
+
+- d319cfd: Fixed session list issues in the sidebar:
+  - Fixed duplicate folder entries by properly resolving path representations (like expanding ~ and relative paths) consistently on the server.
+  - Added keyed loops in Svelte `#each` blocks to make session list rendering reactive and prevent unnecessary DOM rebuilds.
+  - Debounced `fetchSessions()` calls to coalesce rapid concurrent requests during bulk operations.
+  - Added a "Delete All" button inside each folder's expanded session list to delete all sessions of that folder at once.
+  - Prevented visual reloading/layout-flashing by keeping the existing list visible during background refreshes, only displaying the loading spinner on initial load when the folder list is empty.
+
+- a697a2d: Ensure model choices are preserved across page reloads, server restarts, and synchronized dynamically between web and CLI.
+
+  Specifically:
+  - Fixed an issue where the model resolved to the first (oldest) model_change entry on session reload/restart instead of the most recent one.
+  - Added model_select event propagation so that changing the model in a CLI session dynamically updates any connected web client.
+  - Added support in the CLI bridge extension to receive and apply model changes initiated from the remote web dashboard.
+
 ## 0.0.2
 
 ### Patch Changes

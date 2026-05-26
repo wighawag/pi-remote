@@ -1,6 +1,6 @@
 {
   "name": "pi-remote",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Remote control extension for pi coding agent with HTTP/WebSocket API",
   "homepage": "https://github.com/wighawag/pi-remote#readme",
   "repository": {
