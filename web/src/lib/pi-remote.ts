@@ -24,6 +24,7 @@ export interface ChatMessage {
 export interface PiRemoteState {
 	connected: boolean;
 	connecting: boolean;
+	creatingSession: boolean;
 	error: string | null;
 	session: string | null;
 	sessionId: string | null;
@@ -44,6 +45,7 @@ export interface PiRemoteState {
 const defaultState: PiRemoteState = {
 	connected: false,
 	connecting: false,
+	creatingSession: false,
 	error: null,
 	session: null,
 	sessionId: null,
@@ -476,6 +478,7 @@ export function connect() {
 						activeCwd: msg.cwd,
 						activeModel: msg.model,
 						isStreaming: msg.isStreaming ?? false,
+					creatingSession: false,
 					}));
 					setCurrentSession(msg.sessionFile);
 					break;
@@ -507,6 +510,7 @@ export function connect() {
 						...s,
 						sessionError: msg.error,
 						isStreaming: false,
+					creatingSession: false,
 					}));
 					break;
 
@@ -518,6 +522,7 @@ export function connect() {
 							conflictingSessionId: msg.conflictingSession,
 							conflictingCwd: msg.conflictingCwd,
 						},
+					creatingSession: false,
 					}));
 					break;
 
@@ -532,6 +537,7 @@ export function connect() {
 						activeSessionFile: null,
 						activeCwd: null,
 						activeModel: null,
+					creatingSession: false,
 					}));
 					setCurrentSession(null);
 					setTimeout(() => {
@@ -743,8 +749,12 @@ export function createSession(
 		...s,
 		conflict: null,
 		sessionError: null,
+		creatingSession: true,
 	}));
-	if (!ws || ws.readyState !== WebSocket.OPEN) return;
+	if (!ws || ws.readyState !== WebSocket.OPEN) {
+		state.update((s: PiRemoteState) => ({...s, creatingSession: false}));
+		return;
+	}
 	ws.send(
 		JSON.stringify({
 			type: 'session_new',
@@ -771,6 +781,7 @@ export function leaveSession() {
 		activeCwd: null,
 		activeModel: null,
 		readOnly: false,
+		creatingSession: false,
 	}));
 	setCurrentSession(null);
 }
@@ -848,13 +859,14 @@ export const currentSession = derived(piState, ($s) => $s.session);
 export const conflict = derived(piState, ($s) => $s.conflict);
 export const isInterrupted = derived(piState, ($s) => $s.isInterrupted);
 export const sessionError = derived(piState, ($s) => $s.sessionError);
-export const isReadOnly = derived(piState, ($s) => $s.readOnly);
+export const isReadOnly = derived(piState, ($s) => $s.isReadOnly);
 export const activeSessionInfo = derived(piState, ($s) => ({
 	sessionFile: $s.activeSessionFile,
 	cwd: $s.activeCwd,
 	model: $s.activeModel,
 	sessionId: $s.sessionId,
 }));
+export const isCreatingSession = derived(piState, ($s) => $s.creatingSession);
 
 async function uploadFileViaPost(
 	sessionId: string,
