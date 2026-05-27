@@ -23,6 +23,8 @@
 	let localHost = $state('');
 	let localPort = $state(0);
 	let localToken = $state('');
+	let localHideThinking = $state(false);
+	let localHideTools = $state(false);
 	let saving = $state(false);
 	let connected = $derived($isConnected);
 
@@ -31,10 +33,28 @@
 		localHost = config.host;
 		localPort = config.port;
 		localToken = config.token || '';
+		localHideThinking = !!config.hideThinking;
+		localHideTools = !!config.hideTools;
 	});
 
+	function handleConfigChange() {
+		setConfig({
+			host: localHost,
+			port: localPort,
+			token: localToken,
+			hideThinking: localHideThinking,
+			hideTools: localHideTools,
+		});
+	}
+
 	function handleConnect() {
-		setConfig({host: localHost, port: localPort, token: localToken});
+		setConfig({
+			host: localHost,
+			port: localPort,
+			token: localToken,
+			hideThinking: localHideThinking,
+			hideTools: localHideTools,
+		});
 		disconnect();
 		setTimeout(() => connect(), 100);
 	}
@@ -82,6 +102,32 @@
 				placeholder="Authentication token"
 				class="w-full rounded border border-brand-border bg-brand-surface-2 px-3 py-2 text-sm text-brand-text placeholder-brand-text-muted focus:border-brand-blue focus:outline-none"
 			/>
+		</div>
+
+		<div class="flex items-center gap-2 py-1">
+			<input
+				id="pi-hide-thinking"
+				type="checkbox"
+				bind:checked={localHideThinking}
+				onchange={handleConfigChange}
+				class="h-4 w-4 rounded border-brand-border bg-brand-surface-2 text-brand-blue focus:ring-brand-blue focus:ring-offset-0"
+			/>
+			<label for="pi-hide-thinking" class="text-xs text-brand-text select-none cursor-pointer">
+				Hide thinking steps
+			</label>
+		</div>
+
+		<div class="flex items-center gap-2 py-1">
+			<input
+				id="pi-hide-tools"
+				type="checkbox"
+				bind:checked={localHideTools}
+				onchange={handleConfigChange}
+				class="h-4 w-4 rounded border-brand-border bg-brand-surface-2 text-brand-blue focus:ring-brand-blue focus:ring-offset-0"
+			/>
+			<label for="pi-hide-tools" class="text-xs text-brand-text select-none cursor-pointer">
+				Hide tool calls
+			</label>
 		</div>
 
 		<div class="flex gap-2">

@@ -398,28 +398,6 @@
 		}
 	});
 
-	$effect.pre(() => {
-		// React to both array length and the last message's content length (which changes on every single streamed token!)
-		const lastMsg = $messages[$messages.length - 1];
-		const triggerValue = lastMsg
-			? `${$messages.length}-${lastMsg.content.length}`
-			: '0';
-
-		if (messageList) {
-			shouldAutoScroll = isScrolledToBottom(messageList);
-		}
-	});
-
-	$effect(() => {
-		// React to both array length and the last message's content length (which changes on every single streamed token!)
-		const lastMsg = $messages[$messages.length - 1];
-		const triggerValue = lastMsg
-			? `${$messages.length}-${lastMsg.content.length}`
-			: '0';
-
-		scrollToBottomIfShould();
-	});
-
 	let lastSessionFile = $state<string | null>(null);
 
 	$effect(() => {
@@ -432,15 +410,62 @@
 		}
 	});
 
-	let msgList = $derived(
-		$messages.filter(
-			(msg) =>
+	let msgList = $derived.by(() => {
+		const filtered = $messages.filter((msg) => {
+			if (msg.role === 'thinking') {
+				if ($piState.hideThinking) {
+					return false;
+				}
+			}
+			if (msg.role === 'tool') {
+				if ($piState.hideTools) {
+					return isAssociatedWithForceCommand(msg) || !!msg.isStreaming;
+				}
+			}
+			return (
 				(msg.role !== 'assistant' && msg.role !== 'thinking') ||
 				msg.isStreaming ||
-				msg.content.trim() !== '',
-		),
-	);
+				msg.content.trim() !== ''
+			);
+		});
+
+		const activeStreamExists = filtered.some((msg) => msg.isStreaming);
+		if (streaming && !activeStreamExists) {
+			const isThinking = $messages.some((msg) => msg.role === 'thinking' && msg.isStreaming);
+			filtered.push({
+				id: 'fallback-loader-message-id',
+				role: 'thinking',
+				content: isThinking ? 'FALLBACK_THINKING_LOADER' : 'FALLBACK_LOADER',
+				timestamp: Date.now(),
+				isStreaming: true,
+			});
+		}
+
+		return filtered;
+	});
 	let streaming = $derived($isStreaming);
+
+	$effect.pre(() => {
+		// React to msgList length and content changes of the last message in msgList
+		const lastMsg = msgList[msgList.length - 1];
+		const triggerValue = lastMsg
+			? `${msgList.length}-${lastMsg.content.length}`
+			: '0';
+
+		if (messageList) {
+			shouldAutoScroll = isScrolledToBottom(messageList);
+		}
+	});
+
+	$effect(() => {
+		// React to msgList length and content changes of the last message in msgList
+		const lastMsg = msgList[msgList.length - 1];
+		const triggerValue = lastMsg
+			? `${msgList.length}-${lastMsg.content.length}`
+			: '0';
+
+		scrollToBottomIfShould();
+	});
 
 	function formatTime(timestamp: number) {
 		return new Date(timestamp).toLocaleTimeString([], {
@@ -449,9 +474,8 @@
 		});
 	}
 
-	function shouldAutoExpand(msg: ChatMessage, list: ChatMessage[]): boolean {
-		if (msg.role !== 'tool') return false;
-
+	function isAssociatedWithForceCommand(msg: ChatMessage): boolean {
+		const list = $messages;
 		const idx = list.findIndex((m) => m.id === msg.id);
 		if (idx === -1) return false;
 
@@ -463,6 +487,10 @@
 			}
 		}
 		return false;
+	}
+
+	function shouldAutoExpand(msg: ChatMessage, list: ChatMessage[]): boolean {
+		return isAssociatedWithForceCommand(msg);
 	}
 
 	export function forceScrollToBottom() {
@@ -768,7 +796,9 @@
 							: msg.role === 'thinking'
 								? 'border-l-2 border-brand-border bg-brand-surface/30 text-sm text-brand-text-muted'
 								: msg.role === 'tool'
-									? `border-l-2 bg-brand-surface-2 font-mono text-sm text-brand-text ${
+								? $piState.hideTools && !isAssociatedWithForceCommand(msg)
+									? 'border-l-2 border-brand-border bg-brand-surface/30 text-sm text-brand-text-muted'
+									: `border-l-2 bg-brand-surface-2 font-mono text-sm text-brand-text ${
 											msg.isStreaming
 												? 'border-amber-400'
 												: msg.isError
@@ -782,109 +812,155 @@
 											: 'bg-brand-surface-2 text-brand-text'}"
 					>
 						{#if msg.role === 'thinking'}
-							<div class="font-mono text-sm whitespace-pre-wrap">
-								{msg.content}
-							</div>
+							{#if msg.content === 'FALLBACK_THINKING_LOADER'}
+								<div class="flex items-center gap-2 font-sans text-sm text-brand-text-muted italic select-none">
+									<svg class="h-4 w-4 animate-spin text-brand-cyan" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+										<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+										<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+									</svg>
+									<span>Agent is thinking...</span>
+								</div>
+							{:else if msg.content === 'FALLBACK_LOADER'}
+								<div class="flex items-center gap-2 font-sans text-sm text-brand-text-muted italic select-none">
+									<svg class="h-4 w-4 animate-spin text-brand-cyan" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+										<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+										<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+									</svg>
+									<span>Agent working...</span>
+								</div>
+							{:else}
+								{#if $piState.hideThinking}
+									<div class="flex items-center gap-2 font-sans text-sm text-brand-text-muted italic select-none">
+										<svg class="h-4 w-4 animate-spin text-brand-cyan" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+											<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+											<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+										</svg>
+										<span>Agent is thinking...</span>
+									</div>
+								{:else}
+								<div class="flex flex-col gap-1">
+									{#if msg.isStreaming}
+										<div class="flex items-center gap-1.5 text-[10px] font-bold tracking-wider text-brand-cyan uppercase select-none mb-1">
+											<span class="inline-block h-1.5 w-1.5 rounded-full bg-brand-cyan animate-pulse"></span>
+											<span>Thinking</span>
+										</div>
+									{/if}
+									<div class="font-mono text-sm whitespace-pre-wrap">
+										{msg.content}
+									</div>
+								</div>
+								{/if}
+							{/if}
 						{:else if msg.role === 'tool'}
-							{@const parsed = parseToolMessage(msg)}
-							{@const isExpanded =
-								expandedMessages[msg.id] !== undefined
-									? expandedMessages[msg.id]
-									: shouldAutoExpand(msg, msgList)}
-							<div
-								class="flex max-w-full min-w-[280px] flex-col sm:min-w-[400px] md:min-w-[550px]"
-							>
-								<!-- Header of tool execution -->
-								<button
-									onclick={() => toggleMessage(msg.id, isExpanded)}
-									class="flex w-full items-center justify-between gap-3 rounded p-1 text-left transition-colors hover:bg-brand-surface-3/30 focus:outline-none"
+							{#if $piState.hideTools && !isAssociatedWithForceCommand(msg)}
+								<div class="flex items-center gap-2 font-sans text-sm text-brand-text-muted italic select-none">
+									<svg class="h-4 w-4 animate-spin text-amber-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+										<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+										<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+									</svg>
+									<span>Running tool: <span class="font-mono text-xs font-semibold px-1 py-0.5 rounded bg-brand-surface-3">{msg.toolName || 'agent'}</span>...</span>
+								</div>
+							{:else}
+								{@const parsed = parseToolMessage(msg)}
+								{@const isExpanded =
+									expandedMessages[msg.id] !== undefined
+										? expandedMessages[msg.id]
+										: shouldAutoExpand(msg, msgList)}
+								<div
+									class="flex max-w-full min-w-[280px] flex-col sm:min-w-[400px] md:min-w-[550px]"
 								>
-									<div class="flex flex-1 items-center gap-2 overflow-hidden">
-										<!-- Status icon -->
-										{#if msg.isStreaming}
-											<!-- Running -->
-											<span
-												class="inline-block animate-spin font-bold text-amber-400"
-												>⚡</span
-											>
-										{:else if parsed.isError}
-											<!-- Error -->
-											<span class="font-bold text-rose-400" title="Failed"
-												>❌</span
-											>
-										{:else}
-											<!-- Success -->
-											<span class="font-bold text-emerald-400" title="Succeeded"
-												>✅</span
-											>
-										{/if}
+									<!-- Header of tool execution -->
+									<button
+										onclick={() => toggleMessage(msg.id, isExpanded)}
+										class="flex w-full items-center justify-between gap-3 rounded p-1 text-left transition-colors hover:bg-brand-surface-3/30 focus:outline-none"
+									>
+										<div class="flex flex-1 items-center gap-2 overflow-hidden">
+											<!-- Status icon -->
+											{#if msg.isStreaming}
+												<!-- Running -->
+												<span
+													class="inline-block animate-spin font-bold text-amber-400"
+													>⚡</span
+												>
+											{:else if parsed.isError}
+												<!-- Error -->
+												<span class="font-bold text-rose-400" title="Failed"
+													>❌</span
+												>
+											{:else}
+												<!-- Success -->
+												<span class="font-bold text-emerald-400" title="Succeeded"
+													>✅</span
+												>
+											{/if}
 
-										<span class="font-mono text-sm font-bold text-brand-text">
-											{parsed.toolName}
-										</span>
-
-										{#if parsed.smartTitleArgs}
-											<span
-												class="max-w-[180px] truncate font-mono text-xs text-brand-text-muted sm:max-w-[300px] md:max-w-[450px]"
-												title={parsed.smartTitleArgs}
-											>
-												{parsed.smartTitleArgs}
+											<span class="font-mono text-sm font-bold text-brand-text">
+												{parsed.toolName}
 											</span>
-										{/if}
-									</div>
 
-									<div
-										class="flex shrink-0 items-center gap-1 font-sans text-xs font-medium whitespace-nowrap text-brand-text-muted select-none hover:text-brand-text"
-									>
-										{#if isExpanded}
-											Collapse <span class="text-[10px]">▲</span>
-										{:else}
-											Expand <span class="text-[10px]">▼</span>
-										{/if}
-									</div>
-								</button>
+											{#if parsed.smartTitleArgs}
+												<span
+													class="max-w-[180px] truncate font-mono text-xs text-brand-text-muted sm:max-w-[300px] md:max-w-[450px]"
+													title={parsed.smartTitleArgs}
+												>
+													{parsed.smartTitleArgs}
+												</span>
+											{/if}
+										</div>
 
-								<!-- Tool Output (collapsible) -->
-								{#if isExpanded}
-									<div
-										class="mt-2 flex flex-col gap-3 overflow-hidden border-t border-brand-border/40 pt-2"
-									>
-										<!-- Full Arguments section -->
-										{#if parsed.fullArgs && parsed.fullArgs !== '{}'}
+										<div
+											class="flex shrink-0 items-center gap-1 font-sans text-xs font-medium whitespace-nowrap text-brand-text-muted select-none hover:text-brand-text"
+										>
+											{#if isExpanded}
+												Collapse <span class="text-[10px]">▲</span>
+											{:else}
+												Expand <span class="text-[10px]">▼</span>
+											{/if}
+										</div>
+									</button>
+
+									<!-- Tool Output (collapsible) -->
+									{#if isExpanded}
+										<div
+											class="mt-2 flex flex-col gap-3 overflow-hidden border-t border-brand-border/40 pt-2"
+										>
+											<!-- Full Arguments section -->
+											{#if parsed.fullArgs && parsed.fullArgs !== '{}'}
+												<div class="flex flex-col gap-1">
+													<span
+														class="font-sans text-[10px] font-bold tracking-wider text-brand-text-muted uppercase"
+														>Arguments</span
+													>
+													<pre
+														class="max-h-40 overflow-x-auto rounded border border-brand-border/30 bg-brand-dark/60 p-1.5 font-mono text-[11px] whitespace-pre-wrap text-amber-400">{parsed.fullArgs}</pre>
+												</div>
+											{/if}
+
+											<!-- Tool Output section -->
 											<div class="flex flex-col gap-1">
 												<span
 													class="font-sans text-[10px] font-bold tracking-wider text-brand-text-muted uppercase"
-													>Arguments</span
+													>Output</span
 												>
-												<pre
-													class="max-h-40 overflow-x-auto rounded border border-brand-border/30 bg-brand-dark/60 p-1.5 font-mono text-[11px] whitespace-pre-wrap text-amber-400">{parsed.fullArgs}</pre>
+												{#if parsed.toolOutput}
+													<pre
+														class="max-h-96 overflow-x-auto rounded border border-brand-border/40 bg-brand-dark/60 p-2 font-mono text-xs whitespace-pre-wrap text-brand-text">{parsed.toolOutput}</pre>
+												{:else if msg.isStreaming}
+													<div
+														class="animate-pulse p-1 text-xs text-brand-text-muted italic"
+													>
+														Running and waiting for output...
+													</div>
+												{:else}
+													<div class="p-1 text-xs text-brand-text-muted italic">
+														No output returned
+													</div>
+												{/if}
 											</div>
-										{/if}
-
-										<!-- Tool Output section -->
-										<div class="flex flex-col gap-1">
-											<span
-												class="font-sans text-[10px] font-bold tracking-wider text-brand-text-muted uppercase"
-												>Output</span
-											>
-											{#if parsed.toolOutput}
-												<pre
-													class="max-h-96 overflow-x-auto rounded border border-brand-border/40 bg-brand-dark/60 p-2 font-mono text-xs whitespace-pre-wrap text-brand-text">{parsed.toolOutput}</pre>
-											{:else if msg.isStreaming}
-												<div
-													class="animate-pulse p-1 text-xs text-brand-text-muted italic"
-												>
-													Running and waiting for output...
-												</div>
-											{:else}
-												<div class="p-1 text-xs text-brand-text-muted italic">
-													No output returned
-												</div>
-											{/if}
 										</div>
-									</div>
-								{/if}
-							</div>
+									{/if}
+								</div>
+							{/if}
 						{:else if msg.role === 'assistant' && msg.content !== ''}
 							<pre
 								class="font-sans text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</pre>
@@ -923,18 +999,21 @@
 								</div>
 							{/if}
 						{/if}
-						<div
-							class="mt-1 text-xs opacity-50 {msg.role === 'user'
-								? 'text-brand-text-muted'
-								: msg.role === 'assistant'
-									? 'text-brand-purple'
-									: 'text-brand-text-muted'}"
-						>
-							{formatTime(msg.timestamp)}
-						</div>
+						{#if msg.role !== 'thinking' && msg.role !== 'tool'}
+							<div
+								class="mt-1 text-xs opacity-50 {msg.role === 'user'
+									? 'text-brand-text-muted'
+									: msg.role === 'assistant'
+										? 'text-brand-purple'
+										: 'text-brand-text-muted'}"
+							>
+								{formatTime(msg.timestamp)}
+							</div>
+						{/if}
 					</div>
 				</div>
 			{/each}
+
 		</div>
 	{/if}
 

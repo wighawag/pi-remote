@@ -37,6 +37,8 @@ export interface PiRemoteState {
 	activeSessionFile: string | null;
 	activeCwd: string | null;
 	activeModel: string | null;
+	hideThinking: boolean;
+	hideTools: boolean;
 }
 
 const defaultState: PiRemoteState = {
@@ -55,15 +57,22 @@ const defaultState: PiRemoteState = {
 	activeSessionFile: null,
 	activeCwd: null,
 	activeModel: null,
+	hideThinking: false,
+	hideTools: false,
 };
 
-const state = writable<PiRemoteState>(defaultState);
+const state = writable<PiRemoteState>({
+	...defaultState,
+	hideThinking: typeof window !== 'undefined' ? !!getConfig().hideThinking : false,
+	hideTools: typeof window !== 'undefined' ? !!getConfig().hideTools : false,
+});
 let ws: WebSocket | null = null;
 const pendingUploads = new Map<
 	string,
 	{resolve: (val: any) => void; reject: (err: any) => void}
 >();
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let agentEndTimeout: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_DELAY = 3000;
@@ -80,7 +89,7 @@ function getStoredConfig() {
 	return null;
 }
 
-function saveConfig(config: {host: string; port: number; token: string}) {
+function saveConfig(config: {host: string; port: number; token: string; hideThinking?: boolean; hideTools?: boolean}) {
 	localStorage.setItem('pi-remote-config', JSON.stringify(config));
 }
 
@@ -102,15 +111,15 @@ export function getConfig() {
 				defaultHost !== 'localhost' &&
 				defaultHost !== '127.0.0.1'
 			) {
-				return {...stored, host: defaultHost};
+				return {hideThinking: false, hideTools: false, ...stored, host: defaultHost};
 			}
 		}
 		if (!stored.host) {
 			stored.host = defaultHost;
 		}
-		return stored;
+		return {hideThinking: false, hideTools: false, ...stored};
 	}
-	return {host: defaultHost, port: 31415, token: ''};
+	return {host: defaultHost, port: 31415, token: '', hideThinking: false, hideTools: false};
 }
 
 function buildUrl(config: {host: string; port: number; token: string}) {
@@ -143,12 +152,22 @@ export function connect() {
 
 	saveConfig(config);
 
-	state.set({...defaultState, connecting: true});
+	state.set({
+		...defaultState,
+		connecting: true,
+		hideThinking: !!config.hideThinking,
+		hideTools: !!config.hideTools,
+	});
 
 	try {
 		ws = new WebSocket(url);
 	} catch (err) {
-		state.set({...defaultState, error: `Failed to connect: ${err}`});
+		state.set({
+			...defaultState,
+			error: `Failed to connect: ${err}`,
+			hideThinking: !!config.hideThinking,
+			hideTools: !!config.hideTools,
+		});
 		return;
 	}
 
@@ -190,6 +209,10 @@ export function connect() {
 				}
 
 				case 'agent_start':
+					if (agentEndTimeout) {
+						clearTimeout(agentEndTimeout);
+						agentEndTimeout = null;
+					}
 					state.update((s: PiRemoteState) => ({...s, isStreaming: true}));
 					break;
 
@@ -307,16 +330,27 @@ export function connect() {
 					break;
 
 				case 'agent_end':
-					state.update((s: PiRemoteState) => ({
-						...s,
-						isStreaming: false,
-						messages: s.messages.map((m: ChatMessage) =>
-							m.isStreaming ? {...m, isStreaming: false} : m,
-						),
-					}));
+					if (agentEndTimeout) {
+						clearTimeout(agentEndTimeout);
+						agentEndTimeout = null;
+					}
+					agentEndTimeout = setTimeout(() => {
+						state.update((s: PiRemoteState) => ({
+							...s,
+							isStreaming: false,
+							messages: s.messages.map((m: ChatMessage) =>
+								m.isStreaming ? {...m, isStreaming: false} : m,
+							),
+						}));
+						agentEndTimeout = null;
+					}, 300);
 					break;
 
 				case 'tool_start':
+					if (agentEndTimeout) {
+						clearTimeout(agentEndTimeout);
+						agentEndTimeout = null;
+					}
 					const toolArgs = msg.args
 						? Object.entries(msg.args)
 								.filter(([k, v]) => v !== undefined && v !== '')
@@ -624,9 +658,12 @@ export function connect() {
 				connect();
 			}, RECONNECT_DELAY);
 		} else {
+			const config = getConfig();
 			state.set({
 				...defaultState,
 				error: 'Connection lost. Check your settings and try again.',
+				hideThinking: !!config.hideThinking,
+				hideTools: !!config.hideTools,
 			});
 		}
 	};
@@ -649,7 +686,12 @@ export function disconnect() {
 		ws.close();
 		ws = null;
 	}
-	state.set(defaultState);
+	const config = getConfig();
+	state.set({
+		...defaultState,
+		hideThinking: !!config.hideThinking,
+		hideTools: !!config.hideTools,
+	});
 	setCurrentSession(null);
 }
 
@@ -766,8 +808,14 @@ export function clearMessages() {
 	state.update((s: PiRemoteState) => ({...s, messages: []}));
 }
 
-export function setConfig(config: {host: string; port: number; token: string}) {
+export function setConfig(config: {host: string; port: number; token: string; hideThinking?: boolean; hideTools?: boolean}) {
 	saveConfig(config);
+	state.update((s: PiRemoteState) => {
+		const next = {...s};
+		if (config.hideThinking !== undefined) next.hideThinking = !!config.hideThinking;
+		if (config.hideTools !== undefined) next.hideTools = !!config.hideTools;
+		return next;
+	});
 }
 
 export function dismissSessionError() {
