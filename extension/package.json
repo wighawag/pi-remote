@@ -1,15 +1,15 @@
 {
-  "name": "pi-remote",
+  "name": "@wherever-dev/pi",
   "version": "0.0.5",
-  "description": "Remote control extension for pi coding agent with HTTP/WebSocket API",
-  "homepage": "https://github.com/wighawag/pi-remote#readme",
+  "description": "Remote control extension for pi coding agent with HTTP/WebSocket API (wherever.dev)",
+  "homepage": "https://github.com/wighawag/wherever#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/wighawag/pi-remote.git",
+    "url": "git+https://github.com/wighawag/wherever.git",
     "directory": "extension"
   },
   "bugs": {
-    "url": "https://github.com/wighawag/pi-remote/issues"
+    "url": "https://github.com/wighawag/wherever/issues"
   },
   "publishConfig": {
     "access": "public"

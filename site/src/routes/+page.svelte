@@ -70,7 +70,7 @@
 			number: '03',
 			title: 'CLI Extension',
 			description:
-				"The pi-remote extension plugs into pi's extension system, forwarding commands to and from the server in real-time.",
+				"The @wherever-dev/pi extension plugs into pi's extension system, forwarding commands to and from the server in real-time.",
 		},
 	];
 
@@ -79,20 +79,20 @@
 			number: '01',
 			title: 'Install the Server',
 			description:
-				'Install the pi-remote server package globally or locally in your project.',
-			code: 'npm install -g pi-remote-server',
+				'Install the wherever-dev server package globally or locally in your project.',
+			code: 'npm install -g wherever-dev',
 		},
 		{
 			number: '02',
-			title: 'Install the Extension',
-			description: 'Tell pi to use the remote extension for this project.',
-			code: 'pi install pi-remote',
+			title: 'Install the Agent & Extension',
+			description: 'Wherever bridges the open-source "pi" coding agent. Make sure pi is installed and configured with your preferred AI model (local or remote), then add the bridge extension:',
+			code: 'pi install npm:@wherever-dev/pi',
 		},
 		{
 			number: '03',
 			title: 'Start the Server',
 			description: 'Launch the server with your preferred token and port.',
-			code: 'pi --extension pi-remote --remote-port 31415 --remote-token your-secret',
+			code: 'wherever',
 		},
 		{
 			number: '04',
@@ -134,8 +134,8 @@
 	<div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
 		<div class="flex h-16 items-center justify-between">
 			<div class="flex items-center gap-3">
-				<img src={url('/logo.svg')} alt="pi-remote logo" class="h-8 w-8" />
-				<span class="gradient-text text-lg font-bold">pi-remote</span>
+				<img src={url('/logo.svg')} alt="wherever logo" class="h-8 w-8" />
+				<span class="gradient-text text-lg font-bold">wherever</span>
 			</div>
 			<div class="hidden items-center gap-8 md:flex">
 				<button
@@ -154,7 +154,7 @@
 					>Install</button
 				>
 				<a
-					href="https://github.com/wighawag/pi-remote"
+					href="https://github.com/wighawag/wherever"
 					target="_blank"
 					rel="noopener noreferrer"
 					class="flex items-center gap-2 rounded-lg border border-brand-border bg-brand-surface-2 px-4 py-2 transition-colors hover:bg-brand-surface-3"
@@ -186,18 +186,18 @@
 			<div class="mb-8 flex justify-center">
 				<img
 					src={url('/logo.svg')}
-					alt="pi-remote"
+					alt="wherever"
 					class="h-24 w-24 sm:h-32 sm:w-32"
 				/>
 			</div>
 			<h1 class="mb-6 text-4xl font-bold sm:text-5xl md:text-7xl">
-				<span class="gradient-text">Control your pi</span><br />
+				<span class="gradient-text">Control your AI</span><br />
 				<span class="text-brand-text">coding agent from anywhere</span>
 			</h1>
 			<p
 				class="mx-auto mb-10 max-w-2xl text-lg text-brand-text-muted sm:text-xl"
 			>
-				A beautiful remote dashboard for your pi coding agent. Mirror your
+				A beautiful remote dashboard for your AI coding agent. Mirror your
 				terminal, control sessions from your phone, and pick up wherever you
 				left off.
 			</p>
@@ -208,7 +208,7 @@
 					>Get Started</button
 				>
 				<a
-					href="https://github.com/wighawag/pi-remote"
+					href="https://github.com/wighawag/wherever"
 					target="_blank"
 					rel="noopener noreferrer"
 					class="flex items-center justify-center gap-2 rounded-xl border border-brand-border bg-brand-surface-2 px-8 py-4 text-lg font-semibold text-brand-text transition-colors hover:bg-brand-surface-3"
@@ -326,7 +326,7 @@
 				<span class="gradient-text">Everything you need</span>
 			</h2>
 			<p class="mx-auto max-w-xl text-lg text-brand-text-muted">
-				A complete remote control experience for your pi coding agent, designed
+				A complete remote control experience for your AI coding agent, designed
 				for both desktop and mobile.
 			</p>
 		</div>
@@ -402,7 +402,7 @@
 					class="min-w-[320px] font-mono text-xs leading-relaxed whitespace-pre text-brand-text-muted sm:text-sm">
 ┌──────────────────┐         ┌─────────────────────────────┐         ┌──────────────────┐
 │                  │  WS     │                             │  Ext    │                  │
-│  Web Browser     │────────►│    pi-remote Server         │────────►│  pi CLI          │
+│  Web Browser     │────────►│    wherever Server          │────────►│  pi CLI          │
 │  (any device)    │◄────────│    (Extension + REST API)   │◄────────│  (Agent + Tools) │
 │                  │  WS     │                             │  Ext    │                  │
 └──────────────────┘         └─────────────────────────────┘         └──────────────────┘
@@ -420,7 +420,7 @@
 				<span class="gradient-text">Get started in minutes</span>
 			</h2>
 			<p class="mx-auto max-w-xl text-lg text-brand-text-muted">
-				Four steps to remote control your pi coding agent from any device.
+				Four steps to remote control your AI coding agent from any device.
 			</p>
 		</div>
 		<div class="space-y-6">
@@ -457,7 +457,7 @@
 		</div>
 		<div class="mt-12 text-center">
 			<a
-				href="https://github.com/wighawag/pi-remote"
+				href="https://github.com/wighawag/wherever"
 				target="_blank"
 				rel="noopener noreferrer"
 				class="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-brand-cyan via-brand-blue to-brand-purple px-8 py-4 font-semibold text-white shadow-lg shadow-brand-blue/25 transition-opacity hover:opacity-90"
@@ -478,7 +478,7 @@
 	<div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
 		<div class="flex flex-col items-center justify-between gap-6 md:flex-row">
 			<div class="flex items-center gap-3">
-				<img src={url('/logo.svg')} alt="pi-remote logo" class="h-6 w-6" />
+				<img src={url('/logo.svg')} alt="wherever logo" class="h-6 w-6" />
 				<span class="text-sm text-brand-text-muted">
 					Copyright &copy; 2026 Ronan Sandford. Released under the
 					<a
@@ -491,7 +491,7 @@
 			</div>
 			<div class="flex items-center gap-6">
 				<a
-					href="https://github.com/wighawag/pi-remote"
+					href="https://github.com/wighawag/wherever"
 					target="_blank"
 					rel="noopener noreferrer"
 					class="flex items-center gap-2 text-brand-text-muted transition-colors hover:text-brand-text"

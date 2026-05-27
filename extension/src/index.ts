@@ -1,7 +1,7 @@
 /**
- * CLI Bridge Extension for Pi Remote
+ * CLI Bridge Extension for Wherever
  *
- * Connects the local pi CLI session as a client to the Standalone Pi Remote Server.
+ * Connects the local pi CLI session as a client to the Standalone Wherever Server.
  * Streams all terminal activity to the server in real-time, and receives remote
  * commands to execute in the local agent loop.
  *
@@ -55,10 +55,10 @@ export default async function (pi: ExtensionAPI) {
     description: "Manually reconnect to the standalone remote server",
     handler: async (args: string, ctx: any) => {
       if (isConnected) {
-        ctx.ui.notify("[Pi Remote] Already connected to standalone server", "info");
+        ctx.ui.notify("[Wherever] Already connected to standalone server", "info");
         return;
       }
-      ctx.ui.notify("[Pi Remote] Initiating manual reconnect...", "info");
+      ctx.ui.notify("[Wherever] Initiating manual reconnect...", "info");
       reconnectDelay = 2000;
       connect();
     },
@@ -79,23 +79,23 @@ export default async function (pi: ExtensionAPI) {
 
     try {
       if (status === 'connecting') {
-        ctxVal.ui.setWidget("pi-remote-status", (_tui, theme) => {
-          const line = theme.fg("muted", "🔌 [Pi Remote] Connecting to standalone remote server...");
+        ctxVal.ui.setWidget("wherever-status", (_tui, theme) => {
+          const line = theme.fg("muted", "🔌 [Wherever] Connecting to standalone remote server...");
           return {
             render: () => [line],
             invalidate: () => {},
           };
         });
       } else if (status === 'disconnected') {
-        ctxVal.ui.setWidget("pi-remote-status", (_tui, theme) => {
-          const line = theme.fg("error", "⚠️ [Pi Remote] Disconnected from standalone remote server");
+        ctxVal.ui.setWidget("wherever-status", (_tui, theme) => {
+          const line = theme.fg("error", "⚠️ [Wherever] Disconnected from standalone remote server");
           return {
             render: () => [line],
             invalidate: () => {},
           };
         });
       } else {
-        ctxVal.ui.setWidget("pi-remote-status", undefined);
+        ctxVal.ui.setWidget("wherever-status", undefined);
       }
     } catch (err) {
       // Quiet fail if context is stale or disposed
@@ -168,7 +168,7 @@ export default async function (pi: ExtensionAPI) {
         const msg = JSON.parse(data.toString());
         switch (msg.type) {
           case "cli_message": {
-            ctxVal?.ui.notify(`[Pi Remote] Received remote command: ${msg.message.slice(0, 40)}...`, "info");
+            ctxVal?.ui.notify(`[Wherever] Received remote command: ${msg.message.slice(0, 40)}...`, "info");
             pi.sendUserMessage(msg.message, {
               deliverAs: msg.streamingBehavior,
             });
@@ -176,7 +176,7 @@ export default async function (pi: ExtensionAPI) {
           }
           case "cli_bash": {
             const { command, excludeFromContext } = msg;
-            ctxVal?.ui.notify(`[Pi Remote] Executing remote bash command: ${command.slice(0, 40)}...`, "info");
+            ctxVal?.ui.notify(`[Wherever] Executing remote bash command: ${command.slice(0, 40)}...`, "info");
 
             sendCliEvent({
               type: "tool_execution_start",
@@ -232,7 +232,7 @@ export default async function (pi: ExtensionAPI) {
                   (ctxVal.sessionManager as any).appendMessage(bashMessage);
                 }
               } catch (err) {
-                console.error("[Pi Remote] Failed to append bash message locally:", err);
+                console.error("[Wherever] Failed to append bash message locally:", err);
               }
             });
 
@@ -248,7 +248,7 @@ export default async function (pi: ExtensionAPI) {
             break;
           }
           case "cli_abort": {
-            ctxVal?.ui.notify("[Pi Remote] Received abort command from remote client", "warning");
+            ctxVal?.ui.notify("[Wherever] Received abort command from remote client", "warning");
             ctxVal?.abort();
             break;
           }
@@ -261,12 +261,12 @@ export default async function (pi: ExtensionAPI) {
                 const id = modelStr.slice(idx + 1);
                 const model = ctxVal.modelRegistry.find(provider, id);
                 if (model) {
-                  ctxVal.ui.notify(`[Pi Remote] Changing model to ${modelStr}...`, "info");
+                  ctxVal.ui.notify(`[Wherever] Changing model to ${modelStr}...`, "info");
                   pi.setModel(model).catch((err) => {
-                    ctxVal?.ui.notify(`[Pi Remote] Failed to set model: ${err.message || err}`, "error");
+                    ctxVal?.ui.notify(`[Wherever] Failed to set model: ${err.message || err}`, "error");
                   });
                 } else {
-                  ctxVal.ui.notify(`[Pi Remote] Model not found in registry: ${modelStr}`, "error");
+                  ctxVal.ui.notify(`[Wherever] Model not found in registry: ${modelStr}`, "error");
                 }
               }
             }
@@ -274,7 +274,7 @@ export default async function (pi: ExtensionAPI) {
           }
         }
       } catch (err) {
-        console.error("[Pi Remote] Error handling message from server:", err);
+        console.error("[Wherever] Error handling message from server:", err);
       }
     });
 
@@ -339,7 +339,7 @@ export default async function (pi: ExtensionAPI) {
 
     if (oldCtx) {
       try {
-        oldCtx.ui.setWidget("pi-remote-status", undefined); // Clear widget
+        oldCtx.ui.setWidget("wherever-status", undefined); // Clear widget
       } catch (err) {}
     }
   });

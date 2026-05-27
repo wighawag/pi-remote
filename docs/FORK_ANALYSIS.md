@@ -1,6 +1,6 @@
-# Technical Analysis: Deferring and Executing "/fork" in Pi Remote
+# Technical Analysis: Deferring and Executing "/fork" in Wherever
 
-This document details the architecture, implemented changes, and bug analysis for adding the ability to edit a past message and branch/fork the session within the Pi Remote web interface.
+This document details the architecture, implemented changes, and bug analysis for adding the ability to edit a past message and branch/fork the session within the Wherever web interface.
 
 ---
 
@@ -75,7 +75,7 @@ We added the following message definitions to coordinate the deferred fork with 
   - Inside `withSession`, uses the fresh replacement session context to automatically submit the new message: `await newCtx.sendUserMessage(msg.message)`.
 
 ### E. Frontend Svelte App (`web/src/lib/` Svelte components & stores)
-- **Store (`pi-remote.ts`)**:
+- **Store (`wherever.ts`)**:
   - Exposed `forkTargetEntryId`, `startFork`, `cancelFork`, and `submitFork` stores and actions.
   - Subscribed to `session_created` and automatically triggered `fetchSessions()` to update the sidebar session browser immediately.
 - **ChatMessageList (`ChatMessageList.svelte`)**:
@@ -367,7 +367,7 @@ import { SessionManager, type AgentSessionEvent } from '@earendil-works/pi-codin
 Implement the `cli_fork` WebSocket handler:
 ```typescript
           case "cli_fork": {
-            ctxVal?.ui.notify("[Pi Remote] Received fork command from remote client", "info");
+            ctxVal?.ui.notify("[Wherever] Received fork command from remote client", "info");
             (ctxVal as any)?.fork(msg.entryId, {
               position: msg.position || 'before',
               withSession: async (newCtx: any) => {
@@ -382,7 +382,7 @@ Implement the `cli_fork` WebSocket handler:
 
 ---
 
-### 6. `web/src/lib/pi-remote.ts`
+### 6. `web/src/lib/wherever.ts`
 Implement the stores and actions, and parse `m.id` on Svelte:
 ```typescript
 import { setCurrentSession, fetchSessions } from './session-store';
@@ -466,7 +466,7 @@ export function submitFork(message: string) {
 Add edit icon and invoke `startFork` on previous user messages:
 ```svelte
 <!-- Import startFork -->
-import { messages, isStreaming, abort, clearMessages, activeSessionInfo, startFork } from '$lib/pi-remote';
+import { messages, isStreaming, abort, clearMessages, activeSessionInfo, startFork } from '$lib/wherever';
 
 <!-- Render pencil button with order-first on hover row -->
 			{#each msgList as msg (msg.id)}
@@ -491,7 +491,7 @@ import { messages, isStreaming, abort, clearMessages, activeSessionInfo, startFo
 Import and listen to `forkTargetEntryId`, rendering the banner and the "Fork & Send" actions:
 ```svelte
 <!-- Imports -->
-import { sendMessage, piState, isConnected, createSession, clearMessages, leaveSession, forkedEditorText, forkTargetEntryId, cancelFork, submitFork } from '$lib/pi-remote';
+import { sendMessage, piState, isConnected, createSession, clearMessages, leaveSession, forkedEditorText, forkTargetEntryId, cancelFork, submitFork } from '$lib/wherever';
 
 <!-- Inside handleSend(): -->
 		if ($forkTargetEntryId) {

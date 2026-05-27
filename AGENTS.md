@@ -1,4 +1,4 @@
-# Pi Remote - Agent Guidelines
+# Wherever - Agent Guidelines
 
 Welcome, agent! When working on this codebase, please observe the following practices:
 
@@ -12,15 +12,15 @@ This project uses `@changesets/cli` for versioning and package publishing.
 - Alternatively, you can create a custom changeset markdown file in `.changeset/` named randomly (or look at existing ones), containing:
   ```markdown
   ---
-  "pi-remote-server": patch
+  "wherever-dev": patch
   ---
 
   <Good description of what was done>
   ```
 - **Changeset Package Mapping Rules:**
-  - For **web** and **server** changes, set `"pi-remote-server": <bump-type>`.
-  - Only for **extension** changes (`extension/`) do we set `"pi-remote": <bump-type>`.
-  - **Never** use `"pi-remote-web"`, as the `web` package is private and its built artifacts are included/served directly by `pi-remote-server`.
+  - For **web** and **server** changes, set `"wherever-dev": <bump-type>`.
+  - Only for **extension** changes (`extension/`) do we set `"@wherever-dev/pi": <bump-type>`.
+  - **Never** use `"@wherever-dev/web"`, as the `web` package is private and its built artifacts are included/served directly by `wherever-dev`.
 
 ## 2. Document Your Changes
 If you modify APIs, protocols, or core behaviors, update `CONTEXT.md` or any relevant files under `docs/` so subsequent sessions stay perfectly aligned.

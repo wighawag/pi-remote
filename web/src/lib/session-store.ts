@@ -56,7 +56,7 @@ export const availableModels = writable<ModelsStoreData>({
 });
 
 export function getBaseUrl(): string {
-	const config = localStorage.getItem('pi-remote-config');
+	const config = localStorage.getItem('wherever-config');
 	const defaultHost =
 		typeof window !== 'undefined' && window.location && window.location.hostname
 			? window.location.hostname
@@ -148,7 +148,7 @@ export async function fetchModels(): Promise<void> {
 
 export function getToken(): string {
 	try {
-		const config = localStorage.getItem('pi-remote-config');
+		const config = localStorage.getItem('wherever-config');
 		if (config) {
 			const parsed = JSON.parse(config);
 			return parsed.token || '';

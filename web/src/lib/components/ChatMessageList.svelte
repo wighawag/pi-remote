@@ -7,14 +7,14 @@
 		createSession,
 		piState,
 		updateConfig,
-	} from '$lib/pi-remote';
+	} from '$lib/wherever';
 	import {
 		availableModels,
 		gitInitDefaultStore,
 		checkPath,
 		autocompletePath,
 	} from '$lib/session-store';
-	import type {ChatMessage} from '$lib/pi-remote';
+	import type {ChatMessage} from '$lib/wherever';
 	import {onMount} from 'svelte';
 	import {url} from '$lib/core/utils/web/path';
 
@@ -512,7 +512,7 @@
 					class="mb-4 inline-block h-8 w-8 animate-spin rounded-full border-4 border-brand-blue border-t-transparent"
 				></div>
 				<p class="text-base font-medium text-brand-text">
-					Connecting to Pi Remote Server...
+					Connecting to Wherever Server...
 				</p>
 				<p class="mt-1 text-xs text-brand-text-muted">
 					Establishing secure connection to your agent
@@ -529,7 +529,7 @@
 				<div class="mb-3 text-4xl">⚠️</div>
 				<h3 class="text-lg font-bold text-rose-400">Not Connected to Server</h3>
 				<p class="mt-2 text-sm text-brand-text-muted">
-					We couldn't connect to the Pi Remote Server. Please verify the server
+					We couldn't connect to the Wherever Server. Please verify the server
 					is running and check your connection settings in the sidebar.
 				</p>
 				{#if appState.error}
@@ -541,7 +541,7 @@
 				{/if}
 				<button
 					onclick={() => {
-						import('$lib/pi-remote').then((m) => m.connect());
+						import('$lib/wherever').then((m) => m.connect());
 					}}
 					class="mt-5 rounded bg-brand-surface-2 px-4 py-2 text-sm font-semibold text-brand-text transition-colors hover:bg-brand-surface-3"
 				>
@@ -570,10 +570,10 @@
 			>
 				<div class="mb-5 text-center">
 					<div class="mb-3 flex justify-center">
-						<img src={url('/logo.svg')} alt="Pi Remote" class="h-16 w-16" />
+						<img src={url('/logo.svg')} alt="Wherever" class="h-16 w-16" />
 					</div>
 					<h2 class="mb-1 text-2xl font-bold">
-						<span class="gradient-text">Pi Remote</span>
+						<span class="gradient-text">Wherever</span>
 					</h2>
 					<h3 class="text-sm font-semibold text-brand-text">
 						Create a New Session

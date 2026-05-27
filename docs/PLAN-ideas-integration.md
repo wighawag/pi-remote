@@ -1,6 +1,6 @@
-# Plan: Ideas Vault Integration with Pi-Remote
+# Plan: Ideas Vault Integration with Wherever
 
-This document specifies the step-by-step implementation details for integrating the centralized **Ideas Vault** (`/home/wighawag/dev/github/wighawag/ideas`) directly into the `pi-remote` web interface and server backend. 
+This document specifies the step-by-step implementation details for integrating the centralized **Ideas Vault** (`/home/wighawag/dev/github/wighawag/ideas`) directly into the `wherever` web interface and server backend. 
 
 An agent can follow this document to implement the capture button, speech-to-text dictation modal, and the local file-protocol saving mechanism.
 
@@ -11,7 +11,7 @@ An agent can follow this document to implement the capture button, speech-to-tex
 1. **💡 Quick Capture Button**: A lightbulb button in the dashboard header or sidebar, plus a keyboard shortcut (`Alt+I` or `Cmd+Shift+I`) to open the Idea Capture Modal.
 2. **🎯 Context-Aware Project Mapping**:
    - The modal automatically reads the active Svelte store `$activeSessionInfo` to extract the `cwd` (Current Working Directory) of the active agent session.
-   - It extracts the base directory name (e.g., `/home/wighawag/dev/github/wighawag/pi-remote` ➔ `pi-remote`) and sets it as the default target project.
+   - It extracts the base directory name (e.g., `/home/wighawag/dev/github/wighawag/wherever` ➔ `wherever`) and sets it as the default target project.
 3. **🎙️ Voice Dictation Integration**: Reuses Svelte's existing `SpeechButton.svelte` component, enabling the user to dictate their idea out loud, stream it to the backend transcription service, and populate the description field automatically.
 4. **💾 Direct Local Save**: The server writes the idea to the correct folder inside the ideas repository in the standard YAML frontmatter + Markdown schema.
 
@@ -21,7 +21,7 @@ An agent can follow this document to implement the capture button, speech-to-tex
 
 ```text
 +-------------------------------------------------------------+
-|                     pi-remote Web UI                        |
+|                     wherever Web UI                         |
 |  [Click 💡]  --> Opens <IdeaCaptureModal>                   |
 |  - Title: Input                                             |
 |  - Project: Select (Default: activeSessionInfo.cwd)         |
@@ -34,7 +34,7 @@ An agent can follow this document to implement the capture button, speech-to-tex
                                          | Fetch HTTP POST
                                          v
 +-------------------------------------------------------------+
-|                   pi-remote Node.js Server                  |
+|                   wherever Node.js Server                  |
 |  - Endpoint: /session/save-idea                             |
 |  - Resolves IDEAS_REPO_PATH (Env or fallback)               |
 |  - Formats content to match templates/idea-template.md      |
@@ -74,7 +74,7 @@ Create a new POST handler in the main request handler of `server/src/index.ts` r
 3. **Payload Processing**:
    - Read and parse the JSON payload containing:
      - `title`: string
-     - `project`: string (e.g. `'pi-remote'` or `'general'`)
+     - `project`: string (e.g. `'wherever'` or `'general'`)
      - `tags`: string[]
      - `text`: string (description of the idea)
      - `createdBy`: `'user'` | `'voice'` (flag indicating if voice recording was used)
@@ -108,7 +108,7 @@ Create a new POST handler in the main request handler of `server/src/index.ts` r
    ${text.trim()}
    
    ## 🛠️ Implementation & Technical Thoughts
-   - Captured via pi-remote client.
+   - Captured via wherever client.
    `;
    ```
 6. **Save to Disk**:
@@ -124,7 +124,7 @@ Create a new file `web/src/lib/components/ideas/IdeaCaptureModal.svelte` using S
 ```html
 <script lang="ts">
 	import SpeechButton from '../speech/SpeechButton.svelte';
-	import { activeSessionInfo } from '$lib/pi-remote';
+	import { activeSessionInfo } from '$lib/wherever';
 	import { getBaseUrl } from '$lib/session-store';
 
 	let { isOpen = $bindable(), onClose }: { isOpen: boolean; onClose: () => void } = $props();
@@ -229,7 +229,7 @@ Create a new file `web/src/lib/components/ideas/IdeaCaptureModal.svelte` using S
 				<div class="grid grid-cols-2 gap-4">
 					<div>
 						<label class="block font-medium text-brand-text-muted mb-1">Project Slug</label>
-						<input type="text" bind:value={project} placeholder="e.g., pi-remote, general" class="w-full rounded border border-brand-border bg-brand-dark px-3 py-2 focus:border-brand-cyan focus:outline-none" />
+						<input type="text" bind:value={project} placeholder="e.g., wherever, general" class="w-full rounded border border-brand-border bg-brand-dark px-3 py-2 focus:border-brand-cyan focus:outline-none" />
 					</div>
 					<div>
 						<label class="block font-medium text-brand-text-muted mb-1">Tags (comma-separated)</label>
@@ -298,7 +298,7 @@ Create a new file `web/src/lib/components/ideas/IdeaCaptureModal.svelte` using S
 
 ## 4. Verification & Testing Checklist
 
-- [ ] Execute `pnpm dev` inside `pi-remote` to start both local server and SvelteKit web client.
+- [ ] Execute `pnpm dev` inside `wherever` to start both local server and SvelteKit web client.
 - [ ] Ensure `IDEAS_REPO_PATH` environment variable is exported or falls back to `/home/wighawag/dev/github/wighawag/ideas`.
 - [ ] Open web dashboard, select an active session, and click the 💡 button.
 - [ ] Verify the "Project Slug" field automatically populates with the active session's directory name.

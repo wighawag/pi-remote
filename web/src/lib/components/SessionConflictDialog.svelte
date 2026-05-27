@@ -1,5 +1,5 @@
 <script lang="ts">
-	import {conflict, resolveConflict} from '$lib/pi-remote';
+	import {conflict, resolveConflict} from '$lib/wherever';
 
 	let c = $derived($conflict);
 </script>

@@ -3,7 +3,7 @@ import { createServer as createHttpServer, type IncomingMessage, type ServerResp
 import { createServer as createHttpsServer, request as httpRequest } from 'node:https';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent';
-import { SessionPool, getPiRemoteConfig, type PiRemoteConfig } from './session-pool.js';
+import { SessionPool, getWhereverConfig, type WhereverConfig } from './session-pool.js';
 import type { ClientMessage, ServerMessage } from './protocol.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -120,11 +120,11 @@ function authenticate(req: IncomingMessage, token?: string): boolean {
   return provided === token;
 }
 
-function resolveUploadDir(config: PiRemoteConfig, cwd?: string): string {
+function resolveUploadDir(config: WhereverConfig, cwd?: string): string {
   const type = config.uploads?.type || 'tmp';
 
   if (type === 'session' && cwd) {
-    const subDir = config.uploads?.subDir || '.pi-remote/uploads';
+    const subDir = config.uploads?.subDir || '.wherever/uploads';
     const resolved = path.resolve(cwd, subDir);
     return resolved;
   }
@@ -186,7 +186,7 @@ async function main(): Promise<void> {
     if (!actualSslKey || !actualSslCert) {
       // Automatic self-signed certificate generation
       const homeDir = os.homedir();
-      const certsDir = path.join(homeDir, '.pi', 'remote', 'certs');
+      const certsDir = path.join(homeDir, '.wherever', 'certs');
       const defaultKeyPath = path.join(certsDir, 'localhost.key');
       const defaultCertPath = path.join(certsDir, 'localhost.crt');
 
@@ -393,7 +393,7 @@ async function main(): Promise<void> {
     }
 
     if (pathname === '/config' && req.method === 'GET') {
-      const config = getPiRemoteConfig();
+      const config = getWhereverConfig();
       sendJSON(res, 200, {
         gitInitDefault: !!config.gitInitDefault,
         uploadMethod: config.uploads?.method || 'websocket'
@@ -424,7 +424,7 @@ async function main(): Promise<void> {
 
       // Check matching remote rules
       let matchingRule = null;
-      const config = getPiRemoteConfig();
+      const config = getWhereverConfig();
       if (config.remoteRepoRules && Array.isArray(config.remoteRepoRules)) {
         const rule = config.remoteRepoRules.find(r => new RegExp(r.pattern).test(resolved));
         if (rule) {
@@ -462,7 +462,7 @@ async function main(): Promise<void> {
         resolvedParent = path.resolve(parentPath);
       }
 
-      const config = getPiRemoteConfig();
+      const config = getWhereverConfig();
       
       // Resolve the query path
       let resolvedQuery = qPath;
@@ -744,7 +744,7 @@ async function main(): Promise<void> {
         const tracked = sessionPool.getSession(qSessionId);
         const cwd = tracked?.cwd;
 
-        const config = getPiRemoteConfig();
+        const config = getWhereverConfig();
         const targetDir = resolveUploadDir(config, cwd);
 
         fs.mkdirSync(targetDir, { recursive: true });
@@ -774,7 +774,7 @@ async function main(): Promise<void> {
     }
 
     if (pathname === '/session/transcribe' && req.method === 'POST') {
-      const config = getPiRemoteConfig();
+      const config = getWhereverConfig();
       const apiKey = config.speech?.apiKey || process.env.SPEECH_API_KEY;
       const apiUrl = config.speech?.apiUrl || process.env.SPEECH_API_URL || 'https://api.z.ai/api/paas/v4/audio/transcriptions';
       const apiModel = config.speech?.model || process.env.SPEECH_MODEL || 'glm-asr-2512';
@@ -957,7 +957,7 @@ async function main(): Promise<void> {
   server.listen(port, host, () => {
     const protocol = isSecureServer ? 'https' : 'http';
     const authInfo = token ? ' (token-protected)' : ' (no authentication)';
-    console.log(`\n🔐 Pi Remote Server: ${protocol}://${host}:${port}${authInfo}`);
+    console.log(`\n🔐 Wherever Server: ${protocol}://${host}:${port}${authInfo}`);
 
     if (isSecureServer) {
       console.log(`
@@ -1301,7 +1301,7 @@ async function handleWSMessage(
         const tracked = pool.getSession(sessionId);
         const cwd = tracked?.cwd;
 
-        const config = getPiRemoteConfig();
+        const config = getWhereverConfig();
         const targetDir = resolveUploadDir(config, cwd);
 
         fs.mkdirSync(targetDir, { recursive: true });

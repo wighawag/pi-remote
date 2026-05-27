@@ -27,7 +27,7 @@ export interface RemoteRepoRule {
   visibility?: 'private' | 'public';
 }
 
-export interface PiRemoteConfig {
+export interface WhereverConfig {
   gitInitDefault?: boolean;
   remoteRepoRules?: RemoteRepoRule[];
   commonFolders?: string[];
@@ -44,13 +44,13 @@ export interface PiRemoteConfig {
   };
 }
 
-export function getPiRemoteConfig(): PiRemoteConfig {
-  const configDir = path.join(os.homedir(), '.pi', 'remote');
+export function getWhereverConfig(): WhereverConfig {
+  const configDir = path.join(os.homedir(), '.wherever');
   const configPath = path.join(configDir, 'config.json');
   if (!fs.existsSync(configPath)) {
     try {
       fs.mkdirSync(configDir, { recursive: true });
-      const defaultConfig: PiRemoteConfig = {
+      const defaultConfig: WhereverConfig = {
         gitInitDefault: false,
         remoteRepoRules: [],
         commonFolders: []
@@ -58,14 +58,14 @@ export function getPiRemoteConfig(): PiRemoteConfig {
       fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2), 'utf8');
       return defaultConfig;
     } catch (err) {
-      console.error('Failed to create default pi-remote config:', err);
+      console.error('Failed to create default wherever config:', err);
     }
   } else {
     try {
       const content = fs.readFileSync(configPath, 'utf8');
       return JSON.parse(content);
     } catch (err) {
-      console.error('Failed to parse pi-remote config file:', err);
+      console.error('Failed to parse wherever config file:', err);
     }
   }
   return {};
@@ -321,7 +321,7 @@ export class SessionPool {
         }
 
         // Check if we should create a remote repo (GitHub/Codeberg etc) based on config patterns
-        const config = getPiRemoteConfig();
+        const config = getWhereverConfig();
         if (createRemote !== false && config.remoteRepoRules && Array.isArray(config.remoteRepoRules)) {
           const rule = config.remoteRepoRules.find(r => new RegExp(r.pattern).test(resolvedCwd));
           if (rule) {

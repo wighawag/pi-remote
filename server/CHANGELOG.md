@@ -1,4 +1,4 @@
-# pi-remote-server
+# wherever-dev
 
 ## 0.1.0
 

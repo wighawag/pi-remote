@@ -5,7 +5,7 @@
 		getConfig,
 		setConfig,
 		isConnected,
-	} from '$lib/pi-remote';
+	} from '$lib/wherever';
 	import {onMount} from 'svelte';
 
 	let {

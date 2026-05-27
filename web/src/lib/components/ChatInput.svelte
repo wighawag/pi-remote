@@ -8,8 +8,8 @@
 		clearMessages,
 		leaveSession,
 		uploadFile,
-	} from '$lib/pi-remote';
-	import {isStreaming, isReadOnly, activeSessionInfo} from '$lib/pi-remote';
+	} from '$lib/wherever';
+	import {isStreaming, isReadOnly, activeSessionInfo} from '$lib/wherever';
 	import {getBaseUrl, getToken} from '$lib/session-store';
 	import SpeechButton from './speech/SpeechButton.svelte';
 
@@ -46,7 +46,7 @@
 	let textarea = $state<HTMLTextAreaElement>();
 
 	onMount(() => {
-		const stored = localStorage.getItem('pi-remote-enter-to-send');
+		const stored = localStorage.getItem('wherever-enter-to-send');
 		if (stored !== null) {
 			enterToSend = stored === 'true';
 		}
@@ -54,7 +54,7 @@
 
 	function toggleEnterToSend() {
 		enterToSend = !enterToSend;
-		localStorage.setItem('pi-remote-enter-to-send', String(enterToSend));
+		localStorage.setItem('wherever-enter-to-send', String(enterToSend));
 	}
 
 	$effect(() => {

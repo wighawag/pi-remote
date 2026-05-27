@@ -1,4 +1,4 @@
-# pi-remote
+# @wherever-dev/pi
 
 ## 0.0.5
 

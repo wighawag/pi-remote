@@ -1,11 +1,11 @@
-# Pi Remote - Project Context
+# Wherever - Project Context
 
 **Created:** 2026-05-20  
-**Location:** `/home/wighawag/dev/github/wighawag/pi-remote`
+**Location:** `/home/wighawag/dev/github/wighawag/wherever`
 
 ## Project Overview
 
-Pi Remote is a TypeScript extension for the [pi coding agent](https://pi.dev) that provides HTTP/WebSocket server capabilities for remote control. It allows controlling pi from anywhere while maintaining full access to all local folders and tools.
+Wherever is a TypeScript extension for the [pi coding agent](https://pi.dev) that provides HTTP/WebSocket server capabilities for remote control. It allows controlling pi from anywhere while maintaining full access to all local folders and tools.
 
 ## What Exists
 
@@ -29,7 +29,7 @@ Pi Remote is a TypeScript extension for the [pi coding agent](https://pi.dev) th
 ### Web Applications
 
 - **`web/`** - SvelteKit dashboard app (mobile-friendly)
-  - Real-time WebSocket connection to pi-remote server
+  - Real-time WebSocket connection to wherever-dev server
   - Chat interface, session browser, voice dictation
   - Served by the server at `/` when connecting to a server
   - Built to `web/build/`
@@ -63,7 +63,7 @@ Pi Remote is a TypeScript extension for the [pi coding agent](https://pi.dev) th
 
 ```
 ┌─────────────────┐         ┌──────────────────┐
-│  Remote Client  │◄───────►│  Pi Remote Server│
+│  Remote Client  │◄───────►│  Wherever Server │
 │  (WebSocket)    │         │  (Extension)     │
 │  (Web Dashboard)│         │                  │
 └─────────────────┘         └────────┬─────────┘
@@ -76,7 +76,7 @@ Pi Remote is a TypeScript extension for the [pi coding agent](https://pi.dev) th
 
 ```
 ┌──────────────────┐         ┌──────────────────┐         ┌──────────────────┐
-│  Web Browser     │◄────────│  pi-remote Server│────────►│  pi CLI          │
+│  Web Browser     │◄────────│  wherever Server │────────►│  pi CLI          │
 │  (Dashboard)     │  WS     │  (Extension)     │  Ext    │  (Agent + Tools) │
 └──────────────────┘         └──────────────────┘         └──────────────────┘
 ```
@@ -147,7 +147,7 @@ Pi Remote is a TypeScript extension for the [pi coding agent](https://pi.dev) th
 
 ```bash
 # Development
-cd /home/wighawag/dev/github/wighawag/pi-remote
+cd /home/wighawag/dev/github/wighawag/wherever
 pnpm install
 pnpm run build
 
@@ -158,7 +158,7 @@ pi --extension ./dist/index.js --remote-port 31415 --remote-token test123
 pnpm run client -- --url ws://localhost:31415 --token test123
 
 # Push to GitHub
-git remote add origin git@github.com:wighawag/pi-remote.git
+git remote add origin git@github.com:wighawag/wherever.git
 git push -u origin main
 ```
 
@@ -186,7 +186,7 @@ The extension was created to enable mobile control of pi without relying on SSH 
 ## File Structure
 
 ```
-pi-remote/
+wherever/
 ├── src/
 │   ├── index.ts          # Main extension (server)
 │   └── client.ts         # Reference client
@@ -213,7 +213,7 @@ pi-remote/
 4. **Event broadcasting** - All clients receive same events (multi-client support)
 5. **Message queuing** - Messages queued if no client connected (up to 100)
 6. **Separate web UI** - Dashboard (`web/`) and marketing site (`site/`) are independent SvelteKit apps
-7. **GitHub Pages** - Marketing site deployed via GitHub Actions to `github.com/wighawag/pi-remote`
+7. **GitHub Pages** - Marketing site deployed via GitHub Actions to `github.com/wighawag/wherever`
 
 ## Agent Guidelines
 
@@ -246,7 +246,7 @@ Potential additions:
 
 ## Contact & Contributing
 
-- Repository: `github.com/wighawag/pi-remote`
+- Repository: `github.com/wighawag/wherever`
 - License: MIT
 - Contributions welcome!
 

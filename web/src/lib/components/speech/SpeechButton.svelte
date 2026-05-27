@@ -55,16 +55,16 @@
 	onMount(() => {
 		// Load preferences
 		const storedDirectSend = localStorage.getItem(
-			'pi-remote-speech-direct-send',
+			'wherever-speech-direct-send',
 		);
 		if (storedDirectSend !== null) {
 			directSend = storedDirectSend === 'true';
 		}
-		const storedLocale = localStorage.getItem('pi-remote-speech-locale');
+		const storedLocale = localStorage.getItem('wherever-speech-locale');
 		if (storedLocale !== null) {
 			locale = storedLocale;
 		}
-		const storedEngine = localStorage.getItem('pi-remote-speech-engine');
+		const storedEngine = localStorage.getItem('wherever-speech-engine');
 		if (storedEngine !== null) {
 			engine = storedEngine as 'browser' | 'cloud';
 		} else if (!isBrowserSupported) {
@@ -103,13 +103,13 @@
 	});
 
 	function savePreferences() {
-		localStorage.setItem('pi-remote-speech-direct-send', String(directSend));
-		localStorage.setItem('pi-remote-speech-locale', locale);
-		localStorage.setItem('pi-remote-speech-engine', engine);
+		localStorage.setItem('wherever-speech-direct-send', String(directSend));
+		localStorage.setItem('wherever-speech-locale', locale);
+		localStorage.setItem('wherever-speech-engine', engine);
 	}
 
 	function getBaseUrl(): string {
-		const config = localStorage.getItem('pi-remote-config');
+		const config = localStorage.getItem('wherever-config');
 		if (config) {
 			const parsed = JSON.parse(config);
 			const protocol =
@@ -124,7 +124,7 @@
 
 	function getToken(): string {
 		try {
-			const config = localStorage.getItem('pi-remote-config');
+			const config = localStorage.getItem('wherever-config');
 			if (config) {
 				const parsed = JSON.parse(config);
 				return parsed.token || '';

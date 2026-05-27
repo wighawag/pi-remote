@@ -21,7 +21,7 @@ export interface ChatMessage {
 	isError?: boolean;
 }
 
-export interface PiRemoteState {
+export interface WhereverState {
 	connected: boolean;
 	connecting: boolean;
 	creatingSession: boolean;
@@ -42,7 +42,7 @@ export interface PiRemoteState {
 	hideTools: boolean;
 }
 
-const defaultState: PiRemoteState = {
+const defaultState: WhereverState = {
 	connected: false,
 	connecting: false,
 	creatingSession: false,
@@ -63,7 +63,7 @@ const defaultState: PiRemoteState = {
 	hideTools: false,
 };
 
-const state = writable<PiRemoteState>({
+const state = writable<WhereverState>({
 	...defaultState,
 	hideThinking:
 		typeof window !== 'undefined' ? !!getConfig().hideThinking : false,
@@ -86,7 +86,7 @@ function generateId() {
 
 function getStoredConfig() {
 	try {
-		const stored = localStorage.getItem('pi-remote-config');
+		const stored = localStorage.getItem('wherever-config');
 		if (stored) return JSON.parse(stored);
 	} catch {}
 	return null;
@@ -99,7 +99,7 @@ function saveConfig(config: {
 	hideThinking?: boolean;
 	hideTools?: boolean;
 }) {
-	localStorage.setItem('pi-remote-config', JSON.stringify(config));
+	localStorage.setItem('wherever-config', JSON.stringify(config));
 }
 
 export function getConfig() {
@@ -159,7 +159,7 @@ function addMessage(msg: Omit<ChatMessage, 'id' | 'timestamp'>) {
 		id: generateId(),
 		timestamp: Date.now(),
 	};
-	state.update((s: PiRemoteState) => ({
+	state.update((s: WhereverState) => ({
 		...s,
 		messages: [...s.messages, message],
 	}));
@@ -201,7 +201,7 @@ export function connect() {
 
 			switch (msg.type) {
 				case 'connected':
-					state.update((s: PiRemoteState) => ({
+					state.update((s: WhereverState) => ({
 						...s,
 						connected: true,
 						connecting: false,
@@ -233,11 +233,11 @@ export function connect() {
 						clearTimeout(agentEndTimeout);
 						agentEndTimeout = null;
 					}
-					state.update((s: PiRemoteState) => ({...s, isStreaming: true}));
+					state.update((s: WhereverState) => ({...s, isStreaming: true}));
 					break;
 
 				case 'thinking_update':
-					state.update((s: PiRemoteState) => {
+					state.update((s: WhereverState) => {
 						let lastThinking = [...s.messages]
 							.reverse()
 							.find((m: ChatMessage) => m.role === 'thinking' && m.isStreaming);
@@ -263,7 +263,7 @@ export function connect() {
 					break;
 
 				case 'message_update':
-					state.update((s: PiRemoteState) => {
+					state.update((s: WhereverState) => {
 						let lastAssistant = [...s.messages]
 							.reverse()
 							.find(
@@ -292,7 +292,7 @@ export function connect() {
 					break;
 
 				case 'message_end':
-					state.update((s: PiRemoteState) => {
+					state.update((s: WhereverState) => {
 						let newMessages = s.messages;
 
 						// Finalize any streaming thinking message
@@ -355,7 +355,7 @@ export function connect() {
 						agentEndTimeout = null;
 					}
 					agentEndTimeout = setTimeout(() => {
-						state.update((s: PiRemoteState) => ({
+						state.update((s: WhereverState) => ({
 							...s,
 							isStreaming: false,
 							messages: s.messages.map((m: ChatMessage) =>
@@ -377,7 +377,7 @@ export function connect() {
 								.map(([k, v]) => `${k}=${JSON.stringify(v)}`)
 								.join(' ')
 						: '';
-					state.update((s: PiRemoteState) => {
+					state.update((s: WhereverState) => {
 						// Finalize any streaming assistant or thinking messages
 						const finalizedMessages = s.messages.map((m: ChatMessage) =>
 							m.isStreaming && (m.role === 'assistant' || m.role === 'thinking')
@@ -414,7 +414,7 @@ export function connect() {
 								m.isStreaming,
 						);
 					if (toolMsg) {
-						state.update((s: PiRemoteState) => ({
+						state.update((s: WhereverState) => ({
 							...s,
 							messages: s.messages.map((m: ChatMessage) =>
 								m.id === toolMsg.id
@@ -445,7 +445,7 @@ export function connect() {
 					const result = msg.result ? `${msg.result}` : '';
 					if (toolMsg) {
 						const errorPrefix = msg.isError ? 'Error: ' : '';
-						state.update((s: PiRemoteState) => ({
+						state.update((s: WhereverState) => ({
 							...s,
 							messages: s.messages.map((m: ChatMessage) =>
 								m.id === toolMsg.id
@@ -478,7 +478,7 @@ export function connect() {
 				}
 
 				case 'aborted':
-					state.update((s: PiRemoteState) => ({
+					state.update((s: WhereverState) => ({
 						...s,
 						isStreaming: false,
 						messages: s.messages.map((m: ChatMessage) =>
@@ -488,7 +488,7 @@ export function connect() {
 					break;
 
 				case 'session_created':
-					state.update((s: PiRemoteState) => ({
+					state.update((s: WhereverState) => ({
 						...s,
 						session: msg.sessionFile,
 						sessionId: msg.sessionId,
@@ -502,7 +502,7 @@ export function connect() {
 					break;
 
 				case 'session_destroyed':
-					state.update((s: PiRemoteState) => {
+					state.update((s: WhereverState) => {
 						if (s.sessionId === msg.sessionId) {
 							return {
 								...s,
@@ -524,7 +524,7 @@ export function connect() {
 					break;
 
 				case 'session_error':
-					state.update((s: PiRemoteState) => ({
+					state.update((s: WhereverState) => ({
 						...s,
 						sessionError: msg.error,
 						isStreaming: false,
@@ -533,7 +533,7 @@ export function connect() {
 					break;
 
 				case 'session_conflict':
-					state.update((s: PiRemoteState) => ({
+					state.update((s: WhereverState) => ({
 						...s,
 						conflict: {
 							targetSessionId: msg.sessionId,
@@ -545,7 +545,7 @@ export function connect() {
 					break;
 
 				case 'session_interrupted':
-					state.update((s: PiRemoteState) => ({
+					state.update((s: WhereverState) => ({
 						...s,
 						isInterrupted: true,
 						readOnly: true,
@@ -559,7 +559,7 @@ export function connect() {
 					}));
 					setCurrentSession(null);
 					setTimeout(() => {
-						state.update((s: PiRemoteState) => ({
+						state.update((s: WhereverState) => ({
 							...s,
 							isInterrupted: false,
 							readOnly: false,
@@ -568,7 +568,7 @@ export function connect() {
 					break;
 
 				case 'message_history':
-					state.update((s: PiRemoteState) => {
+					state.update((s: WhereverState) => {
 						const mapped: ChatMessage[] = [];
 						const pendingCalls: Record<string, string[]> = {};
 
@@ -652,7 +652,7 @@ export function connect() {
 					break;
 
 				case 'model_changed':
-					state.update((s: PiRemoteState) => ({
+					state.update((s: WhereverState) => ({
 						...s,
 						activeModel: msg.model,
 					}));
@@ -665,7 +665,7 @@ export function connect() {
 
 	ws.onclose = () => {
 		ws = null;
-		state.update((s: PiRemoteState) => ({
+		state.update((s: WhereverState) => ({
 			...s,
 			connected: false,
 			connecting: false,
@@ -674,7 +674,7 @@ export function connect() {
 		if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
 			reconnectAttempts++;
 			reconnectTimer = setTimeout(() => {
-				state.update((s: PiRemoteState) => ({
+				state.update((s: WhereverState) => ({
 					...s,
 					connecting: true,
 					error: 'Reconnecting...',
@@ -693,7 +693,7 @@ export function connect() {
 	};
 
 	ws.onerror = () => {
-		state.update((s: PiRemoteState) => ({
+		state.update((s: WhereverState) => ({
 			...s,
 			error: s.error || 'Connection error occurred',
 		}));
@@ -725,7 +725,7 @@ export function sendMessage(text: string) {
 	if (!s.sessionId) return;
 
 	// Clear any previous session errors when a new message is sent
-	state.update((s: PiRemoteState) => ({...s, sessionError: null}));
+	state.update((s: WhereverState) => ({...s, sessionError: null}));
 
 	addMessage({
 		role: 'user',
@@ -748,7 +748,7 @@ export function abort() {
 
 export function joinSession(sessionFile: string, cwd?: string, model?: string) {
 	if (!ws || ws.readyState !== WebSocket.OPEN) return;
-	state.update((s: PiRemoteState) => ({
+	state.update((s: WhereverState) => ({
 		...s,
 		conflict: null,
 		sessionError: null,
@@ -763,14 +763,14 @@ export function createSession(
 	createRemote?: boolean,
 	repoVisibility?: 'private' | 'public',
 ) {
-	state.update((s: PiRemoteState) => ({
+	state.update((s: WhereverState) => ({
 		...s,
 		conflict: null,
 		sessionError: null,
 		creatingSession: true,
 	}));
 	if (!ws || ws.readyState !== WebSocket.OPEN) {
-		state.update((s: PiRemoteState) => ({...s, creatingSession: false}));
+		state.update((s: WhereverState) => ({...s, creatingSession: false}));
 		return;
 	}
 	ws.send(
@@ -790,7 +790,7 @@ export function leaveSession() {
 	const s = get(state);
 	if (!s.sessionId) return;
 	ws.send(JSON.stringify({type: 'session_leave', sessionId: s.sessionId}));
-	state.update((s: PiRemoteState) => ({
+	state.update((s: WhereverState) => ({
 		...s,
 		messages: [],
 		session: null,
@@ -821,7 +821,7 @@ export function resolveConflict(
 		}),
 	);
 
-	state.update((s: PiRemoteState) => ({
+	state.update((s: WhereverState) => ({
 		...s,
 		conflict: null,
 		readOnly: action === 'read_only',
@@ -834,7 +834,7 @@ export function ping() {
 }
 
 export function clearMessages() {
-	state.update((s: PiRemoteState) => ({...s, messages: []}));
+	state.update((s: WhereverState) => ({...s, messages: []}));
 }
 
 export function setConfig(config: {
@@ -845,7 +845,7 @@ export function setConfig(config: {
 	hideTools?: boolean;
 }) {
 	saveConfig(config);
-	state.update((s: PiRemoteState) => {
+	state.update((s: WhereverState) => {
 		const next = {...s};
 		if (config.hideThinking !== undefined)
 			next.hideThinking = !!config.hideThinking;
@@ -861,7 +861,7 @@ export function updateConfig(updates: {
 	const config = getConfig();
 	const newConfig = {...config, ...updates};
 	saveConfig(newConfig);
-	state.update((s: PiRemoteState) => ({
+	state.update((s: WhereverState) => ({
 		...s,
 		hideThinking: !!newConfig.hideThinking,
 		hideTools: !!newConfig.hideTools,
@@ -870,7 +870,7 @@ export function updateConfig(updates: {
 // ADDED_REMOVED
 
 export function dismissSessionError() {
-	state.update((s: PiRemoteState) => ({...s, sessionError: null}));
+	state.update((s: WhereverState) => ({...s, sessionError: null}));
 }
 
 export function changeModel(model: string) {

@@ -1,6 +1,6 @@
-# Pi Remote — Codebase Health, Architecture, and Quality Review
+# Wherever — Codebase Health, Architecture, and Quality Review
 
-This document provides a comprehensive evaluation of the overall health, architecture, and code quality of the Pi Remote monorepo (comprising `extension`, `server`, and `web` workspaces).
+This document provides a comprehensive evaluation of the overall health, architecture, and code quality of the Wherever monorepo (comprising `extension`, `server`, and `web` workspaces).
 
 ---
 
@@ -10,7 +10,7 @@ This document provides a comprehensive evaluation of the overall health, archite
 
 * **Svelte 5 Runes & Reactivity Integration:**
   * The web app (`web/`) uses modern Svelte 5 runes (`$state`, `$derived`, `$effect`, and `@render`) flawlessly.
-  * Static Svelte checking (`pnpm --filter pi-remote-web check`) reports **0 errors and 0 warnings**, indicating excellent code safety and compliance with the Svelte 5 engine.
+  * Static Svelte checking (`pnpm --filter @wherever-dev/web check`) reports **0 errors and 0 warnings**, indicating excellent code safety and compliance with the Svelte 5 engine.
 * **Coherent Monorepo Architecture & Strict TypeScript Setup:**
   * Clean `pnpm` workspaces structure segregates responsibilities appropriately (`extension` for terminal CLI bridge integration, `server` for standalone multi-session management, and `web` for SPA UI).
   * Strict TypeScript checks compile cleanly without a single error or warning across all packages.
@@ -21,7 +21,7 @@ This document provides a comprehensive evaluation of the overall health, archite
 * **Safe Session Takeover & Read-Only Observer Mode:**
   * Multi-session conflict resolution on the standalone server protects workspaces from simultaneous conflicting client actions. "Read Only" observer state allows multi-client mirroring without collision, and "Take Over" sends a prompt `session_interrupted` websocket notice to re-route prior controllers safely.
 * **Self-Signed SSL Generation:**
-  * `server/src/index.ts` automatically runs OpenSSL CLI commands to generate local certs (`~/.pi/remote/certs/`) if secure connection parameters are set. This provides instant encrypted `HTTPS`/`WSS` support for remote browser or mobile connection out-of-the-box.
+  * `server/src/index.ts` automatically runs OpenSSL CLI commands to generate local certs (`~/.wherever/certs/`) if secure connection parameters are set. This provides instant encrypted `HTTPS`/`WSS` support for remote browser or mobile connection out-of-the-box.
 
 ---
 

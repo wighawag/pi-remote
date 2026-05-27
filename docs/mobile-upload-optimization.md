@@ -1,6 +1,6 @@
 # Mobile File Upload Optimization Plan: Binary WebSockets
 
-This document details our findings regarding remote file uploads (images and documents) from mobile browsers to the `pi-remote-server`, analyzes the bottlenecks discovered during our testing, and outlines a future plan to achieve 100% network efficiency and speed.
+This document details our findings regarding remote file uploads (images and documents) from mobile browsers to the `wherever-dev`, analyzes the bottlenecks discovered during our testing, and outlines a future plan to achieve 100% network efficiency and speed.
 
 ---
 
@@ -74,7 +74,7 @@ We propose a simple, lightweight binary framing format:
 
 ## 4. Implementation Blueprint (No Code Changes Yet)
 
-### Client-Side Packing (`web/src/lib/pi-remote.ts`)
+### Client-Side Packing (`web/src/lib/wherever.ts`)
 Instead of reading the file as a Base64 data URL, the client reads the file as an `ArrayBuffer` and constructs the binary frame:
 
 1. Convert `sessionId` and `filename` to UTF-8 byte arrays using `TextEncoder`.

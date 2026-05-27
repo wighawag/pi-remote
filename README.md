@@ -1,12 +1,12 @@
-# Pi Remote
+# Wherever
 
-A modern, multi-session remote control platform for the [pi coding agent](https://pi.dev) consisting of a **Standalone Server**, a **Web Frontend**, and a **CLI Bridge Extension**. 
+A modern, multi-session remote control platform for the [pi coding agent](https://pi.dev) consisting of a **Standalone Server** (`wherever-dev`), a **Web Frontend**, and a **CLI Bridge Extension** (`@wherever-dev/pi`). 
 
 It allows you to manage multiple pi sessions concurrently across your workspace directories from a gorgeous web dashboard while keeping your terminal CLI fully synced in real-time.
 
 ```
 ┌────────────────────────────────────────────────────────┐
-│                   Pi Remote Server                      │
+│                   Wherever Server                      │
 │                                                        │
 │  ┌──────────────┐         WebSocket        ┌────────┐  │
 │  │ Web Frontend │◄────────────────────────►│  CLI   │  │
@@ -46,7 +46,7 @@ It allows you to manage multiple pi sessions concurrently across your workspace 
 ### 📁 Multi-Modal File & Image Uploads
 * **Rich Context Support:** Upload documents, screenshots, and diagrams for multi-modal agent processing, automatically appending absolute paths to your active message box.
 * **Secure Hybrid Transport:** Upload via Base64 over WebSockets (immune to mobile browser self-signed SSL certificate blocks or CORS limitations) or standard HTTP multipart POST.
-* **Custom Storage Backends:** Highly configurable file target backends, allowing you to save files to `/tmp`, store them directly within the session's workspace (`cwd`) under a custom subdirectory (e.g. `.pi-remote/uploads`), or save them to a custom absolute directory on the server.
+* **Custom Storage Backends:** Highly configurable file target backends, allowing you to save files to `/tmp`, store them directly within the session's workspace (`cwd`) under a custom subdirectory (e.g. `.wherever/uploads`), or save them to a custom absolute directory on the server.
 
 ### 🔍 Smart Path Autocomplete & Verification
 * **Path Suggestions:** Autocompletes folder path inputs on session creation from preset lists (`commonFolders`) and real-time directory lookups.
@@ -75,28 +75,28 @@ It allows you to manage multiple pi sessions concurrently across your workspace 
 
 ## Installation
 
-There are two ways to install and run Pi Remote: **Quick Install via NPM** (recommended for users), or **Local Development Setup** (for active contributors).
+There are two ways to install and run Wherever: **Quick Install via NPM** (recommended for users), or **Local Development Setup** (for active contributors).
 
 ### Method A: Quick Install (via NPM) 🚀
 
-This is the easiest and most robust way to run Pi Remote. No cloning or local compiling required!
+This is the easiest and most robust way to run Wherever. No cloning or local compiling required!
 
 #### 1. Install the Standalone Server Globally
-Install the Pi Remote Standalone Server command-line tool globally:
+Install the Wherever Standalone Server command-line tool globally:
 ```bash
-npm install -g pi-remote-server
+npm install -g wherever-dev
 ```
 
 #### 2. Install the CLI Extension into Pi
 Use Pi's built-in package manager to install the remote connection bridge extension directly from npm:
 ```bash
-pi install npm:pi-remote
+pi install npm:@wherever-dev/pi
 ```
 
 #### 3. Start the Server
 Start the standalone multi-session server:
 ```bash
-pi-remote-server
+wherever
 ```
 The server will boot up and automatically generate self-signed SSL certificates for a secure `https`/`wss` local environment. Open `https://localhost:31415` in your browser. (The first time, proceed past your browser's SSL warning).
 *(Note: Automatic certificate generation requires `openssl` to be installed on your host system. If `openssl` is missing, the server will gracefully fall back to HTTP/WS).*
@@ -106,7 +106,7 @@ Run `pi` as normal in any project folder:
 ```bash
 pi
 ```
-Pi will automatically detect and load the `pi-remote` extension, establish a real-time connection to your standalone server, and mirror your workspace to the Web Dashboard!
+Pi will automatically detect and load the `@wherever-dev/pi` extension, establish a real-time connection to your standalone server, and mirror your workspace to the Web Dashboard!
 
 ---
 
@@ -117,8 +117,8 @@ If you want to modify the source code, develop custom features, or run pre-relea
 #### 1. Clone and Install Dependencies
 Clone this repository and install all monorepo workspace dependencies:
 ```bash
-git clone https://github.com/wighawag/pi-remote.git
-cd pi-remote
+git clone https://github.com/wighawag/wherever.git
+cd wherever
 pnpm install
 ```
 
@@ -132,7 +132,7 @@ pnpm build
 Symlink your local compiled development extension directly into Pi's extensions directory:
 ```bash
 mkdir -p ~/.pi/agent/extensions
-ln -sf "$(pwd)/extension" ~/.pi/agent/extensions/pi-remote
+ln -sf "$(pwd)/extension" ~/.pi/agent/extensions/wherever
 ```
 
 #### 4. Start the Server in Development Mode
@@ -182,11 +182,11 @@ Whenever you run `pi`, you can override bridge defaults:
 
 ---
 
-## Configuration File (`~/.pi/remote/config.json`)
+## Configuration File (`~/.wherever/config.json`)
 
-Pi Remote supports user configuration to customize defaults for session creation and enable automatic Git remote repository setup.
+Wherever supports user configuration to customize defaults for session creation and enable automatic Git remote repository setup.
 
-The configuration file is located at `~/.pi/remote/config.json` on the server machine.
+The configuration file is located at `~/.wherever/config.json` on the server machine.
 
 ### Configuration Properties
 
@@ -205,7 +205,7 @@ The configuration file is located at `~/.pi/remote/config.json` on the server ma
     * `'tmp'`: Saves to the operating system's temporary directory (e.g. `/tmp`).
     * `'session'`: Saves inside the active session's workspace directory (`cwd`), under a sub-folder.
     * `'custom'`: Saves to a specified custom directory on the server.
-  * `subDir` (string, optional, Default: `'.pi-remote/uploads'`): The relative directory to use when `type` is set to `'session'`.
+  * `subDir` (string, optional, Default: `'.wherever/uploads'`): The relative directory to use when `type` is set to `'session'`.
   * `dir` (string, optional): The absolute or tilde-expanded (e.g. `~/uploads`) folder path to use when `type` is set to `'custom'`.
   * `method` (string, optional, Default: `'websocket'`): File transport method. Set to `'websocket'` for secure Base64 WebSocket transfer or `'post'` to fallback to HTTP multipart POST.
 
@@ -244,7 +244,7 @@ Each rule in `remoteRepoRules` can contain:
   ],
   "uploads": {
     "type": "session",
-    "subDir": ".pi-remote/uploads",
+    "subDir": ".wherever/uploads",
     "method": "websocket"
   },
   "speech": {
@@ -261,20 +261,20 @@ When a new session folder is created and matches a rule:
 2. The server executes your configured provider's CLI client locally to create the repository remotely:
    - For **GitHub**, it runs `gh repo create "<repo-name>" --private --source=. --remote=origin` (this requires `gh` CLI to be installed and authenticated).
    - For **Codeberg/Gitea/Forgejo**, it executes `tea repo create --name "<repo-name>" --private` or `cb repo create --name "<repo-name>" --private` (requires `tea` or `cb` CLI tools, automatically adding the corresponding remote URL under `origin`).
-3. This sets up the local repo to point directly to your remote origin, allowing your Pi Remote agent to push directly when asked!
+3. This sets up the local repo to point directly to your remote origin, allowing your Wherever agent to push directly when asked!
 
 ---
 
 ## Remote Access & Security (Tailscale, Headscale, & Outside Access)
 
-By default, the Standalone Server binds to `127.0.0.1` (localhost) for security. If you want to access your Pi Remote instance from outside or from other devices (like a mobile phone or tablet), you have a few options:
+By default, the Standalone Server binds to `127.0.0.1` (localhost) for security. If you want to access your Wherever instance from outside or from other devices (like a mobile phone or tablet), you have a few options:
 
 ### 1. Tailscale / Headscale (Highly Recommended)
-Using a secure private mesh VPN like [Tailscale](https://tailscale.com) or [Headscale](https://github.com/juanfont/headscale) is the safest and easiest way to access your Pi Remote server without exposing ports to the public internet.
-1. Install Tailscale/Headscale on both your Pi and your remote client device (e.g., your phone).
-2. Start the Pi Remote server binding to all interfaces (or your specific Tailscale IP):
+Using a secure private mesh VPN like [Tailscale](https://tailscale.com) or [Headscale](https://github.com/juanfont/headscale) is the safest and easiest way to access your Wherever server without exposing ports to the public internet.
+1. Install Tailscale/Headscale on both your machine and your remote client device (e.g., your phone).
+2. Start the Wherever server binding to all interfaces (or your specific Tailscale IP):
    ```bash
-   pi-remote-server --host 0.0.0.0 --token your-secure-token
+   wherever --host 0.0.0.0 --token your-secure-token
    ```
    *Warning: Always use a strong `--token` when binding to any interface other than localhost!*
 3. Access your Svelte dashboard securely from your remote device's browser at `https://<your-tailscale-ip>:31415` with your token.
@@ -283,7 +283,7 @@ Using a secure private mesh VPN like [Tailscale](https://tailscale.com) or [Head
 To allow access from devices on your local home network (Wi-Fi):
 1. Start the server binding to `0.0.0.0`:
    ```bash
-   pi-remote-server --host 0.0.0.0 --token your-secure-token
+   wherever --host 0.0.0.0 --token your-secure-token
    ```
 2. Find your Pi's local network IP (e.g., `192.168.1.50`) and open `https://192.168.1.50:31415` in your client's browser.
 3. If running the CLI `pi` command from another computer on the same local network, point it to the Pi:

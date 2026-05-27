@@ -40,7 +40,7 @@ async function main() {
   const ws = new WebSocket(wsUrl);
 
   ws.on("open", () => {
-    console.log("✅ Connected to pi remote server");
+    console.log("✅ Connected to Wherever server");
     console.log("\nCommands:");
     console.log("  Type a message and press Enter");
     console.log("  !abort - abort current operation");
@@ -57,7 +57,7 @@ async function main() {
   });
 
   ws.on("close", () => {
-    console.log("\n❌ Disconnected from pi remote server");
+    console.log("\n❌ Disconnected from Wherever server");
     process.exit(0);
   });
 

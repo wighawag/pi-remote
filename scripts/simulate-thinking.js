@@ -1,7 +1,7 @@
 import { WebSocketServer } from 'ws';
 
 const PORT = 31415;
-console.log(`🚀 Starting mock Pi Remote Server on port ${PORT}...`);
+console.log(`🚀 Starting mock Wherever Server on port ${PORT}...`);
 const wss = new WebSocketServer({ port: PORT });
 
 wss.on('connection', (ws) => {
@@ -54,14 +54,14 @@ wss.on('connection', (ws) => {
         role: 'tool',
         toolName: 'read',
         toolArgs: JSON.stringify({ path: 'package.json' }),
-        toolOutput: '{\n  "name": "pi-remote",\n  "version": "1.0.0"\n}',
+        toolOutput: '{\n  "name": "@wherever-dev/pi",\n  "version": "1.0.0"\n}',
         content: 'Reading package.json file content',
         timestamp: Date.now() - 25000
       },
       {
         id: 'msg-assistant-2',
         role: 'assistant',
-        content: 'I have read package.json and found it defines a project named pi-remote at version 1.0.0.',
+        content: 'I have read package.json and found it defines a project named @wherever-dev/pi at version 1.0.0.',
         timestamp: Date.now() - 20000
       }
     ]

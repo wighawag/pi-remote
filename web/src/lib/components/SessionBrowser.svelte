@@ -21,7 +21,7 @@
 		sessionError,
 		dismissSessionError,
 		deleteSession,
-	} from '$lib/pi-remote';
+	} from '$lib/wherever';
 
 	let folders = $derived($sessionFolders.folders);
 	let loading = $derived($sessionFolders.loading);
