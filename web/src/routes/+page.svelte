@@ -151,9 +151,13 @@
 <Head title="Pi Remote" description="Chat with your Pi coding agent remotely" />
 
 {#if isCreating}
-	<div class="fixed inset-0 z-[100] flex items-center justify-center bg-brand-dark/60 backdrop-blur-sm">
+	<div
+		class="fixed inset-0 z-[100] flex items-center justify-center bg-brand-dark/60 backdrop-blur-sm"
+	>
 		<div class="flex flex-col items-center gap-4">
-			<div class="h-12 w-12 animate-spin rounded-full border-4 border-brand-blue border-t-transparent"></div>
+			<div
+				class="h-12 w-12 animate-spin rounded-full border-4 border-brand-blue border-t-transparent"
+			></div>
 			<span class="text-lg font-bold text-brand-text">Creating session...</span>
 		</div>
 	</div>
@@ -350,10 +354,14 @@
 					<!-- Model selector -->
 					{#if sessionInfo.model}
 						<div class="flex min-w-0 items-center gap-1.5 text-xs">
-							<span class="relative flex flex-shrink-0 items-center justify-center text-sm">
+							<span
+								class="relative flex flex-shrink-0 items-center justify-center text-sm"
+							>
 								<span>🤖</span>
 								<span
-									class="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-brand-surface {appState.isStreaming ? 'bg-orange-500 animate-pulse' : 'bg-emerald-500'}"
+									class="absolute -right-0.5 -bottom-0.5 h-2 w-2 rounded-full border border-brand-surface {appState.isStreaming
+										? 'animate-pulse bg-orange-500'
+										: 'bg-emerald-500'}"
 									title={appState.isStreaming ? 'Agent working...' : 'Ready'}
 								></span>
 							</span>

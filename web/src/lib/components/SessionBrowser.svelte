@@ -716,9 +716,21 @@
 										? 'bg-brand-surface-3'
 										: ''}"
 								>
-									<button
-										onclick={() => handleSessionClick(session.path)}
-										class="flex min-w-0 flex-1 items-center gap-2 text-left"
+									<a
+										href="#{encodeURIComponent(session.id)}"
+										onclick={(e) => {
+											if (
+												e.button === 0 &&
+												!e.ctrlKey &&
+												!e.metaKey &&
+												!e.altKey &&
+												!e.shiftKey
+											) {
+												e.preventDefault();
+												handleSessionClick(session.path);
+											}
+										}}
+										class="flex min-w-0 flex-1 items-center gap-2 text-left no-underline"
 									>
 										{#if session.isActive}
 											<span
@@ -746,7 +758,7 @@
 												>{session.clientCount}</span
 											>
 										{/if}
-									</button>
+									</a>
 
 									<!-- Delete button with confirm state -->
 									<div class="flex-shrink-0">

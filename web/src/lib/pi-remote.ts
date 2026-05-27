@@ -65,7 +65,8 @@ const defaultState: PiRemoteState = {
 
 const state = writable<PiRemoteState>({
 	...defaultState,
-	hideThinking: typeof window !== 'undefined' ? !!getConfig().hideThinking : false,
+	hideThinking:
+		typeof window !== 'undefined' ? !!getConfig().hideThinking : false,
 	hideTools: typeof window !== 'undefined' ? !!getConfig().hideTools : false,
 });
 let ws: WebSocket | null = null;
@@ -91,7 +92,13 @@ function getStoredConfig() {
 	return null;
 }
 
-function saveConfig(config: {host: string; port: number; token: string; hideThinking?: boolean; hideTools?: boolean}) {
+function saveConfig(config: {
+	host: string;
+	port: number;
+	token: string;
+	hideThinking?: boolean;
+	hideTools?: boolean;
+}) {
 	localStorage.setItem('pi-remote-config', JSON.stringify(config));
 }
 
@@ -113,7 +120,12 @@ export function getConfig() {
 				defaultHost !== 'localhost' &&
 				defaultHost !== '127.0.0.1'
 			) {
-				return {hideThinking: false, hideTools: false, ...stored, host: defaultHost};
+				return {
+					hideThinking: false,
+					hideTools: false,
+					...stored,
+					host: defaultHost,
+				};
 			}
 		}
 		if (!stored.host) {
@@ -121,7 +133,13 @@ export function getConfig() {
 		}
 		return {hideThinking: false, hideTools: false, ...stored};
 	}
-	return {host: defaultHost, port: 31415, token: '', hideThinking: false, hideTools: false};
+	return {
+		host: defaultHost,
+		port: 31415,
+		token: '',
+		hideThinking: false,
+		hideTools: false,
+	};
 }
 
 function buildUrl(config: {host: string; port: number; token: string}) {
@@ -478,7 +496,7 @@ export function connect() {
 						activeCwd: msg.cwd,
 						activeModel: msg.model,
 						isStreaming: msg.isStreaming ?? false,
-					creatingSession: false,
+						creatingSession: false,
 					}));
 					setCurrentSession(msg.sessionFile);
 					break;
@@ -510,7 +528,7 @@ export function connect() {
 						...s,
 						sessionError: msg.error,
 						isStreaming: false,
-					creatingSession: false,
+						creatingSession: false,
 					}));
 					break;
 
@@ -522,7 +540,7 @@ export function connect() {
 							conflictingSessionId: msg.conflictingSession,
 							conflictingCwd: msg.conflictingCwd,
 						},
-					creatingSession: false,
+						creatingSession: false,
 					}));
 					break;
 
@@ -537,7 +555,7 @@ export function connect() {
 						activeSessionFile: null,
 						activeCwd: null,
 						activeModel: null,
-					creatingSession: false,
+						creatingSession: false,
 					}));
 					setCurrentSession(null);
 					setTimeout(() => {
@@ -819,19 +837,29 @@ export function clearMessages() {
 	state.update((s: PiRemoteState) => ({...s, messages: []}));
 }
 
-export function setConfig(config: {host: string; port: number; token: string; hideThinking?: boolean; hideTools?: boolean}) {
+export function setConfig(config: {
+	host: string;
+	port: number;
+	token: string;
+	hideThinking?: boolean;
+	hideTools?: boolean;
+}) {
 	saveConfig(config);
 	state.update((s: PiRemoteState) => {
 		const next = {...s};
-		if (config.hideThinking !== undefined) next.hideThinking = !!config.hideThinking;
+		if (config.hideThinking !== undefined)
+			next.hideThinking = !!config.hideThinking;
 		if (config.hideTools !== undefined) next.hideTools = !!config.hideTools;
 		return next;
 	});
 }
 
-export function updateConfig(updates: {hideThinking?: boolean; hideTools?: boolean}) {
+export function updateConfig(updates: {
+	hideThinking?: boolean;
+	hideTools?: boolean;
+}) {
 	const config = getConfig();
-	const newConfig = { ...config, ...updates };
+	const newConfig = {...config, ...updates};
 	saveConfig(newConfig);
 	state.update((s: PiRemoteState) => ({
 		...s,

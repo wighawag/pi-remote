@@ -112,7 +112,10 @@
 				onchange={handleConfigChange}
 				class="h-4 w-4 rounded border-brand-border bg-brand-surface-2 text-brand-blue focus:ring-brand-blue focus:ring-offset-0"
 			/>
-			<label for="pi-hide-thinking" class="text-xs text-brand-text select-none cursor-pointer">
+			<label
+				for="pi-hide-thinking"
+				class="cursor-pointer text-xs text-brand-text select-none"
+			>
 				Hide thinking steps
 			</label>
 		</div>
@@ -125,7 +128,10 @@
 				onchange={handleConfigChange}
 				class="h-4 w-4 rounded border-brand-border bg-brand-surface-2 text-brand-blue focus:ring-brand-blue focus:ring-offset-0"
 			/>
-			<label for="pi-hide-tools" class="text-xs text-brand-text select-none cursor-pointer">
+			<label
+				for="pi-hide-tools"
+				class="cursor-pointer text-xs text-brand-text select-none"
+			>
 				Hide tool calls
 			</label>
 		</div>

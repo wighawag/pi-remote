@@ -2,9 +2,7 @@ import {writable, get} from 'svelte/store';
 
 export interface SessionInfo {
 	path: string;
-	sessionId: string;
-	sessionFile: string;
-	cwd: string;
+	id: string;
 	name?: string;
 	created: string;
 	modified: string;

@@ -432,7 +432,9 @@
 
 		const activeStreamExists = filtered.some((msg) => msg.isStreaming);
 		if (streaming && !activeStreamExists) {
-			const isThinking = $messages.some((msg) => msg.role === 'thinking' && msg.isStreaming);
+			const isThinking = $messages.some(
+				(msg) => msg.role === 'thinking' && msg.isStreaming,
+			);
 			filtered.push({
 				id: 'fallback-loader-message-id',
 				role: 'thinking',
@@ -797,15 +799,15 @@
 							: msg.role === 'thinking'
 								? 'border-l-2 border-brand-border bg-brand-surface/30 text-sm text-brand-text-muted'
 								: msg.role === 'tool'
-								? $piState.hideTools && !isAssociatedWithForceCommand(msg)
-									? 'border-l-2 border-brand-border bg-brand-surface/30 text-sm text-brand-text-muted'
-									: `border-l-2 bg-brand-surface-2 font-mono text-sm text-brand-text ${
-											msg.isStreaming
-												? 'border-amber-400'
-												: msg.isError
-													? 'border-rose-400'
-													: 'border-emerald-400'
-										}`
+									? $piState.hideTools && !isAssociatedWithForceCommand(msg)
+										? 'border-l-2 border-brand-border bg-brand-surface/30 text-sm text-brand-text-muted'
+										: `border-l-2 bg-brand-surface-2 font-mono text-sm text-brand-text ${
+												msg.isStreaming
+													? 'border-amber-400'
+													: msg.isError
+														? 'border-rose-400'
+														: 'border-emerald-400'
+											}`
 									: msg.role === 'assistant'
 										? 'border-l-2 border-brand-purple bg-brand-purple/10 text-brand-text'
 										: msg.content === '' && msg.isStreaming
@@ -814,35 +816,92 @@
 					>
 						{#if msg.role === 'thinking'}
 							{#if msg.content === 'FALLBACK_THINKING_LOADER'}
-								<div class="flex items-center gap-2 font-sans text-sm text-brand-text-muted italic select-none">
-									<svg class="h-4 w-4 animate-spin text-brand-cyan" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-										<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-										<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+								<div
+									class="flex items-center gap-2 font-sans text-sm text-brand-text-muted italic select-none"
+								>
+									<svg
+										class="h-4 w-4 animate-spin text-brand-cyan"
+										xmlns="http://www.w3.org/2000/svg"
+										fill="none"
+										viewBox="0 0 24 24"
+									>
+										<circle
+											class="opacity-25"
+											cx="12"
+											cy="12"
+											r="10"
+											stroke="currentColor"
+											stroke-width="4"
+										></circle>
+										<path
+											class="opacity-75"
+											fill="currentColor"
+											d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+										></path>
 									</svg>
 									<span>Agent is thinking...</span>
 								</div>
 							{:else if msg.content === 'FALLBACK_LOADER'}
-								<div class="flex items-center gap-2 font-sans text-sm text-brand-text-muted italic select-none">
-									<svg class="h-4 w-4 animate-spin text-brand-cyan" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-										<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-										<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+								<div
+									class="flex items-center gap-2 font-sans text-sm text-brand-text-muted italic select-none"
+								>
+									<svg
+										class="h-4 w-4 animate-spin text-brand-cyan"
+										xmlns="http://www.w3.org/2000/svg"
+										fill="none"
+										viewBox="0 0 24 24"
+									>
+										<circle
+											class="opacity-25"
+											cx="12"
+											cy="12"
+											r="10"
+											stroke="currentColor"
+											stroke-width="4"
+										></circle>
+										<path
+											class="opacity-75"
+											fill="currentColor"
+											d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+										></path>
 									</svg>
 									<span>Agent working...</span>
 								</div>
+							{:else if $piState.hideThinking}
+								<div
+									class="flex items-center gap-2 font-sans text-sm text-brand-text-muted italic select-none"
+								>
+									<svg
+										class="h-4 w-4 animate-spin text-brand-cyan"
+										xmlns="http://www.w3.org/2000/svg"
+										fill="none"
+										viewBox="0 0 24 24"
+									>
+										<circle
+											class="opacity-25"
+											cx="12"
+											cy="12"
+											r="10"
+											stroke="currentColor"
+											stroke-width="4"
+										></circle>
+										<path
+											class="opacity-75"
+											fill="currentColor"
+											d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+										></path>
+									</svg>
+									<span>Agent is thinking...</span>
+								</div>
 							{:else}
-								{#if $piState.hideThinking}
-									<div class="flex items-center gap-2 font-sans text-sm text-brand-text-muted italic select-none">
-										<svg class="h-4 w-4 animate-spin text-brand-cyan" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-											<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-											<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-										</svg>
-										<span>Agent is thinking...</span>
-									</div>
-								{:else}
 								<div class="flex flex-col gap-1">
 									{#if msg.isStreaming}
-										<div class="flex items-center gap-1.5 text-[10px] font-bold tracking-wider text-brand-cyan uppercase select-none mb-1">
-											<span class="inline-block h-1.5 w-1.5 rounded-full bg-brand-cyan animate-pulse"></span>
+										<div
+											class="mb-1 flex items-center gap-1.5 text-[10px] font-bold tracking-wider text-brand-cyan uppercase select-none"
+										>
+											<span
+												class="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-brand-cyan"
+											></span>
 											<span>Thinking</span>
 										</div>
 									{/if}
@@ -850,16 +909,38 @@
 										{msg.content}
 									</div>
 								</div>
-								{/if}
 							{/if}
 						{:else if msg.role === 'tool'}
 							{#if $piState.hideTools && !isAssociatedWithForceCommand(msg)}
-								<div class="flex items-center gap-2 font-sans text-sm text-brand-text-muted italic select-none">
-									<svg class="h-4 w-4 animate-spin text-amber-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-										<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-										<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+								<div
+									class="flex items-center gap-2 font-sans text-sm text-brand-text-muted italic select-none"
+								>
+									<svg
+										class="h-4 w-4 animate-spin text-amber-500"
+										xmlns="http://www.w3.org/2000/svg"
+										fill="none"
+										viewBox="0 0 24 24"
+									>
+										<circle
+											class="opacity-25"
+											cx="12"
+											cy="12"
+											r="10"
+											stroke="currentColor"
+											stroke-width="4"
+										></circle>
+										<path
+											class="opacity-75"
+											fill="currentColor"
+											d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+										></path>
 									</svg>
-									<span>Running tool: <span class="font-mono text-xs font-semibold px-1 py-0.5 rounded bg-brand-surface-3">{msg.toolName || 'agent'}</span>...</span>
+									<span
+										>Running tool: <span
+											class="rounded bg-brand-surface-3 px-1 py-0.5 font-mono text-xs font-semibold"
+											>{msg.toolName || 'agent'}</span
+										>...</span
+									>
 								</div>
 							{:else}
 								{@const parsed = parseToolMessage(msg)}
@@ -890,8 +971,9 @@
 												>
 											{:else}
 												<!-- Success -->
-												<span class="font-bold text-emerald-400" title="Succeeded"
-													>✅</span
+												<span
+													class="font-bold text-emerald-400"
+													title="Succeeded">✅</span
 												>
 											{/if}
 
@@ -1014,40 +1096,51 @@
 					</div>
 				</div>
 			{/each}
-
 		</div>
 	{/if}
 
-		<div class="flex items-center justify-between border-t border-brand-border p-2">
-			<div class="flex items-center gap-4">
-				<label class="flex cursor-pointer items-center gap-1.5 text-xs text-brand-text-muted select-none hover:text-brand-text">
-					<input
-						type="checkbox"
-						checked={$piState.hideThinking}
-						onchange={(e) => updateConfig({hideThinking: (e.currentTarget as HTMLInputElement).checked})}
-						class="h-3.5 w-3.5 rounded border-brand-border bg-brand-surface-3 text-brand-blue focus:ring-brand-blue"
-					/>
-					Hide Thinking
-				</label>
-				<label class="flex cursor-pointer items-center gap-1.5 text-xs text-brand-text-muted select-none hover:text-brand-text">
-					<input
-						type="checkbox"
-						checked={$piState.hideTools}
-						onchange={(e) => updateConfig({hideTools: (e.currentTarget as HTMLInputElement).checked})}
-						class="h-3.5 w-3.5 rounded border-brand-border bg-brand-surface-3 text-brand-blue focus:ring-brand-blue"
-					/>
-					Hide Tools
-				</label>
-			</div>
-			<button
-				onclick={abort}
-				disabled={!streaming}
-				class="rounded bg-rose-500 px-3 py-1.5 text-xs text-brand-text transition-colors hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed"
-				title="Abort"
+	<div
+		class="flex items-center justify-between border-t border-brand-border p-2"
+	>
+		<div class="flex items-center gap-4">
+			<label
+				class="flex cursor-pointer items-center gap-1.5 text-xs text-brand-text-muted select-none hover:text-brand-text"
 			>
-				Abort
-			</button>
+				<input
+					type="checkbox"
+					checked={$piState.hideThinking}
+					onchange={(e) =>
+						updateConfig({
+							hideThinking: (e.currentTarget as HTMLInputElement).checked,
+						})}
+					class="h-3.5 w-3.5 rounded border-brand-border bg-brand-surface-3 text-brand-blue focus:ring-brand-blue"
+				/>
+				Hide Thinking
+			</label>
+			<label
+				class="flex cursor-pointer items-center gap-1.5 text-xs text-brand-text-muted select-none hover:text-brand-text"
+			>
+				<input
+					type="checkbox"
+					checked={$piState.hideTools}
+					onchange={(e) =>
+						updateConfig({
+							hideTools: (e.currentTarget as HTMLInputElement).checked,
+						})}
+					class="h-3.5 w-3.5 rounded border-brand-border bg-brand-surface-3 text-brand-blue focus:ring-brand-blue"
+				/>
+				Hide Tools
+			</label>
 		</div>
+		<button
+			onclick={abort}
+			disabled={!streaming}
+			class="rounded bg-rose-500 px-3 py-1.5 text-xs text-brand-text transition-colors hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
+			title="Abort"
+		>
+			Abort
+		</button>
+	</div>
 
 	<!-- Custom Confirm Modal for Existing Folders -->
 	{#if showGitInitConfirmModal}
