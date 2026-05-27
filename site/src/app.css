@@ -1,0 +1,46 @@
+@import 'tailwindcss';
+@plugin '@tailwindcss/forms';
+@plugin '@tailwindcss/typography';
+
+@theme {
+	--color-brand-cyan: #06b6d4;
+	--color-brand-blue: #3b82f6;
+	--color-brand-purple: #8b5cf6;
+	--color-brand-dark: #0a0a0a;
+	--color-brand-surface: #111111;
+	--color-brand-surface-2: #1a1a1a;
+	--color-brand-surface-3: #222222;
+	--color-brand-border: #2a2a2a;
+	--color-brand-text: #e5e5e5;
+	--color-brand-text-muted: #888888;
+}
+
+html {
+	font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+body {
+	@apply bg-brand-dark text-brand-text;
+}
+
+.gradient-text {
+	@apply bg-clip-text text-transparent;
+	background-image: linear-gradient(to right, #06b6d4, #3b82f6, #8b5cf6);
+}
+
+.gradient-border {
+	position: relative;
+}
+
+.gradient-border::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	padding: 1px;
+	background: linear-gradient(to right, #06b6d4, #3b82f6, #8b5cf6);
+	-webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+	-webkit-mask-composite: xor;
+	mask-composite: exclude;
+	pointer-events: none;
+}

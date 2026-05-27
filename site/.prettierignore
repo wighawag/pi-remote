@@ -1,0 +1,6 @@
+node_modules/
+/.svelte-kit
+/build
+src/app.html
+*.local
+pnpm-lock.yaml

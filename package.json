@@ -27,6 +27,7 @@
     "ext:dev": "ldenv pnpm --filter ./extension dev",
     "web:dev": "ldenv pnpm --filter ./web dev",
     "web:build": "ldenv pnpm --filter ./web build",
+    "site:build": "ldenv pnpm --filter ./site build",
     "server:dev": "ldenv pnpm --filter ./server dev",
     "server:build": "ldenv pnpm --filter ./server build",
     "---------------------- DEPLOY ----------------------": "",

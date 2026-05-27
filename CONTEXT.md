@@ -26,6 +26,20 @@ Pi Remote is a TypeScript extension for the [pi coding agent](https://pi.dev) th
   - Mobile usage options
   - Troubleshooting guide
 
+### Web Applications
+
+- **`web/`** - SvelteKit dashboard app (mobile-friendly)
+  - Real-time WebSocket connection to pi-remote server
+  - Chat interface, session browser, voice dictation
+  - Served by the server at `/` when connecting to a server
+  - Built to `web/build/`
+- **`site/`** - Standalone marketing/info website
+  - Landing page, features, install guide, architecture diagram
+  - Built as a static site for GitHub Pages deployment
+  - Independent from web/ — no shared code or dependencies
+  - Built to `site/build/`
+  - Deployed via `.github/workflows/deploy-gh-pages.yml`
+
 ### Configuration
 
 - **`package.json`** - Dependencies and pi package manifest
@@ -51,12 +65,28 @@ Pi Remote is a TypeScript extension for the [pi coding agent](https://pi.dev) th
 ┌─────────────────┐         ┌──────────────────┐
 │  Remote Client  │◄───────►│  Pi Remote Server│
 │  (WebSocket)    │         │  (Extension)     │
+│  (Web Dashboard)│         │                  │
 └─────────────────┘         └────────┬─────────┘
                                      │
                               ┌──────▼──────┐
                               │  Pi Core    │
                               │  + Tools    │
                               └─────────────┘
+```
+
+```
+┌──────────────────┐         ┌──────────────────┐         ┌──────────────────┐
+│  Web Browser     │◄────────│  pi-remote Server│────────►│  pi CLI          │
+│  (Dashboard)     │  WS     │  (Extension)     │  Ext    │  (Agent + Tools) │
+└──────────────────┘         └──────────────────┘         └──────────────────┘
+```
+
+```
+┌──────────────────┐
+│  Marketing Site  │
+│  (GitHub Pages)  │
+│  site/           │
+└──────────────────┘
 ```
 
 ### Server Endpoints
@@ -108,9 +138,10 @@ Pi Remote is a TypeScript extension for the [pi coding agent](https://pi.dev) th
 
 1. Install dependencies and test locally
 2. Push to GitHub
-3. Build web frontend (mobile-friendly)
-4. Add more example clients
-5. Consider publishing to npm as pi package
+3. ✅ Build web frontend (mobile-friendly)
+4. ✅ Build marketing site (GitHub Pages)
+5. Add more example clients
+6. Consider publishing to npm as pi package
 
 ## Usage Commands
 
@@ -161,7 +192,11 @@ pi-remote/
 │   └── client.ts         # Reference client
 ├── docs/
 │   └── USAGE.md          # Complete API docs
-├── examples/             # (empty - for web frontend)
+├── web/                  # SvelteKit dashboard app (mobile-friendly)
+├── site/                 # Standalone marketing/info website (GitHub Pages)
+├── .github/
+│   └── workflows/
+│       └── deploy-gh-pages.yml  # CI/CD for marketing site
 ├── package.json          # Dependencies + pi config
 ├── tsconfig.json         # TypeScript config
 ├── README.md             # Quick start
@@ -177,7 +212,8 @@ pi-remote/
 3. **Optional auth** - Token-based, easy to disable for local dev
 4. **Event broadcasting** - All clients receive same events (multi-client support)
 5. **Message queuing** - Messages queued if no client connected (up to 100)
-6. **No web UI (yet)** - Keep core simple, UI can be separate
+6. **Separate web UI** - Dashboard (`web/`) and marketing site (`site/`) are independent SvelteKit apps
+7. **GitHub Pages** - Marketing site deployed via GitHub Actions to `github.com/wighawag/pi-remote`
 
 ## Agent Guidelines
 
@@ -186,7 +222,6 @@ Please review **`AGENTS.md`** in the root of the project before completing any w
 
 ## Known Limitations
 
-- No built-in web interface (by design - separate concern)
 - No rate limiting (add for production use)
 - No connection persistence/reconnection logic (client responsibility)
 - Single active WebSocket for broadcasting (all clients get same stream)
@@ -196,13 +231,11 @@ Please review **`AGENTS.md`** in the root of the project before completing any w
 
 Potential additions:
 
-- [ ] Web frontend (mobile-optimized)
 - [ ] Multiple WebSocket rooms/sessions
 - [ ] Rate limiting middleware
 - [ ] WebSocket reconnection logic
 - [ ] Extension UI dialog forwarding to remote clients
 - [ ] Custom tool registration via API
-- [ ] Session history browsing
 - [ ] File transfer capabilities
 
 ## Related Pi Documentation

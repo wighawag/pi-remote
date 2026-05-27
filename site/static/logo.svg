@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06b6d4"/>
+      <stop offset="50%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06b6d4" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0.6"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Signal waves emanating from the π -->
+  <g opacity="0.4" filter="url(#glow)">
+    <!-- Left waves -->
+    <path d="M 18,60 Q 14,50 20,42" stroke="url(#grad2)" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <path d="M 12,68 Q 5,50 16,35" stroke="url(#grad2)" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+    <path d="M 6,76 Q -4,50 12,28" stroke="url(#grad2)" stroke-width="1" fill="none" stroke-linecap="round"/>
+    <!-- Right waves -->
+    <path d="M 102,60 Q 106,50 100,42" stroke="url(#grad2)" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <path d="M 108,68 Q 115,50 104,35" stroke="url(#grad2)" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+    <path d="M 114,76 Q 124,50 108,28" stroke="url(#grad2)" stroke-width="1" fill="none" stroke-linecap="round"/>
+  </g>
+
+  <!-- Connection nodes on the waves -->
+  <g opacity="0.5">
+    <circle cx="20" cy="42" r="2" fill="#06b6d4"/>
+    <circle cx="16" cy="35" r="1.5" fill="#06b6d4"/>
+    <circle cx="12" cy="28" r="1" fill="#06b6d4"/>
+    <circle cx="100" cy="42" r="2" fill="#8b5cf6"/>
+    <circle cx="104" cy="35" r="1.5" fill="#8b5cf6"/>
+    <circle cx="108" cy="28" r="1" fill="#8b5cf6"/>
+  </g>
+
+  <!-- π symbol made of tetris-like blocks -->
+  <g filter="url(#glow)">
+    <!-- Left leg - two blocks -->
+    <rect x="32" y="50" width="16" height="16" rx="3" fill="url(#grad)"/>
+    <rect x="32" y="66" width="16" height="16" rx="3" fill="url(#grad)"/>
+
+    <!-- Right leg - two blocks -->
+    <rect x="72" y="50" width="16" height="16" rx="3" fill="url(#grad)"/>
+    <rect x="72" y="66" width="16" height="16" rx="3" fill="url(#grad)"/>
+
+    <!-- Cross bar - three blocks -->
+    <rect x="32" y="34" width="16" height="16" rx="3" fill="url(#grad)"/>
+    <rect x="52" y="34" width="16" height="16" rx="3" fill="url(#grad)"/>
+    <rect x="72" y="34" width="16" height="16" rx="3" fill="url(#grad)"/>
+  </g>
+
+  <!-- Small accent dots for network feel -->
+  <g opacity="0.3">
+    <circle cx="36" cy="38" r="1" fill="#fff"/>
+    <circle cx="76" cy="38" r="1" fill="#fff"/>
+    <circle cx="40" cy="54" r="1" fill="#fff"/>
+    <circle cx="76" cy="54" r="1" fill="#fff"/>
+  </g>
+</svg>

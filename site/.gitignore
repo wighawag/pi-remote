@@ -1,0 +1,8 @@
+node_modules/
+
+# Output
+/.svelte-kit
+/build
+
+# Env
+*.local
