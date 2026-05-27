@@ -85,7 +85,8 @@
 		{
 			number: '02',
 			title: 'Install the Agent & Extension',
-			description: 'Wherever bridges the open-source "pi" coding agent. Make sure pi is installed and configured with your preferred AI model (local or remote), then add the bridge extension:',
+			description:
+				'Wherever bridges the open-source "pi" coding agent. Make sure pi is installed and configured with your preferred AI model (local or remote), then add the bridge extension:',
 			code: 'pi install npm:@wherever-dev/pi',
 		},
 		{
