@@ -99,6 +99,12 @@
 
 	async function handleDeleteSession(sessionPath: string) {
 		try {
+			if (currentSession === sessionPath) {
+				if (typeof window !== 'undefined') {
+					window.location.hash = '';
+				}
+				leaveSession();
+			}
 			await deleteSession(sessionPath);
 			if (confirmingDelete === sessionPath) {
 				confirmingDelete = null;
@@ -111,6 +117,13 @@
 
 	async function handleDeleteAllFolderSessions(folder: FolderWithSessions) {
 		try {
+			const sessionPaths = folder.sessions.map((s) => s.path);
+			if (currentSession && sessionPaths.includes(currentSession)) {
+				if (typeof window !== 'undefined') {
+					window.location.hash = '';
+				}
+				leaveSession();
+			}
 			await Promise.all(folder.sessions.map((s) => deleteSession(s.path)));
 			if (confirmingDeleteFolder === folder.path) {
 				confirmingDeleteFolder = null;
