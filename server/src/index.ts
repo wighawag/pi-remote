@@ -1092,6 +1092,13 @@ async function handleWSMessage(
         return;
       }
 
+      // If the client is currently associated with the existing session in this CWD and wants to start a fresh new one,
+      // let's switch their session to null first so that the existing session has 0 clients. This ensures
+      // pool.createNewSession will create a brand new session instead of returning the existing one.
+      if (existing && existing.clients.has(client.id)) {
+        switchClientSession(client, null, pool);
+      }
+
       const result = await pool.createNewSession(msg.cwd, msg.model, msg.gitInit, msg.createRemote, msg.repoVisibility);
       if (result.error) {
         sendWS(client.ws, { type: 'session_error', error: result.error });
