@@ -1,5 +1,25 @@
 # pi-remote-server
 
+## 0.1.0
+
+### Minor Changes
+
+- 76522ac: Add standalone marketing/info website for GitHub Pages deployment. The new `site/` folder contains a SvelteKit + TailwindCSS static site with a landing page featuring hero section, features grid, architecture diagram, install guide, and footer. Includes a custom SVG logo with a pi symbol made of tetris-like blocks and signal waves. Deployed automatically via GitHub Actions workflow on push to main.
+
+### Patch Changes
+
+- bb36b59: Automatically expand shell/bash command tool calls in the remote web dashboard when the user executes a prompt starting with "!" or "!!".
+- 8626cd3: Automatically update the session browser list in the sidebar in real time whenever a session is created, loaded, left, when client connections open or close, and when messages or agent cycles end.
+- 26cba7b: Add toggles for hiding tool calls and thinking messages in the chat UI.
+- e5fae9d: Maximize available horizontal space in the header for the workspace folder path by displaying the agent status (Ready vs. Agent working) directly on the robot model selector icon, removing the redundant text status indicators.
+- e87ab30: Add "Hide thinking steps" and "Hide tool calls" options in the config UI to clean up the chat log. "Hide tool calls" keeps tool execution blocks visible if they are associated with explicit user terminal commands starting with `!` or `!!`.
+- bb0bc3d: Normalize `cwd` paths in the server's session pool before creating, loading, or registering sessions. This resolves duplicate session folders when a workspace is accessed with vs. without a trailing slash (e.g. `--home-wighawag...--` vs `--home-wighawag...---`), fragments conversation history, and handles relative segments and double slashes.
+- 01e6641: Fix the `/new` / `session_new` command on the server so that it successfully creates a brand new, clean session instead of returning the existing active session when the requesting client is already connected to it.
+- 0630cff: Add a full-screen loading overlay on the main screen during session creation. This prevents users from initiating multiple simultaneous session creations and provides visual feedback during the creation delay.
+- afe5ebc: Change sessions in the sidebar session browser to standard anchor links, allowing users to middle-click, command-click, or right-click to open sessions in new tabs.
+- 70a974a: Configure both `web` and `site` packages for static site pre-rendering by setting `prerender = true` (in page/layout routing) and removing `fallback: 'index.html'` from the svelte static adapter configs. This enables SvelteKit to generate correct, portable relative-path references in the built HTML files, allowing the dashboard and marketing website to load perfectly under subpaths or IPFS gateways.
+- ae04a3c: Redesign the remote web dashboard to match the brand design system and colors of the marketing website, introducing brand-dark, brand-surface, brand-border, emerald, and rose theme tokens across all UI components, dialogs, inputs, and layout blocks.
+
 ## 0.0.4
 
 ### Patch Changes
