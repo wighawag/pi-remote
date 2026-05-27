@@ -308,24 +308,17 @@
 			</button>
 
 			<!-- Status indicator -->
-			<div class="flex min-w-0 items-center gap-2">
-				{#if appState.isStreaming}
-					<span class="flex items-center gap-1.5 text-sm">
-						<span
-							class="inline-block h-2 w-2 animate-pulse rounded-full bg-brand-cyan"
-						></span>
-						<span class="text-brand-text">Agent working...</span>
-					</span>
-				{:else if connected && sessionInfo.sessionFile}
-					<span class="text-sm text-emerald-400">Ready</span>
-				{:else if connected}
-					<span class="text-sm text-brand-text-muted"
-						>Select a session from sidebar</span
-					>
-				{:else}
-					<span class="text-sm text-brand-text-muted">Not connected</span>
-				{/if}
-			</div>
+			{#if !connected || !sessionInfo.sessionFile}
+				<div class="flex min-w-0 items-center gap-2">
+					{#if connected}
+						<span class="text-sm text-brand-text-muted"
+							>Select a session from sidebar</span
+						>
+					{:else}
+						<span class="text-sm text-brand-text-muted">Not connected</span>
+					{/if}
+				</div>
+			{/if}
 
 			<!-- Folder and model info -->
 			{#if sessionInfo.sessionFile}
@@ -345,7 +338,13 @@
 					<!-- Model selector -->
 					{#if sessionInfo.model}
 						<div class="flex min-w-0 items-center gap-1.5 text-xs">
-							<span class="flex-shrink-0">🤖</span>
+							<span class="relative flex flex-shrink-0 items-center justify-center text-sm">
+								<span>🤖</span>
+								<span
+									class="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-brand-surface {appState.isStreaming ? 'bg-orange-500 animate-pulse' : 'bg-emerald-500'}"
+									title={appState.isStreaming ? 'Agent working...' : 'Ready'}
+								></span>
+							</span>
 							{#if models.length > 0 && !readOnly}
 								<select
 									value={sessionInfo.model}
