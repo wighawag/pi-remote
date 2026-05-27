@@ -6,6 +6,7 @@
 		activeSessionInfo,
 		createSession,
 		piState,
+		updateConfig,
 	} from '$lib/pi-remote';
 	import {
 		availableModels,
@@ -1017,17 +1018,36 @@
 		</div>
 	{/if}
 
-	{#if streaming}
-		<div class="flex gap-2 border-t border-brand-border p-2">
+		<div class="flex items-center justify-between border-t border-brand-border p-2">
+			<div class="flex items-center gap-4">
+				<label class="flex cursor-pointer items-center gap-1.5 text-xs text-brand-text-muted select-none hover:text-brand-text">
+					<input
+						type="checkbox"
+						checked={$piState.hideThinking}
+						onchange={(e) => updateConfig({hideThinking: (e.currentTarget as HTMLInputElement).checked})}
+						class="h-3.5 w-3.5 rounded border-brand-border bg-brand-surface-3 text-brand-blue focus:ring-brand-blue"
+					/>
+					Hide Thinking
+				</label>
+				<label class="flex cursor-pointer items-center gap-1.5 text-xs text-brand-text-muted select-none hover:text-brand-text">
+					<input
+						type="checkbox"
+						checked={$piState.hideTools}
+						onchange={(e) => updateConfig({hideTools: (e.currentTarget as HTMLInputElement).checked})}
+						class="h-3.5 w-3.5 rounded border-brand-border bg-brand-surface-3 text-brand-blue focus:ring-brand-blue"
+					/>
+					Hide Tools
+				</label>
+			</div>
 			<button
 				onclick={abort}
-				class="rounded bg-rose-500 px-3 py-1.5 text-xs text-brand-text transition-colors hover:bg-rose-600"
+				disabled={!streaming}
+				class="rounded bg-rose-500 px-3 py-1.5 text-xs text-brand-text transition-colors hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed"
 				title="Abort"
 			>
 				Abort
 			</button>
 		</div>
-	{/if}
 
 	<!-- Custom Confirm Modal for Existing Folders -->
 	{#if showGitInitConfirmModal}

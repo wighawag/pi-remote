@@ -818,6 +818,18 @@ export function setConfig(config: {host: string; port: number; token: string; hi
 	});
 }
 
+export function updateConfig(updates: {hideThinking?: boolean; hideTools?: boolean}) {
+	const config = getConfig();
+	const newConfig = { ...config, ...updates };
+	saveConfig(newConfig);
+	state.update((s: PiRemoteState) => ({
+		...s,
+		hideThinking: !!newConfig.hideThinking,
+		hideTools: !!newConfig.hideTools,
+	}));
+}
+// ADDED_REMOVED
+
 export function dismissSessionError() {
 	state.update((s: PiRemoteState) => ({...s, sessionError: null}));
 }
