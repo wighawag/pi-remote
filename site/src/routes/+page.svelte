@@ -6,7 +6,7 @@
 		{
 			title: 'CLI Mirroring',
 			description:
-				'Every command you run in your terminal is mirrored to the web dashboard in real-time. Watch your agent think, edit files, and run commands from any device.',
+				'Every command you run in your terminal is mirrored to the web dashboard in real-time. Watch your workspace update, edit files, and run commands from any device.',
 			icon: 'mirror',
 		},
 		{
@@ -30,7 +30,7 @@
 		{
 			title: 'File Uploads',
 			description:
-				'Drag and drop files into your agent workspace. Upload context files, configs, or assets directly from your browser to the remote machine.',
+				'Drag and drop files into your workspace. Upload context files, configs, or assets directly from your browser to the remote machine.',
 			icon: 'upload',
 		},
 		{
@@ -99,7 +99,7 @@
 			number: '04',
 			title: 'Open the Dashboard',
 			description:
-				'Open the dashboard in your browser and start controlling your agent from anywhere.',
+				'Open the dashboard in your browser and start creating and maintaining your apps.',
 			code: 'open http://localhost:31415',
 		},
 	];
@@ -192,15 +192,15 @@
 				/>
 			</div>
 			<h1 class="mb-6 text-4xl font-bold sm:text-5xl md:text-7xl">
-				<span class="gradient-text">Control your AI</span><br />
-				<span class="text-brand-text">coding agent from anywhere</span>
+				<span class="gradient-text">Create & maintain apps</span><br />
+				<span class="text-brand-text">right from your phone</span>
 			</h1>
 			<p
 				class="mx-auto mb-10 max-w-2xl text-lg text-brand-text-muted sm:text-xl"
 			>
-				A beautiful remote dashboard for your AI coding agent. Mirror your
-				terminal, control sessions from your phone, and pick up wherever you
-				left off.
+				A beautiful remote workspace that puts your development environment in
+				your pocket. Mirror your terminal, manage sessions from any device, and
+				pick up wherever you left off.
 			</p>
 			<div class="mb-16 flex flex-col justify-center gap-4 sm:flex-row">
 				<button
@@ -327,8 +327,8 @@
 				<span class="gradient-text">Everything you need</span>
 			</h2>
 			<p class="mx-auto max-w-xl text-lg text-brand-text-muted">
-				A complete remote control experience for your AI coding agent, designed
-				for both desktop and mobile.
+				A complete remote development experience, designed for both desktop
+				and mobile.
 			</p>
 		</div>
 		<div class="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
@@ -421,7 +421,7 @@
 				<span class="gradient-text">Get started in minutes</span>
 			</h2>
 			<p class="mx-auto max-w-xl text-lg text-brand-text-muted">
-				Four steps to remote control your AI coding agent from any device.
+				Four steps to start creating and maintaining apps from any device.
 			</p>
 		</div>
 		<div class="space-y-6">

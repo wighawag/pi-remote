@@ -780,7 +780,7 @@
 					New Session Started
 				</p>
 				<p class="text-sm">
-					Type a message below to start chatting with your Pi coding agent
+					Type a message below to start building
 				</p>
 			</div>
 		</div>

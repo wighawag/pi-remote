@@ -148,7 +148,7 @@
 	let isCreating = $derived($isCreatingSession);
 </script>
 
-<Head title="Wherever" description="Chat with your Pi coding agent remotely" />
+<Head title="Wherever" description="Create & maintain apps right from your phone" />
 
 {#if isCreating}
 	<div
