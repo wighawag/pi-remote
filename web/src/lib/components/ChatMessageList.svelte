@@ -195,8 +195,8 @@
 
 	let expandedMessages = $state<Record<string, boolean>>({});
 
-	function toggleMessage(id: string) {
-		expandedMessages[id] = !expandedMessages[id];
+	function toggleMessage(id: string, currentVal: boolean) {
+		expandedMessages[id] = !currentVal;
 	}
 
 	function parseArgsObject(
@@ -446,6 +446,22 @@
 			hour: '2-digit',
 			minute: '2-digit',
 		});
+	}
+
+	function shouldAutoExpand(msg: ChatMessage, list: ChatMessage[]): boolean {
+		if (msg.role !== 'tool') return false;
+
+		const idx = list.findIndex((m) => m.id === msg.id);
+		if (idx === -1) return false;
+
+		// Look back for the closest user message
+		for (let i = idx - 1; i >= 0; i--) {
+			if (list[i].role === 'user') {
+				const content = list[i].content ? list[i].content.trim() : '';
+				return content.startsWith('!') || content.startsWith('!!');
+			}
+		}
+		return false;
 	}
 
 	export function forceScrollToBottom() {
@@ -770,12 +786,16 @@
 							</div>
 						{:else if msg.role === 'tool'}
 							{@const parsed = parseToolMessage(msg)}
+							{@const isExpanded =
+								expandedMessages[msg.id] !== undefined
+									? expandedMessages[msg.id]
+									: shouldAutoExpand(msg, msgList)}
 							<div
 								class="flex max-w-full min-w-[280px] flex-col sm:min-w-[400px] md:min-w-[550px]"
 							>
 								<!-- Header of tool execution -->
 								<button
-									onclick={() => toggleMessage(msg.id)}
+									onclick={() => toggleMessage(msg.id, isExpanded)}
 									class="flex w-full items-center justify-between gap-3 rounded p-1 text-left transition-colors hover:bg-brand-surface-3/30 focus:outline-none"
 								>
 									<div class="flex flex-1 items-center gap-2 overflow-hidden">
@@ -815,7 +835,7 @@
 									<div
 										class="flex shrink-0 items-center gap-1 font-sans text-xs font-medium whitespace-nowrap text-brand-text-muted select-none hover:text-brand-text"
 									>
-										{#if expandedMessages[msg.id]}
+										{#if isExpanded}
 											Collapse <span class="text-[10px]">▲</span>
 										{:else}
 											Expand <span class="text-[10px]">▼</span>
@@ -824,7 +844,7 @@
 								</button>
 
 								<!-- Tool Output (collapsible) -->
-								{#if expandedMessages[msg.id]}
+								{#if isExpanded}
 									<div
 										class="mt-2 flex flex-col gap-3 overflow-hidden border-t border-brand-border/40 pt-2"
 									>
