@@ -148,7 +148,7 @@
 	let isCreating = $derived($isCreatingSession);
 </script>
 
-<Head title="Wherever" description="Create & maintain apps right from your phone" />
+<Head title="Wherever" description="Create & maintain apps from wherever" />
 
 {#if isCreating}
 	<div

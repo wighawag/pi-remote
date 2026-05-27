@@ -193,7 +193,7 @@
 			</div>
 			<h1 class="mb-6 text-4xl font-bold sm:text-5xl md:text-7xl">
 				<span class="gradient-text">Create & maintain apps</span><br />
-				<span class="text-brand-text">right from your phone</span>
+				<span class="text-brand-text">from wherever</span>
 			</h1>
 			<p
 				class="mx-auto mb-10 max-w-2xl text-lg text-brand-text-muted sm:text-xl"
