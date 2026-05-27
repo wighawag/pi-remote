@@ -226,21 +226,22 @@
 	}
 </script>
 
-<div class="border-t border-gray-700 p-4">
+<div class="border-t border-brand-border p-4">
 	{#if !connected || appState.connecting || appState.error}
 		<div
-			class="mb-2.5 flex items-center gap-1.5 text-xs font-medium text-gray-500 select-none"
+			class="mb-2.5 flex items-center gap-1.5 text-xs font-medium text-brand-text-muted select-none"
 		>
 			{#if appState.connecting}
 				<span
-					class="inline-block h-1.5 w-1.5 animate-ping rounded-full bg-yellow-500"
+					class="inline-block h-1.5 w-1.5 animate-ping rounded-full bg-amber-400"
 				></span>
 				<span>Connecting to remote server...</span>
 			{:else if appState.error}
-				<span class="text-red-500">⚠️</span>
-				<span class="text-red-400/80">{appState.error}</span>
+				<span class="text-rose-400">⚠️</span>
+				<span class="text-rose-400/80">{appState.error}</span>
 			{:else if !connected}
-				<span class="inline-block h-1.5 w-1.5 rounded-full bg-gray-600"></span>
+				<span class="inline-block h-1.5 w-1.5 rounded-full bg-brand-surface-3"
+				></span>
 				<span>Disconnected from remote server</span>
 			{/if}
 		</div>
@@ -253,7 +254,7 @@
 					isCollapsed = false;
 					setTimeout(() => textarea?.focus(), 50);
 				}}
-				class="flex w-full items-center justify-between rounded-lg border border-gray-600 bg-gray-800 px-4 py-2.5 text-sm text-gray-400 transition-all hover:bg-gray-700 hover:text-white"
+				class="flex w-full items-center justify-between rounded-lg border border-brand-border bg-brand-surface-2 px-4 py-2.5 text-sm text-brand-text-muted transition-all hover:bg-brand-surface-3 hover:text-brand-text"
 			>
 				<span class="flex items-center gap-2">
 					<span>💬</span>
@@ -272,7 +273,7 @@
 					</span>
 				</span>
 				<span
-					class="rounded bg-gray-700 px-2 py-1 text-xs font-medium text-gray-300 transition-colors hover:bg-gray-600"
+					class="rounded bg-brand-surface-3 px-2 py-1 text-xs font-medium text-brand-text transition-colors hover:bg-brand-surface-2"
 					>Expand ▲</span
 				>
 			</button>
@@ -282,21 +283,21 @@
 			<div class="mb-3 flex flex-wrap gap-2">
 				{#each attachments as attachment, index}
 					<div
-						class="flex items-center gap-2 rounded border border-gray-700 bg-gray-800 px-2.5 py-1.5 text-xs"
+						class="flex items-center gap-2 rounded border border-brand-border bg-brand-surface-2 px-2.5 py-1.5 text-xs"
 					>
 						<span
-							class="max-w-[150px] truncate font-medium text-gray-200"
+							class="max-w-[150px] truncate font-medium text-brand-text"
 							title={attachment.name}
 						>
 							{attachment.name}
 						</span>
 						{#if attachment.uploading}
 							<span
-								class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-blue-500 border-t-transparent"
+								class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-brand-blue border-t-transparent"
 							></span>
 						{:else if attachment.error}
 							<span
-								class="flex items-center gap-1 text-[10px] font-medium text-red-400"
+								class="flex items-center gap-1 text-[10px] font-medium text-rose-400"
 								title={attachment.error}
 							>
 								<span class="max-w-[120px] truncate">⚠️ {attachment.error}</span
@@ -305,19 +306,19 @@
 									<a
 										href={(attachment as any).url}
 										target="_blank"
-										class="ml-1 shrink-0 font-semibold text-blue-400 underline hover:text-blue-300"
+										class="ml-1 shrink-0 font-semibold text-brand-blue underline hover:opacity-80"
 									>
 										[Test Link]
 									</a>
 								{/if}
 							</span>
 						{:else}
-							<span class="text-emerald-500">✓</span>
+							<span class="text-emerald-400">✓</span>
 						{/if}
 						<button
 							type="button"
 							onclick={() => removeAttachment(index)}
-							class="ml-1 font-bold text-gray-400 hover:text-white"
+							class="ml-1 font-bold text-brand-text-muted hover:text-brand-text"
 						>
 							×
 						</button>
@@ -346,9 +347,9 @@
 							: !sessionInfo.sessionId
 								? 'Select a session first...'
 								: 'Type a message...'}
-					class="h-full max-h-48 min-h-[120px] w-full resize-none overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 px-4 py-3 leading-relaxed placeholder-gray-500 focus:border-blue-500 focus:outline-none disabled:opacity-50 {queuedText
-						? 'text-gray-500 italic'
-						: 'text-white'}"
+					class="h-full max-h-48 min-h-[120px] w-full resize-none overflow-y-auto rounded-lg border border-brand-border bg-brand-surface-2 px-4 py-3 leading-relaxed placeholder-brand-text-muted focus:border-brand-blue focus:outline-none disabled:opacity-50 {queuedText
+						? 'text-brand-text-muted italic'
+						: 'text-brand-text'}"
 				></textarea>
 			</div>
 
@@ -357,7 +358,7 @@
 					type="button"
 					onclick={() => fileInput?.click()}
 					disabled={effectivelyDisabled}
-					class="flex h-[40px] w-full items-center justify-center rounded-lg border border-gray-600 bg-gray-800 text-gray-400 transition-colors hover:bg-gray-700 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+					class="flex h-[40px] w-full items-center justify-center rounded-lg border border-brand-border bg-brand-surface-2 text-brand-text-muted transition-colors hover:bg-brand-surface-3 hover:text-brand-text disabled:cursor-not-allowed disabled:opacity-50"
 					title="Attach file (image or document)"
 				>
 					📎
@@ -380,7 +381,7 @@
 					<button
 						type="button"
 						onclick={handleUnqueue}
-						class="flex h-[40px] w-full items-center justify-center rounded-lg bg-amber-600 text-xs font-medium text-white transition-colors hover:bg-amber-700"
+						class="flex h-[40px] w-full items-center justify-center rounded-lg bg-amber-500 text-xs font-medium text-brand-text transition-colors hover:bg-amber-600"
 					>
 						Unqueue
 					</button>
@@ -388,7 +389,7 @@
 					<button
 						type="submit"
 						disabled={!canSend}
-						class="flex h-[40px] w-full items-center justify-center rounded-lg bg-blue-600 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-600"
+						class="flex h-[40px] w-full items-center justify-center rounded-lg bg-gradient-to-r from-brand-cyan to-brand-blue text-xs font-medium text-brand-text transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:bg-brand-surface-3 disabled:from-brand-surface-3 disabled:to-brand-surface-3 disabled:opacity-50"
 					>
 						{#if streaming}
 							Queue
@@ -401,16 +402,16 @@
 		</form>
 
 		<div
-			class="mt-2 flex items-center justify-between px-1 text-[11px] text-gray-400 select-none"
+			class="mt-2 flex items-center justify-between px-1 text-[11px] text-brand-text-muted select-none"
 		>
 			<label
-				class="flex cursor-pointer items-center gap-1.5 hover:text-gray-300"
+				class="flex cursor-pointer items-center gap-1.5 hover:text-brand-text"
 			>
 				<input
 					type="checkbox"
 					checked={enterToSend}
 					onchange={toggleEnterToSend}
-					class="rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-0 focus:ring-offset-0"
+					class="rounded border-brand-border bg-brand-surface-2 text-brand-blue focus:ring-0 focus:ring-offset-0"
 				/>
 				<span>Press Enter to send</span>
 			</label>
@@ -418,7 +419,7 @@
 				<button
 					type="button"
 					onclick={() => (isCollapsed = true)}
-					class="rounded bg-gray-700/50 px-2 py-0.5 text-xs text-gray-300 transition-colors hover:bg-gray-700 hover:text-white"
+					class="rounded bg-brand-surface-3/50 px-2 py-0.5 text-xs text-brand-text-muted transition-colors hover:bg-brand-surface-3 hover:text-brand-text"
 				>
 					Collapse ▽
 				</button>

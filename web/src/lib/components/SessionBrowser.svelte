@@ -386,19 +386,19 @@
 </script>
 
 <div class="flex h-full flex-col">
-	<div class="border-b border-gray-700/50 p-2">
+	<div class="border-b border-brand-border/50 p-2">
 		<div class="flex gap-1.5">
 			<input
 				type="text"
 				placeholder="Filter sessions..."
 				value={searchQuery}
 				oninput={(e) => (searchQuery = e.currentTarget.value)}
-				class="min-w-0 flex-1 rounded border border-gray-600 bg-gray-800 px-2 py-1.5 text-xs text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+				class="min-w-0 flex-1 rounded border border-brand-border bg-brand-surface-2 px-2 py-1.5 text-xs text-brand-text placeholder-brand-text-muted focus:border-brand-blue focus:outline-none"
 			/>
 			<button
 				type="button"
 				onclick={() => fetchSessions()}
-				class="flex shrink-0 items-center justify-center rounded border border-gray-600 bg-gray-800 px-1.5 py-1.5 text-gray-400 transition-colors hover:bg-gray-700 hover:text-white"
+				class="flex shrink-0 items-center justify-center rounded border border-brand-border bg-brand-surface-2 px-1.5 py-1.5 text-brand-text-muted transition-colors hover:bg-brand-surface-3 hover:text-brand-text"
 				title="Refresh session list"
 			>
 				<span class={loading ? 'animate-spin' : ''}>↻</span>
@@ -408,10 +408,10 @@
 
 	<div class="flex-1 overflow-y-auto">
 		<!-- Collapsible Create New Session Section -->
-		<div class="border-b border-gray-700/50 bg-gray-800/10">
+		<div class="border-b border-brand-border/50 bg-brand-surface/10">
 			<button
 				onclick={() => (createFormOpen = !createFormOpen)}
-				class="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-semibold text-blue-400 transition-colors hover:bg-gray-700/30"
+				class="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-semibold text-brand-blue transition-colors hover:bg-brand-surface-3/30"
 			>
 				<span
 					>{createFormOpen
@@ -426,11 +426,11 @@
 						e.preventDefault();
 						handleSidebarCreateSession();
 					}}
-					class="space-y-2.5 border-t border-gray-700/30 bg-gray-800/30 p-3"
+					class="space-y-2.5 border-t border-brand-border/30 bg-brand-surface/30 p-3"
 				>
 					<div>
 						<label
-							class="mb-1 block text-[10px] font-bold tracking-wider text-gray-400 uppercase"
+							class="mb-1 block text-[10px] font-bold tracking-wider text-brand-text-muted uppercase"
 							for="sidebar-folder">Folder Path</label
 						>
 						<div class="relative" bind:this={sidebarContainerEl}>
@@ -460,13 +460,13 @@
 										sidebarInputFocused = false;
 									}
 								}}
-								class="w-full rounded border px-2 py-1 text-xs text-white placeholder-gray-500 transition-all duration-200 focus:outline-none {isSidebarRemoteRepoCreation
-									? 'border-emerald-500/80 bg-emerald-950/20 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/30'
-									: 'border-gray-600 bg-gray-900/60 focus:border-blue-500'}"
+								class="w-full rounded border px-2 py-1 text-xs text-brand-text placeholder-brand-text-muted transition-all duration-200 focus:outline-none {isSidebarRemoteRepoCreation
+									? 'border-emerald-500/80 bg-emerald-500/10 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/30'
+									: 'border-brand-border bg-brand-dark/60 focus:border-brand-blue'}"
 							/>
 							{#if sidebarInputFocused && sidebarCompletions.length > 0}
 								<div
-									class="absolute right-0 left-0 z-50 mt-1 max-h-40 overflow-y-auto rounded border border-gray-700 bg-gray-800 py-1 shadow-xl"
+									class="absolute right-0 left-0 z-50 mt-1 max-h-40 overflow-y-auto rounded border border-brand-border bg-brand-surface-2 py-1 shadow-xl"
 								>
 									{#each sidebarCompletions as completion}
 										<button
@@ -476,7 +476,7 @@
 												triggerSidebarCheck(completion, true);
 												sidebarInputEl?.focus();
 											}}
-											class="block w-full px-2.5 py-1 text-left text-xs text-gray-200 transition-colors hover:bg-gray-700 hover:text-white"
+											class="block w-full px-2.5 py-1 text-left text-xs text-brand-text transition-colors hover:bg-brand-surface-3 hover:text-brand-text"
 										>
 											{completion}
 										</button>
@@ -488,7 +488,7 @@
 							<span class="mt-1 block text-[10px] font-medium text-yellow-400">
 								📁 Folder already exists.
 								{#if sidebarPathStatus.isGit}
-									<span class="ml-1 font-semibold text-green-400"
+									<span class="ml-1 font-semibold text-emerald-400"
 										>(Git repo)</span
 									>
 								{/if}
@@ -498,14 +498,14 @@
 
 					<div>
 						<label
-							class="mb-1 block text-[10px] font-bold tracking-wider text-gray-400 uppercase"
+							class="mb-1 block text-[10px] font-bold tracking-wider text-brand-text-muted uppercase"
 							for="sidebar-model">Model</label
 						>
 						{#if models.length > 0}
 							<select
 								id="sidebar-model"
 								bind:value={sidebarModel}
-								class="w-full rounded border border-gray-600 bg-gray-900/60 px-2 py-1 text-xs text-white focus:border-blue-500 focus:outline-none"
+								class="w-full rounded border border-brand-border bg-brand-dark/60 px-2 py-1 text-xs text-brand-text focus:border-brand-blue focus:outline-none"
 							>
 								{#each models as model}
 									<option value={`${model.provider}:${model.modelId}`}>
@@ -519,7 +519,7 @@
 								type="text"
 								bind:value={sidebarModel}
 								placeholder="provider:model"
-								class="w-full rounded border border-gray-600 bg-gray-900/60 px-2 py-1 text-xs text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+								class="w-full rounded border border-brand-border bg-brand-dark/60 px-2 py-1 text-xs text-brand-text placeholder-brand-text-muted focus:border-brand-blue focus:outline-none"
 							/>
 						{/if}
 					</div>
@@ -531,11 +531,11 @@
 									id="sidebar-create-remote"
 									type="checkbox"
 									bind:checked={sidebarCreateRemote}
-									class="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-800"
+									class="h-3.5 w-3.5 rounded border-brand-border bg-brand-surface-2 text-brand-blue focus:ring-brand-blue focus:ring-offset-brand-surface"
 								/>
 								<label
 									for="sidebar-create-remote"
-									class="cursor-pointer text-xs text-gray-300 select-none"
+									class="cursor-pointer text-xs text-brand-text select-none"
 								>
 									Create remote {sidebarPathStatus.matchingRule.provider} repository
 								</label>
@@ -543,30 +543,30 @@
 
 							{#if sidebarCreateRemote}
 								<div
-									class="flex items-center gap-3 pl-5 text-[10px] text-gray-400"
+									class="flex items-center gap-3 pl-5 text-[10px] text-brand-text-muted"
 								>
 									<span>Visibility:</span>
 									<label
-										class="flex cursor-pointer items-center gap-1 transition-colors select-none hover:text-white"
+										class="flex cursor-pointer items-center gap-1 transition-colors select-none hover:text-brand-text"
 									>
 										<input
 											type="radio"
 											name="sidebar-visibility"
 											value="private"
 											bind:group={sidebarRepoVisibility}
-											class="border-gray-750 bg-gray-800 text-blue-600 focus:ring-blue-500"
+											class="border-brand-border bg-brand-surface-2 text-brand-blue focus:ring-brand-blue"
 										/>
 										Private
 									</label>
 									<label
-										class="flex cursor-pointer items-center gap-1 transition-colors select-none hover:text-white"
+										class="flex cursor-pointer items-center gap-1 transition-colors select-none hover:text-brand-text"
 									>
 										<input
 											type="radio"
 											name="sidebar-visibility"
 											value="public"
 											bind:group={sidebarRepoVisibility}
-											class="border-gray-750 bg-gray-800 text-blue-600 focus:ring-blue-500"
+											class="border-brand-border bg-brand-surface-2 text-brand-blue focus:ring-brand-blue"
 										/>
 										Public
 									</label>
@@ -584,11 +584,11 @@
 								onchange={(e) => {
 									userManualSidebarGitInit = e.currentTarget.checked;
 								}}
-								class="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-800"
+								class="h-3.5 w-3.5 rounded border-brand-border bg-brand-surface-2 text-brand-blue focus:ring-brand-blue focus:ring-offset-brand-surface"
 							/>
 							<label
 								for="sidebar-git-init"
-								class="cursor-pointer text-xs text-gray-300 select-none"
+								class="cursor-pointer text-xs text-brand-text select-none"
 							>
 								Initialize Git repository
 							</label>
@@ -598,7 +598,7 @@
 					<button
 						type="submit"
 						disabled={!sidebarCwd.trim()}
-						class="w-full rounded bg-blue-600 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+						class="w-full rounded bg-gradient-to-r from-brand-cyan to-brand-blue py-1.5 text-xs font-semibold text-brand-text transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
 					>
 						Create Session
 					</button>
@@ -607,25 +607,25 @@
 		</div>
 
 		{#if loading && filteredFolders.length === 0}
-			<div class="p-4 text-center text-gray-500">
+			<div class="p-4 text-center text-brand-text-muted">
 				<div
-					class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-gray-500 border-t-transparent"
+					class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-brand-text-muted border-t-transparent"
 				></div>
 				<span class="ml-2 text-sm">Loading sessions...</span>
 			</div>
 		{:else if filteredFolders.length === 0}
-			<div class="p-4 text-center text-sm text-gray-500">
+			<div class="p-4 text-center text-sm text-brand-text-muted">
 				{searchQuery ? 'No sessions match your filter' : 'No sessions found'}
 			</div>
 		{:else}
 			{#each filteredFolders as folder (folder.path)}
-				<div class="border-b border-gray-700/50">
+				<div class="border-b border-brand-border/50">
 					<button
 						onclick={() => toggleFolder(folder.path)}
-						class="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-gray-700/50"
+						class="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-brand-surface-3/50"
 					>
 						<span
-							class="text-xs text-gray-500 transition-transform {isFolderExpanded(
+							class="text-xs text-brand-text-muted transition-transform {isFolderExpanded(
 								folder.path,
 							)
 								? 'rotate-90'
@@ -634,14 +634,16 @@
 							▶
 						</span>
 						<div class="min-w-0 flex-1">
-							<div class="truncate text-sm font-medium text-gray-300">
+							<div class="truncate text-sm font-medium text-brand-text">
 								{folder.name}
 							</div>
-							<div class="truncate text-[10px] text-gray-600">
+							<div class="truncate text-[10px] text-brand-text-muted">
 								{folder.path}
 							</div>
 						</div>
-						<span class="text-xs text-gray-500">{folder.sessions.length}</span>
+						<span class="text-xs text-brand-text-muted"
+							>{folder.sessions.length}</span
+						>
 					</button>
 
 					{#if isFolderExpanded(folder.path)}
@@ -649,21 +651,21 @@
 							<div class="mb-1.5 flex items-center justify-between">
 								<button
 									onclick={() => openNewSessionPicker(folder.path)}
-									class="rounded px-2 py-1 text-left text-xs text-blue-400 transition-colors hover:bg-gray-700/50 hover:text-blue-300"
+									class="rounded px-2 py-1 text-left text-xs text-brand-blue transition-colors hover:bg-brand-surface-3/50 hover:opacity-90"
 								>
 									+ New Session Here
 								</button>
 								<div class="flex-shrink-0">
 									{#if confirmingDeleteFolder === folder.path}
 										<div
-											class="flex items-center gap-1 rounded border border-red-500/30 bg-gray-800/80 px-1 py-0.5"
+											class="flex items-center gap-1 rounded border border-red-500/30 bg-brand-surface-2/80 px-1 py-0.5"
 										>
 											<button
 												onclick={(e) => {
 													e.stopPropagation();
 													handleDeleteAllFolderSessions(folder);
 												}}
-												class="px-1.5 text-xs font-bold text-red-500 hover:text-red-400 focus:outline-none"
+												class="px-1.5 text-xs font-bold text-rose-400 hover:text-rose-300 focus:outline-none"
 												title="Confirm Delete All"
 											>
 												Delete All?
@@ -673,7 +675,7 @@
 													e.stopPropagation();
 													confirmingDeleteFolder = null;
 												}}
-												class="px-1.5 text-[10px] text-gray-400 hover:text-white focus:outline-none"
+												class="px-1.5 text-[10px] text-brand-text-muted hover:text-brand-text focus:outline-none"
 												title="Cancel"
 											>
 												✕
@@ -685,7 +687,7 @@
 												e.stopPropagation();
 												confirmingDeleteFolder = folder.path;
 											}}
-											class="rounded px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-700/50 hover:text-red-400 focus:outline-none"
+											class="rounded px-2 py-1 text-xs text-brand-text-muted transition-colors hover:bg-brand-surface-3/50 hover:text-rose-400 focus:outline-none"
 											title="Delete all sessions in this folder"
 										>
 											Delete All
@@ -696,9 +698,9 @@
 
 							{#each folder.sessions as session (session.path)}
 								<div
-									class="group flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-gray-700/30 {currentSession ===
+									class="group flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-brand-surface-3/30 {currentSession ===
 									session.path
-										? 'bg-gray-700'
+										? 'bg-brand-surface-3'
 										: ''}"
 								>
 									<button
@@ -707,27 +709,27 @@
 									>
 										{#if session.isActive}
 											<span
-												class="h-2 w-2 flex-shrink-0 rounded-full bg-green-500"
+												class="h-2 w-2 flex-shrink-0 rounded-full bg-emerald-500"
 											></span>
 										{:else}
 											<span
-												class="h-2 w-2 flex-shrink-0 rounded-full bg-gray-600"
+												class="h-2 w-2 flex-shrink-0 rounded-full bg-brand-surface-3"
 											></span>
 										{/if}
 										<div class="min-w-0 flex-1">
-											<div class="truncate text-xs text-gray-300">
+											<div class="truncate text-xs text-brand-text">
 												{session.name ||
 													truncate(session.firstMessage) ||
 													'Empty session'}
 											</div>
-											<div class="text-xs text-gray-500">
+											<div class="text-xs text-brand-text-muted">
 												{formatRelative(session.modified)} · {session.messageCount}
 												msgs
 											</div>
 										</div>
 										{#if session.clientCount > 0}
 											<span
-												class="rounded bg-gray-600 px-1.5 py-0.5 text-xs text-gray-300"
+												class="rounded bg-brand-surface-3 px-1.5 py-0.5 text-xs text-brand-text"
 												>{session.clientCount}</span
 											>
 										{/if}
@@ -737,14 +739,14 @@
 									<div class="flex-shrink-0">
 										{#if confirmingDelete === session.path}
 											<div
-												class="flex items-center gap-1 rounded border border-red-500/30 bg-gray-800/80 px-1 py-0.5"
+												class="flex items-center gap-1 rounded border border-red-500/30 bg-brand-surface-2/80 px-1 py-0.5"
 											>
 												<button
 													onclick={(e) => {
 														e.stopPropagation();
 														handleDeleteSession(session.path);
 													}}
-													class="px-1.5 text-xs font-bold text-red-500 hover:text-red-400 focus:outline-none"
+													class="px-1.5 text-xs font-bold text-rose-400 hover:text-rose-300 focus:outline-none"
 													title="Confirm Delete"
 												>
 													❓
@@ -754,7 +756,7 @@
 														e.stopPropagation();
 														confirmingDelete = null;
 													}}
-													class="px-1.5 text-[10px] text-gray-400 hover:text-white focus:outline-none"
+													class="px-1.5 text-[10px] text-brand-text-muted hover:text-brand-text focus:outline-none"
 													title="Cancel"
 												>
 													✕
@@ -766,7 +768,7 @@
 													e.stopPropagation();
 													confirmingDelete = session.path;
 												}}
-												class="p-1 text-xs text-gray-500 transition-opacity hover:text-red-400 focus:outline-none md:opacity-0 md:group-hover:opacity-100"
+												class="p-1 text-xs text-brand-text-muted transition-opacity hover:text-rose-400 focus:outline-none md:opacity-0 md:group-hover:opacity-100"
 												title="Delete session"
 											>
 												✕
@@ -787,32 +789,35 @@
 {#if newSessionPicker.open}
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+		class="fixed inset-0 z-50 flex items-center justify-center bg-brand-dark/60"
 		role="presentation"
 		onclick={closeNewSessionPicker}
 	>
 		<div
-			class="w-80 rounded-lg border border-gray-700 bg-gray-800 p-6"
+			class="w-80 rounded-lg border border-brand-border bg-brand-surface-2 p-6"
 			role="dialog"
 			tabindex="-1"
 			onclick={(e) => e.stopPropagation()}
 		>
-			<h3 class="mb-4 text-sm font-bold">New Session</h3>
+			<h3 class="mb-4 text-sm font-bold text-brand-text">New Session</h3>
 			<div class="mb-4">
-				<span class="mb-1 block text-xs text-gray-400">Folder</span>
-				<div class="truncate rounded bg-gray-700 px-2 py-1.5 text-xs">
+				<span class="mb-1 block text-xs text-brand-text-muted">Folder</span>
+				<div
+					class="truncate rounded bg-brand-surface-3 px-2 py-1.5 text-xs text-brand-text"
+				>
 					{newSessionPicker.folderPath}
 				</div>
 			</div>
 			<div class="mb-4">
-				<label class="mb-1 block text-xs text-gray-400" for="model-select"
-					>Model</label
+				<label
+					class="mb-1 block text-xs text-brand-text-muted"
+					for="model-select">Model</label
 				>
 				{#if models.length > 0}
 					<select
 						id="model-select"
 						bind:value={newSessionPicker.selected}
-						class="w-full rounded border border-gray-600 bg-gray-700 px-2 py-1.5 text-xs text-white"
+						class="w-full rounded border border-brand-border bg-brand-surface-3 px-2 py-1.5 text-xs text-brand-text"
 					>
 						{#each models as model}
 							<option value={`${model.provider}:${model.modelId}`}>
@@ -826,20 +831,20 @@
 						type="text"
 						bind:value={newSessionPicker.selected}
 						placeholder="provider:model"
-						class="w-full rounded border border-gray-600 bg-gray-700 px-2 py-1.5 text-xs text-white placeholder-gray-500"
+						class="w-full rounded border border-brand-border bg-brand-surface-3 px-2 py-1.5 text-xs text-brand-text placeholder-brand-text-muted"
 					/>
 				{/if}
 			</div>
 			<div class="flex justify-end gap-2">
 				<button
 					onclick={closeNewSessionPicker}
-					class="rounded bg-gray-700 px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-gray-600"
+					class="rounded bg-brand-surface-3 px-3 py-1.5 text-xs text-brand-text transition-colors hover:bg-brand-surface-2"
 				>
 					Cancel
 				</button>
 				<button
 					onclick={handleCreateSession}
-					class="rounded bg-blue-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-blue-700"
+					class="rounded bg-gradient-to-r from-brand-cyan to-brand-blue px-3 py-1.5 text-xs font-semibold text-brand-text transition-all hover:opacity-90"
 				>
 					Create
 				</button>
@@ -851,12 +856,12 @@
 <!-- Session Error -->
 {#if $sessionError}
 	<div
-		class="absolute right-0 bottom-0 left-0 flex items-center justify-between border-t border-red-500/50 bg-red-600/20 px-3 py-2 text-xs text-red-400"
+		class="absolute right-0 bottom-0 left-0 flex items-center justify-between border-t border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-rose-400"
 	>
 		<span class="truncate">{$sessionError}</span>
 		<button
 			onclick={() => dismissSessionError()}
-			class="ml-2 flex-shrink-0 text-red-300 hover:text-red-200">✕</button
+			class="ml-2 flex-shrink-0 text-rose-300 hover:text-rose-200">✕</button
 		>
 	</div>
 {/if}
@@ -864,16 +869,18 @@
 <!-- Sidebar Git Init Confirm Dialog -->
 {#if showSidebarGitConfirmModal}
 	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4"
+		class="fixed inset-0 z-50 flex items-center justify-center bg-brand-dark/65 p-4"
 		role="dialog"
 		aria-modal="true"
 	>
 		<div
-			class="w-80 rounded-lg border border-gray-700 bg-gray-800 p-5 text-gray-300"
+			class="w-80 rounded-lg border border-brand-border bg-brand-surface-2 p-5 text-brand-text"
 		>
-			<h3 class="mb-2 text-sm font-bold text-white">Folder Already Exists</h3>
-			<p class="mb-3 text-xs text-gray-400">
-				The folder <span class="font-mono text-[11px] break-all text-gray-200"
+			<h3 class="mb-2 text-sm font-bold text-brand-text">
+				Folder Already Exists
+			</h3>
+			<p class="mb-3 text-xs text-brand-text-muted">
+				The folder <span class="font-mono text-[11px] break-all text-brand-text"
 					>{sidebarCwd}</span
 				> already exists. Do you want to initialize a Git repository in it?
 			</p>
@@ -885,15 +892,15 @@
 						type="checkbox"
 						bind:checked={sidebarGitInit}
 						disabled={sidebarPathStatus.isGit}
-						class="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
+						class="h-3.5 w-3.5 rounded border-brand-border bg-brand-surface-3 text-brand-blue focus:ring-brand-blue disabled:opacity-50"
 					/>
 					<label
 						for="sidebar-modal-git-init"
-						class="cursor-pointer text-xs text-gray-300 select-none disabled:opacity-50"
+						class="cursor-pointer text-xs text-brand-text select-none disabled:opacity-50"
 					>
 						Initialize Git repository
 						{#if sidebarPathStatus.isGit}
-							<span class="ml-1 text-[10px] text-gray-500"
+							<span class="ml-1 text-[10px] text-brand-text-muted"
 								>(already a Git repo)</span
 							>
 						{:else}
@@ -911,11 +918,11 @@
 								id="sidebar-modal-create-remote"
 								type="checkbox"
 								bind:checked={sidebarCreateRemote}
-								class="h-3.5 w-3.5 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500"
+								class="h-3.5 w-3.5 rounded border-brand-border bg-brand-surface-3 text-brand-blue focus:ring-brand-blue"
 							/>
 							<label
 								for="sidebar-modal-create-remote"
-								class="cursor-pointer text-xs text-gray-300 select-none"
+								class="cursor-pointer text-xs text-brand-text select-none"
 							>
 								Create remote {sidebarPathStatus.matchingRule.provider} repository
 							</label>
@@ -923,30 +930,30 @@
 
 						{#if sidebarCreateRemote}
 							<div
-								class="flex items-center gap-3 pl-5 text-[10px] text-gray-400"
+								class="flex items-center gap-3 pl-5 text-[10px] text-brand-text-muted"
 							>
 								<span>Visibility:</span>
 								<label
-									class="flex cursor-pointer items-center gap-1 transition-colors select-none hover:text-white"
+									class="flex cursor-pointer items-center gap-1 transition-colors select-none hover:text-brand-text"
 								>
 									<input
 										type="radio"
 										name="sidebar-modal-visibility"
 										value="private"
 										bind:group={sidebarRepoVisibility}
-										class="border-gray-750 bg-gray-800 text-blue-600 focus:ring-blue-500"
+										class="border-brand-border bg-brand-surface-3 text-brand-blue focus:ring-brand-blue"
 									/>
 									Private
 								</label>
 								<label
-									class="flex cursor-pointer items-center gap-1 transition-colors select-none hover:text-white"
+									class="flex cursor-pointer items-center gap-1 transition-colors select-none hover:text-brand-text"
 								>
 									<input
 										type="radio"
 										name="sidebar-modal-visibility"
 										value="public"
 										bind:group={sidebarRepoVisibility}
-										class="border-gray-750 bg-gray-800 text-blue-600 focus:ring-blue-500"
+										class="border-brand-border bg-brand-surface-3 text-brand-blue focus:ring-brand-blue"
 									/>
 									Public
 								</label>
@@ -960,14 +967,14 @@
 				<button
 					type="button"
 					onclick={() => (showSidebarGitConfirmModal = false)}
-					class="rounded bg-gray-700 px-3 py-1.5 text-xs text-gray-300 transition-colors hover:bg-gray-600"
+					class="rounded bg-brand-surface-3 px-3 py-1.5 text-xs text-brand-text transition-colors hover:bg-brand-surface-2"
 				>
 					Cancel
 				</button>
 				<button
 					type="button"
 					onclick={handleSidebarConfirmModalSubmit}
-					class="rounded bg-blue-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-blue-700"
+					class="rounded bg-gradient-to-r from-brand-cyan to-brand-blue px-3 py-1.5 text-xs font-semibold text-brand-text transition-all hover:opacity-90"
 				>
 					Confirm & Create
 				</button>

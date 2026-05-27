@@ -147,45 +147,46 @@
 <Head title="Pi Remote" description="Chat with your Pi coding agent remotely" />
 
 <div
-	class="fixed inset-0 flex overflow-hidden overscroll-none bg-gray-900 text-white"
+	class="fixed inset-0 flex overflow-hidden overscroll-none bg-brand-dark text-brand-text"
 >
 	<!-- Sidebar -->
 	<div
 		class="{sidebarOpen
 			? 'translate-x-0'
-			: '-translate-x-full'} bg-gray-850 fixed z-20 flex h-full w-72 flex-col border-r border-gray-700 transition-transform duration-200 md:relative md:translate-x-0"
+			: '-translate-x-full'} fixed z-20 flex h-full w-72 flex-col border-r border-brand-border bg-brand-surface transition-transform duration-200 md:relative md:translate-x-0"
 	>
-		<div class="border-b border-gray-700 bg-gray-800/10 p-4">
+		<div class="border-b border-brand-border bg-brand-surface-2/20 p-4">
 			<div class="flex items-center justify-between">
 				{#if showSettings}
-					<span class="text-lg font-bold text-gray-300"
+					<span class="text-lg font-bold text-brand-text"
 						>Connection Settings</span
 					>
 					<button
 						onclick={() => (showSettings = false)}
-						class="rounded px-2 py-1 text-xs font-semibold text-blue-400 transition-colors hover:bg-gray-800 hover:text-blue-300"
+						class="rounded px-2 py-1 text-xs font-semibold text-brand-blue transition-colors hover:bg-brand-surface-2 hover:text-brand-blue"
 					>
 						◀ Back
 					</button>
 				{:else}
 					<button
 						onclick={handleShowMainScreen}
-						class="text-left text-lg font-bold text-white transition-colors hover:text-blue-400"
+						class="flex items-center gap-2 text-left"
 						title="Show Main Screen / New Session"
 					>
-						Pi Remote
+						<img src="/logo.svg" alt="Pi Remote" class="h-6 w-6" />
+						<span class="gradient-text text-lg font-bold">Pi Remote</span>
 					</button>
 					<div class="flex items-center gap-2">
 						<button
 							onclick={() => (showSettings = true)}
-							class="flex items-center gap-1 rounded border border-gray-700 px-1.5 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-800 hover:text-white"
+							class="flex items-center gap-1 rounded border border-brand-border px-1.5 py-1 text-xs text-brand-text-muted transition-colors hover:bg-brand-surface-2 hover:text-brand-text"
 							title="Connection Settings"
 						>
 							⚙️ Config
 						</button>
 						<button
 							onclick={() => (sidebarOpen = false)}
-							class="text-gray-400 hover:text-white md:hidden"
+							class="text-brand-text-muted hover:text-brand-text md:hidden"
 						>
 							X
 						</button>
@@ -203,30 +204,30 @@
 					onConnected={handleConnected}
 				/>
 
-				<div class="mt-2 border-t border-gray-700 p-4">
+				<div class="mt-2 border-t border-brand-border p-4">
 					<h3
-						class="mb-3 text-xs font-bold tracking-wider text-gray-400 uppercase"
+						class="mb-3 text-xs font-bold tracking-wider text-brand-text-muted uppercase"
 					>
 						Server Control
 					</h3>
 					<div class="space-y-2">
 						<button
 							onclick={handleRefresh}
-							class="flex w-full items-center justify-between rounded border border-gray-700 bg-gray-800 px-3 py-2 text-left text-sm text-gray-300 transition-colors hover:bg-gray-700 hover:text-white"
+							class="flex w-full items-center justify-between rounded border border-brand-border bg-brand-surface-2 px-3 py-2 text-left text-sm text-brand-text transition-colors hover:bg-brand-surface-3 hover:text-brand-text"
 						>
 							<span>Refresh Session List</span>
 							<span>🔄</span>
 						</button>
 						<button
 							onclick={handleReconnect}
-							class="flex w-full items-center justify-between rounded border border-gray-700 bg-gray-800 px-3 py-2 text-left text-sm text-gray-300 transition-colors hover:bg-gray-700 hover:text-white"
+							class="flex w-full items-center justify-between rounded border border-brand-border bg-brand-surface-2 px-3 py-2 text-left text-sm text-brand-text transition-colors hover:bg-brand-surface-3 hover:text-brand-text"
 						>
 							<span>Reconnect WebSocket</span>
 							<span>🔌</span>
 						</button>
 						<button
 							onclick={handleDisconnect}
-							class="flex w-full items-center justify-between rounded border border-red-900/50 bg-red-950/20 px-3 py-2 text-left text-sm text-red-400 transition-colors hover:bg-red-900/40 hover:text-red-300"
+							class="flex w-full items-center justify-between rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-left text-sm text-rose-400 transition-colors hover:bg-red-500/20 hover:text-rose-300"
 						>
 							<span>Disconnect Server</span>
 							<span>🛑</span>
@@ -236,14 +237,16 @@
 			</div>
 		{:else}
 			<!-- Connection status -->
-			<div class="border-b border-gray-700 p-4">
+			<div class="border-b border-brand-border p-4">
 				<div class="flex items-center gap-2">
 					<div
 						class="h-2.5 w-2.5 rounded-full {connected
-							? 'bg-green-500'
-							: 'bg-red-500'}"
+							? 'bg-emerald-500'
+							: 'bg-rose-500'}"
 					></div>
-					<span class="text-sm {connected ? 'text-green-400' : 'text-red-400'}">
+					<span
+						class="text-sm {connected ? 'text-emerald-400' : 'text-rose-400'}"
+					>
 						{connected ? 'Connected' : 'Disconnected'}
 					</span>
 				</div>
@@ -251,7 +254,7 @@
 					<div class="mt-2 space-y-1">
 						{#if sessionInfo.cwd}
 							<div
-								class="truncate text-xs text-gray-400"
+								class="truncate text-xs text-brand-text-muted"
 								title={sessionInfo.cwd}
 							>
 								📁 {sessionInfo.cwd.split('/').pop() || sessionInfo.cwd}
@@ -259,7 +262,7 @@
 						{/if}
 						{#if sessionInfo.model}
 							<div
-								class="truncate text-xs text-gray-400"
+								class="truncate text-xs text-brand-text-muted"
 								title={sessionInfo.model}
 							>
 								🤖 {sessionInfo.model}
@@ -268,7 +271,7 @@
 						<div class="pt-1.5">
 							<button
 								onclick={handleShowMainScreen}
-								class="w-full rounded border border-gray-700 bg-gray-800 px-2 py-1 text-center text-xs text-gray-300 transition-colors hover:bg-gray-700 hover:text-white"
+								class="w-full rounded border border-brand-border bg-brand-surface-2 px-2 py-1 text-center text-xs text-brand-text transition-colors hover:bg-brand-surface-3 hover:text-brand-text"
 								title="Show Main Screen (Clear URL Hash)"
 							>
 								Close Session
@@ -277,7 +280,7 @@
 					</div>
 				{/if}
 				{#if appState.error && !connected}
-					<div class="mt-2 text-xs text-red-400">
+					<div class="mt-2 text-xs text-rose-400">
 						{appState.error}
 					</div>
 				{/if}
@@ -294,11 +297,11 @@
 	<div class="flex min-w-0 flex-1 flex-col">
 		<!-- Top bar -->
 		<div
-			class="bg-gray-850 flex items-center gap-3 border-b border-gray-700 p-3"
+			class="flex items-center gap-3 border-b border-brand-border bg-brand-surface p-3"
 		>
 			<button
 				onclick={() => (sidebarOpen = !sidebarOpen)}
-				class="p-1 text-gray-400 hover:text-white md:hidden"
+				class="p-1 text-brand-text-muted hover:text-brand-text md:hidden"
 			>
 				=
 			</button>
@@ -308,18 +311,18 @@
 				{#if appState.isStreaming}
 					<span class="flex items-center gap-1.5 text-sm">
 						<span
-							class="inline-block h-2 w-2 animate-pulse rounded-full bg-blue-400"
+							class="inline-block h-2 w-2 animate-pulse rounded-full bg-brand-cyan"
 						></span>
-						<span class="text-gray-300">Agent working...</span>
+						<span class="text-brand-text">Agent working...</span>
 					</span>
 				{:else if connected && sessionInfo.sessionFile}
-					<span class="text-sm text-green-400">Ready</span>
+					<span class="text-sm text-emerald-400">Ready</span>
 				{:else if connected}
-					<span class="text-sm text-gray-400"
+					<span class="text-sm text-brand-text-muted"
 						>Select a session from sidebar</span
 					>
 				{:else}
-					<span class="text-sm text-gray-400">Not connected</span>
+					<span class="text-sm text-brand-text-muted">Not connected</span>
 				{/if}
 			</div>
 
@@ -329,7 +332,7 @@
 					<!-- Folder -->
 					{#if sessionInfo.cwd}
 						<div
-							class="flex min-w-0 items-center gap-1.5 text-xs text-gray-400"
+							class="flex min-w-0 items-center gap-1.5 text-xs text-brand-text-muted"
 						>
 							<span class="flex-shrink-0">📁</span>
 							<span class="truncate" title={sessionInfo.cwd}
@@ -346,7 +349,7 @@
 								<select
 									value={sessionInfo.model}
 									oninput={(e) => changeModel(e.currentTarget.value)}
-									class="max-w-48 truncate rounded border border-gray-600 bg-gray-800 px-1.5 py-0.5 text-gray-300 focus:border-blue-500 focus:outline-none"
+									class="max-w-48 truncate rounded border border-brand-border bg-brand-surface-2 px-1.5 py-0.5 text-brand-text focus:border-brand-blue focus:outline-none"
 								>
 									{#each models as model}
 										<option value={`${model.provider}:${model.modelId}`}>
@@ -355,8 +358,9 @@
 									{/each}
 								</select>
 							{:else}
-								<span class="truncate text-gray-400" title={sessionInfo.model}
-									>{sessionInfo.model}</span
+								<span
+									class="truncate text-brand-text-muted"
+									title={sessionInfo.model}>{sessionInfo.model}</span
 								>
 							{/if}
 						</div>
@@ -366,7 +370,7 @@
 
 			{#if readOnly}
 				<span
-					class="flex-shrink-0 rounded bg-yellow-600/30 px-2 py-1 text-xs text-yellow-400"
+					class="flex-shrink-0 rounded bg-yellow-500/20 px-2 py-1 text-xs text-yellow-400"
 					>Read-only</span
 				>
 			{/if}
@@ -375,7 +379,7 @@
 		<!-- Interruption notification -->
 		{#if interrupted}
 			<div
-				class="border border-red-500/50 bg-red-600/20 px-4 py-2 text-center text-sm text-red-400"
+				class="border border-red-500/30 bg-red-500/10 px-4 py-2 text-center text-sm text-rose-400"
 			>
 				Your session was interrupted — another client took over.
 			</div>
@@ -384,12 +388,12 @@
 		<!-- Session error notification -->
 		{#if sError}
 			<div
-				class="flex items-center justify-between border border-red-500/50 bg-red-600/20 px-4 py-2 text-sm text-red-400"
+				class="flex items-center justify-between border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-rose-400"
 			>
 				<span>{sError}</span>
 				<button
 					onclick={() => dismissSessionError()}
-					class="ml-2 text-red-300 hover:text-red-200">X</button
+					class="ml-2 text-rose-300 hover:text-rose-200">X</button
 				>
 			</div>
 		{/if}
@@ -397,7 +401,7 @@
 		<!-- Read-only banner -->
 		{#if readOnly && !interrupted}
 			<div
-				class="border border-yellow-500/50 bg-yellow-600/20 px-4 py-2 text-center text-sm text-yellow-400"
+				class="border border-yellow-500/30 bg-yellow-500/10 px-4 py-2 text-center text-sm text-yellow-400"
 			>
 				Read-only: another session is active in this folder
 			</div>
@@ -420,15 +424,9 @@
 	{#if sidebarOpen}
 		<button
 			type="button"
-			class="fixed inset-0 z-10 bg-black/50 md:hidden"
+			class="fixed inset-0 z-10 bg-brand-dark/50 md:hidden"
 			onclick={() => (sidebarOpen = false)}
 			aria-label="Close sidebar"
 		></button>
 	{/if}
 </div>
-
-<style>
-	.bg-gray-850 {
-		background-color: rgb(30, 30, 35);
-	}
-</style>

@@ -44,31 +44,35 @@
 	}
 </script>
 
-<div class="border-b border-gray-700 p-4">
+<div class="border-b border-brand-border p-4">
 	<div class="space-y-3">
 		<div>
-			<label for="pi-host" class="mb-1 block text-xs text-gray-400">Host</label>
+			<label for="pi-host" class="mb-1 block text-xs text-brand-text-muted"
+				>Host</label
+			>
 			<input
 				id="pi-host"
 				type="text"
 				bind:value={localHost}
 				placeholder="localhost"
-				class="w-full rounded border border-gray-600 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+				class="w-full rounded border border-brand-border bg-brand-surface-2 px-3 py-2 text-sm text-brand-text placeholder-brand-text-muted focus:border-brand-blue focus:outline-none"
 			/>
 		</div>
 
 		<div>
-			<label for="pi-port" class="mb-1 block text-xs text-gray-400">Port</label>
+			<label for="pi-port" class="mb-1 block text-xs text-brand-text-muted"
+				>Port</label
+			>
 			<input
 				id="pi-port"
 				type="number"
 				bind:value={localPort}
-				class="w-full rounded border border-gray-600 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+				class="w-full rounded border border-brand-border bg-brand-surface-2 px-3 py-2 text-sm text-brand-text placeholder-brand-text-muted focus:border-brand-blue focus:outline-none"
 			/>
 		</div>
 
 		<div>
-			<label for="pi-token" class="mb-1 block text-xs text-gray-400"
+			<label for="pi-token" class="mb-1 block text-xs text-brand-text-muted"
 				>Token (optional)</label
 			>
 			<input
@@ -76,7 +80,7 @@
 				type="password"
 				bind:value={localToken}
 				placeholder="Authentication token"
-				class="w-full rounded border border-gray-600 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+				class="w-full rounded border border-brand-border bg-brand-surface-2 px-3 py-2 text-sm text-brand-text placeholder-brand-text-muted focus:border-brand-blue focus:outline-none"
 			/>
 		</div>
 
@@ -84,7 +88,7 @@
 			{#if connected}
 				<button
 					onclick={handleDisconnect}
-					class="flex-1 rounded bg-red-600 px-4 py-2 text-sm text-white transition-colors hover:bg-red-700"
+					class="flex-1 rounded bg-rose-500 px-4 py-2 text-sm text-white transition-colors hover:bg-rose-600"
 				>
 					Disconnect
 				</button>
@@ -92,7 +96,7 @@
 				<button
 					onclick={handleConnect}
 					disabled={saving}
-					class="flex-1 rounded bg-blue-600 px-4 py-2 text-sm text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-800"
+					class="flex-1 rounded bg-gradient-to-r from-brand-cyan to-brand-blue px-4 py-2 text-sm text-white transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:from-brand-surface-3 disabled:to-brand-surface-3"
 				>
 					{saving ? 'Connecting...' : 'Connect'}
 				</button>

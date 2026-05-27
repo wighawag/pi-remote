@@ -454,39 +454,39 @@
 	}
 </script>
 
-<div class="flex flex-1 flex-col overflow-hidden bg-gray-900">
+<div class="flex flex-1 flex-col overflow-hidden bg-brand-dark">
 	{#if appState.connecting}
 		<div
-			class="flex flex-1 flex-col items-center justify-center bg-gray-900 p-6 text-gray-500"
+			class="flex flex-1 flex-col items-center justify-center bg-brand-dark p-6 text-brand-text-muted"
 		>
 			<div class="text-center">
 				<div
-					class="mb-4 inline-block h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent"
+					class="mb-4 inline-block h-8 w-8 animate-spin rounded-full border-4 border-brand-blue border-t-transparent"
 				></div>
-				<p class="text-base font-medium text-gray-300">
+				<p class="text-base font-medium text-brand-text">
 					Connecting to Pi Remote Server...
 				</p>
-				<p class="mt-1 text-xs text-gray-500">
+				<p class="mt-1 text-xs text-brand-text-muted">
 					Establishing secure connection to your agent
 				</p>
 			</div>
 		</div>
 	{:else if !appState.connected}
 		<div
-			class="flex flex-1 flex-col items-center justify-center bg-gray-900 p-6 text-gray-500"
+			class="flex flex-1 flex-col items-center justify-center bg-brand-dark p-6 text-brand-text-muted"
 		>
 			<div
-				class="w-full max-w-md rounded-lg border border-red-500/30 bg-red-900/10 p-6 text-center text-gray-300"
+				class="w-full max-w-md rounded-lg border border-red-500/30 bg-red-500/10 p-6 text-center text-brand-text"
 			>
 				<div class="mb-3 text-4xl">⚠️</div>
-				<h3 class="text-lg font-bold text-red-400">Not Connected to Server</h3>
-				<p class="mt-2 text-sm text-gray-400">
+				<h3 class="text-lg font-bold text-rose-400">Not Connected to Server</h3>
+				<p class="mt-2 text-sm text-brand-text-muted">
 					We couldn't connect to the Pi Remote Server. Please verify the server
 					is running and check your connection settings in the sidebar.
 				</p>
 				{#if appState.error}
 					<p
-						class="mt-3 max-h-24 overflow-y-auto rounded bg-red-950/40 p-2 font-mono text-xs text-red-300/80"
+						class="mt-3 max-h-24 overflow-y-auto rounded bg-brand-surface-3 p-2 font-mono text-xs text-rose-300/80"
 					>
 						{appState.error}
 					</p>
@@ -495,7 +495,7 @@
 					onclick={() => {
 						import('$lib/pi-remote').then((m) => m.connect());
 					}}
-					class="hover:bg-gray-750 mt-5 rounded bg-gray-800 px-4 py-2 text-sm font-semibold text-white transition-colors"
+					class="mt-5 rounded bg-brand-surface-2 px-4 py-2 text-sm font-semibold text-brand-text transition-colors hover:bg-brand-surface-3"
 				>
 					Retry Connection
 				</button>
@@ -503,14 +503,14 @@
 		</div>
 	{:else if !sessionInfo.sessionFile && typeof window !== 'undefined' && window.location.hash}
 		<div
-			class="flex flex-1 flex-col items-center justify-center bg-gray-900 p-6 text-gray-500"
+			class="flex flex-1 flex-col items-center justify-center bg-brand-dark p-6 text-brand-text-muted"
 		>
 			<div class="text-center">
 				<div
-					class="mb-4 inline-block h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent"
+					class="mb-4 inline-block h-8 w-8 animate-spin rounded-full border-4 border-brand-blue border-t-transparent"
 				></div>
-				<p class="text-base font-medium text-gray-300">Loading session...</p>
-				<p class="mt-1 text-xs text-gray-500">
+				<p class="text-base font-medium text-brand-text">Loading session...</p>
+				<p class="mt-1 text-xs text-brand-text-muted">
 					Retrieving workspace session history
 				</p>
 			</div>
@@ -518,12 +518,19 @@
 	{:else if !sessionInfo.sessionFile}
 		<div class="flex flex-1 items-center justify-center p-6">
 			<div
-				class="w-full max-w-md rounded-lg border border-gray-700 bg-gray-800/40 p-6 text-gray-300"
+				class="w-full max-w-md rounded-lg border border-brand-border bg-brand-surface/40 p-6 text-brand-text"
 			>
 				<div class="mb-5 text-center">
-					<div class="mb-2 text-4xl">📁</div>
-					<h3 class="text-lg font-bold text-white">Create a New Session</h3>
-					<p class="mt-1 text-xs text-gray-400">
+					<div class="mb-3 flex justify-center">
+						<img src="/logo.svg" alt="Pi Remote" class="h-16 w-16" />
+					</div>
+					<h2 class="mb-1 text-2xl font-bold">
+						<span class="gradient-text">Pi Remote</span>
+					</h2>
+					<h3 class="text-sm font-semibold text-brand-text">
+						Create a New Session
+					</h3>
+					<p class="mt-1 text-xs text-brand-text-muted">
 						Start a coding session in any folder on your machine, or use the
 						sidebar to open an existing session.
 					</p>
@@ -538,7 +545,7 @@
 				>
 					<div>
 						<label
-							class="mb-1 block text-xs font-bold tracking-wider text-gray-400 uppercase"
+							class="mb-1 block text-xs font-bold tracking-wider text-brand-text-muted uppercase"
 							for="main-folder-path">Folder Path</label
 						>
 						<div class="relative" bind:this={containerEl}>
@@ -568,13 +575,13 @@
 										inputFocused = false;
 									}
 								}}
-								class="w-full rounded border px-3 py-2 text-sm text-white placeholder-gray-500 transition-all duration-200 focus:outline-none {isRemoteRepoCreation
-									? 'border-emerald-500/80 bg-emerald-950/20 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/30'
-									: 'border-gray-600 bg-gray-700 focus:border-blue-500'}"
+								class="w-full rounded border px-3 py-2 text-sm text-brand-text placeholder-brand-text-muted transition-all duration-200 focus:outline-none {isRemoteRepoCreation
+									? 'border-emerald-500/80 bg-emerald-500/10 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/30'
+									: 'border-brand-border bg-brand-surface-3 focus:border-brand-blue'}"
 							/>
 							{#if inputFocused && completions.length > 0}
 								<div
-									class="absolute right-0 left-0 z-50 mt-1 max-h-48 overflow-y-auto rounded border border-gray-600 bg-gray-800 py-1 shadow-xl"
+									class="absolute right-0 left-0 z-50 mt-1 max-h-48 overflow-y-auto rounded border border-brand-border bg-brand-surface-2 py-1 shadow-xl"
 								>
 									{#each completions as completion}
 										<button
@@ -584,7 +591,7 @@
 												triggerCheck(completion, true);
 												inputEl?.focus();
 											}}
-											class="block w-full px-3 py-1.5 text-left text-sm text-gray-200 transition-colors hover:bg-gray-700 hover:text-white"
+											class="block w-full px-3 py-1.5 text-left text-sm text-brand-text transition-colors hover:bg-brand-surface-3 hover:text-brand-text"
 										>
 											{completion}
 										</button>
@@ -596,13 +603,13 @@
 							<span class="mt-1.5 block text-xs font-medium text-yellow-400">
 								📁 Folder already exists. Joining will create a session in it.
 								{#if pathStatus.isGit}
-									<span class="ml-1 font-medium text-green-400"
+									<span class="ml-1 font-medium text-emerald-400"
 										>(Git repo detected)</span
 									>
 								{/if}
 							</span>
 						{:else}
-							<span class="mt-1 block text-[10px] text-gray-500"
+							<span class="mt-1 block text-[10px] text-brand-text-muted"
 								>Relative paths are created inside your home folder.</span
 							>
 						{/if}
@@ -610,14 +617,14 @@
 
 					<div>
 						<label
-							class="mb-1 block text-xs font-bold tracking-wider text-gray-400 uppercase"
+							class="mb-1 block text-xs font-bold tracking-wider text-brand-text-muted uppercase"
 							for="main-model-select">Model</label
 						>
 						{#if modelsData.models.length > 0}
 							<select
 								id="main-model-select"
 								bind:value={newFolderModel}
-								class="w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none"
+								class="w-full rounded border border-brand-border bg-brand-surface-3 px-3 py-2 text-sm text-brand-text focus:border-brand-blue focus:outline-none"
 							>
 								{#each modelsData.models as model}
 									<option value={`${model.provider}:${model.modelId}`}>
@@ -631,7 +638,7 @@
 								type="text"
 								bind:value={newFolderModel}
 								placeholder="provider:model"
-								class="w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+								class="w-full rounded border border-brand-border bg-brand-surface-3 px-3 py-2 text-sm text-brand-text placeholder-brand-text-muted focus:border-brand-blue focus:outline-none"
 							/>
 						{/if}
 					</div>
@@ -643,40 +650,42 @@
 									id="main-create-remote"
 									type="checkbox"
 									bind:checked={createRemoteRepo}
-									class="bg-gray-750 h-4 w-4 rounded border-gray-600 text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-800"
+									class="h-4 w-4 rounded border-brand-border bg-brand-surface-3 text-brand-blue focus:ring-brand-blue focus:ring-offset-brand-surface"
 								/>
 								<label
 									for="main-create-remote"
-									class="cursor-pointer text-sm text-gray-300 select-none"
+									class="cursor-pointer text-sm text-brand-text select-none"
 								>
 									Create remote {pathStatus.matchingRule.provider} repository
 								</label>
 							</div>
 
 							{#if createRemoteRepo}
-								<div class="flex items-center gap-4 pl-6 text-xs text-gray-400">
+								<div
+									class="flex items-center gap-4 pl-6 text-xs text-brand-text-muted"
+								>
 									<span>Visibility:</span>
 									<label
-										class="flex cursor-pointer items-center gap-1.5 transition-colors select-none hover:text-white"
+										class="flex cursor-pointer items-center gap-1.5 transition-colors select-none hover:text-brand-text"
 									>
 										<input
 											type="radio"
 											name="main-visibility"
 											value="private"
 											bind:group={repoVisibility}
-											class="border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500"
+											class="border-brand-border bg-brand-surface-3 text-brand-blue focus:ring-brand-blue"
 										/>
 										Private
 									</label>
 									<label
-										class="flex cursor-pointer items-center gap-1.5 transition-colors select-none hover:text-white"
+										class="flex cursor-pointer items-center gap-1.5 transition-colors select-none hover:text-brand-text"
 									>
 										<input
 											type="radio"
 											name="main-visibility"
 											value="public"
 											bind:group={repoVisibility}
-											class="border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500"
+											class="border-brand-border bg-brand-surface-3 text-brand-blue focus:ring-brand-blue"
 										/>
 										Public
 									</label>
@@ -694,11 +703,11 @@
 								onchange={(e) => {
 									userManualGitInit = e.currentTarget.checked;
 								}}
-								class="bg-gray-750 h-4 w-4 rounded border-gray-600 text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-800"
+								class="h-4 w-4 rounded border-brand-border bg-brand-surface-3 text-brand-blue focus:ring-brand-blue focus:ring-offset-brand-surface"
 							/>
 							<label
 								for="main-git-init"
-								class="cursor-pointer text-sm text-gray-300 select-none"
+								class="cursor-pointer text-sm text-brand-text select-none"
 							>
 								Initialize Git repository
 							</label>
@@ -708,7 +717,7 @@
 					<button
 						type="submit"
 						disabled={!newFolderCwd.trim()}
-						class="w-full rounded bg-blue-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+						class="w-full rounded bg-gradient-to-r from-brand-cyan to-brand-blue py-2.5 text-sm font-semibold text-brand-text transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
 					>
 						Create & Start Session
 					</button>
@@ -716,10 +725,12 @@
 			</div>
 		</div>
 	{:else if msgList.length === 0}
-		<div class="flex flex-1 items-center justify-center text-gray-500">
+		<div class="flex flex-1 items-center justify-center text-brand-text-muted">
 			<div class="text-center">
 				<div class="mb-4 text-4xl">💬</div>
-				<p class="mb-2 text-lg font-medium">New Session Started</p>
+				<p class="mb-2 text-lg font-medium text-brand-text">
+					New Session Started
+				</p>
 				<p class="text-sm">
 					Type a message below to start chatting with your Pi coding agent
 				</p>
@@ -736,22 +747,22 @@
 				>
 					<div
 						class="max-w-[85%] rounded-lg px-4 py-3 {msg.role === 'user'
-							? 'bg-blue-600 text-white'
+							? 'bg-brand-blue/80 text-brand-text'
 							: msg.role === 'thinking'
-								? 'border-l-2 border-gray-600 bg-gray-900/30 text-sm text-gray-400'
+								? 'border-l-2 border-brand-border bg-brand-surface/30 text-sm text-brand-text-muted'
 								: msg.role === 'tool'
-									? `border-l-2 bg-gray-800 font-mono text-sm text-gray-300 ${
+									? `border-l-2 bg-brand-surface-2 font-mono text-sm text-brand-text ${
 											msg.isStreaming
-												? 'border-amber-500'
+												? 'border-amber-400'
 												: msg.isError
-													? 'border-rose-500'
-													: 'border-emerald-500'
+													? 'border-rose-400'
+													: 'border-emerald-400'
 										}`
 									: msg.role === 'assistant'
-										? 'border-l-2 border-purple-500 bg-purple-900/30 text-purple-100'
+										? 'border-l-2 border-brand-purple bg-brand-purple/10 text-brand-text'
 										: msg.content === '' && msg.isStreaming
-											? 'bg-gray-700 text-gray-400 italic'
-											: 'bg-gray-800 text-gray-100'}"
+											? 'bg-brand-surface-3 text-brand-text-muted italic'
+											: 'bg-brand-surface-2 text-brand-text'}"
 					>
 						{#if msg.role === 'thinking'}
 							<div class="font-mono text-sm whitespace-pre-wrap">
@@ -765,35 +776,35 @@
 								<!-- Header of tool execution -->
 								<button
 									onclick={() => toggleMessage(msg.id)}
-									class="hover:bg-gray-750/30 flex w-full items-center justify-between gap-3 rounded p-1 text-left transition-colors focus:outline-none"
+									class="flex w-full items-center justify-between gap-3 rounded p-1 text-left transition-colors hover:bg-brand-surface-3/30 focus:outline-none"
 								>
 									<div class="flex flex-1 items-center gap-2 overflow-hidden">
 										<!-- Status icon -->
 										{#if msg.isStreaming}
 											<!-- Running -->
 											<span
-												class="inline-block animate-spin font-bold text-amber-500"
+												class="inline-block animate-spin font-bold text-amber-400"
 												>⚡</span
 											>
 										{:else if parsed.isError}
 											<!-- Error -->
-											<span class="font-bold text-rose-500" title="Failed"
+											<span class="font-bold text-rose-400" title="Failed"
 												>❌</span
 											>
 										{:else}
 											<!-- Success -->
-											<span class="font-bold text-emerald-500" title="Succeeded"
+											<span class="font-bold text-emerald-400" title="Succeeded"
 												>✅</span
 											>
 										{/if}
 
-										<span class="font-mono text-sm font-bold text-gray-200">
+										<span class="font-mono text-sm font-bold text-brand-text">
 											{parsed.toolName}
 										</span>
 
 										{#if parsed.smartTitleArgs}
 											<span
-												class="max-w-[180px] truncate font-mono text-xs text-gray-400 sm:max-w-[300px] md:max-w-[450px]"
+												class="max-w-[180px] truncate font-mono text-xs text-brand-text-muted sm:max-w-[300px] md:max-w-[450px]"
 												title={parsed.smartTitleArgs}
 											>
 												{parsed.smartTitleArgs}
@@ -802,7 +813,7 @@
 									</div>
 
 									<div
-										class="flex shrink-0 items-center gap-1 font-sans text-xs font-medium whitespace-nowrap text-gray-400 select-none hover:text-gray-200"
+										class="flex shrink-0 items-center gap-1 font-sans text-xs font-medium whitespace-nowrap text-brand-text-muted select-none hover:text-brand-text"
 									>
 										{#if expandedMessages[msg.id]}
 											Collapse <span class="text-[10px]">▲</span>
@@ -815,37 +826,37 @@
 								<!-- Tool Output (collapsible) -->
 								{#if expandedMessages[msg.id]}
 									<div
-										class="mt-2 flex flex-col gap-3 overflow-hidden border-t border-gray-700/50 pt-2"
+										class="mt-2 flex flex-col gap-3 overflow-hidden border-t border-brand-border/40 pt-2"
 									>
 										<!-- Full Arguments section -->
 										{#if parsed.fullArgs && parsed.fullArgs !== '{}'}
 											<div class="flex flex-col gap-1">
 												<span
-													class="font-sans text-[10px] font-bold tracking-wider text-gray-500 uppercase"
+													class="font-sans text-[10px] font-bold tracking-wider text-brand-text-muted uppercase"
 													>Arguments</span
 												>
 												<pre
-													class="max-h-40 overflow-x-auto rounded border border-gray-700/20 bg-gray-950/40 p-1.5 font-mono text-[11px] whitespace-pre-wrap text-amber-400">{parsed.fullArgs}</pre>
+													class="max-h-40 overflow-x-auto rounded border border-brand-border/30 bg-brand-dark/60 p-1.5 font-mono text-[11px] whitespace-pre-wrap text-amber-400">{parsed.fullArgs}</pre>
 											</div>
 										{/if}
 
 										<!-- Tool Output section -->
 										<div class="flex flex-col gap-1">
 											<span
-												class="font-sans text-[10px] font-bold tracking-wider text-gray-500 uppercase"
+												class="font-sans text-[10px] font-bold tracking-wider text-brand-text-muted uppercase"
 												>Output</span
 											>
 											{#if parsed.toolOutput}
 												<pre
-													class="max-h-96 overflow-x-auto rounded border border-gray-700/30 bg-gray-950/60 p-2 font-mono text-xs whitespace-pre-wrap text-gray-300">{parsed.toolOutput}</pre>
+													class="max-h-96 overflow-x-auto rounded border border-brand-border/40 bg-brand-dark/60 p-2 font-mono text-xs whitespace-pre-wrap text-brand-text">{parsed.toolOutput}</pre>
 											{:else if msg.isStreaming}
 												<div
-													class="animate-pulse p-1 text-xs text-gray-500 italic"
+													class="animate-pulse p-1 text-xs text-brand-text-muted italic"
 												>
 													Running and waiting for output...
 												</div>
 											{:else}
-												<div class="p-1 text-xs text-gray-500 italic">
+												<div class="p-1 text-xs text-brand-text-muted italic">
 													No output returned
 												</div>
 											{/if}
@@ -862,7 +873,7 @@
 								{#if parsedUserMsg.cleanContent}
 									{parsedUserMsg.cleanContent}
 								{:else if parsedUserMsg.attachments.length > 0}
-									<span class="text-blue-200 italic"
+									<span class="text-brand-text-muted italic"
 										>Shared file{parsedUserMsg.attachments.length > 1
 											? 's'
 											: ''} with agent:</span
@@ -872,17 +883,17 @@
 								{/if}
 								{#if msg.isStreaming && streaming}
 									<span
-										class="ml-1 inline-block h-4 w-1.5 animate-pulse bg-blue-400"
+										class="ml-1 inline-block h-4 w-1.5 animate-pulse bg-brand-cyan"
 									></span>
 								{/if}
 							</div>
 							{#if parsedUserMsg.attachments.length > 0}
 								<div
-									class="mt-2 flex flex-col gap-1 border-t border-blue-500/30 pt-2"
+									class="mt-2 flex flex-col gap-1 border-t border-brand-blue/20 pt-2"
 								>
 									{#each parsedUserMsg.attachments as filePath}
 										<div
-											class="flex items-center gap-1.5 rounded bg-blue-700/50 px-2 py-1 font-mono text-xs text-blue-100 select-all"
+											class="flex items-center gap-1.5 rounded bg-brand-blue/20 px-2 py-1 font-mono text-xs text-brand-text select-all"
 										>
 											<span>📎</span>
 											<span class="truncate" title={filePath}>{filePath}</span>
@@ -893,10 +904,10 @@
 						{/if}
 						<div
 							class="mt-1 text-xs opacity-50 {msg.role === 'user'
-								? 'text-blue-200'
+								? 'text-brand-text-muted'
 								: msg.role === 'assistant'
-									? 'text-purple-300'
-									: 'text-gray-400'}"
+									? 'text-brand-purple'
+									: 'text-brand-text-muted'}"
 						>
 							{formatTime(msg.timestamp)}
 						</div>
@@ -907,10 +918,10 @@
 	{/if}
 
 	{#if streaming}
-		<div class="flex gap-2 border-t border-gray-700 p-2">
+		<div class="flex gap-2 border-t border-brand-border p-2">
 			<button
 				onclick={abort}
-				class="rounded bg-red-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-red-700"
+				class="rounded bg-rose-500 px-3 py-1.5 text-xs text-brand-text transition-colors hover:bg-rose-600"
 				title="Abort"
 			>
 				Abort
@@ -921,18 +932,18 @@
 	<!-- Custom Confirm Modal for Existing Folders -->
 	{#if showGitInitConfirmModal}
 		<div
-			class="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4"
+			class="fixed inset-0 z-50 flex items-center justify-center bg-brand-dark/65 p-4"
 			role="dialog"
 			aria-modal="true"
 		>
 			<div
-				class="w-full max-w-sm rounded-lg border border-gray-700 bg-gray-800 p-6 text-gray-300"
+				class="w-full max-w-sm rounded-lg border border-brand-border bg-brand-surface-2 p-6 text-brand-text"
 			>
-				<h3 class="mb-2 text-base font-bold text-white">
+				<h3 class="mb-2 text-base font-bold text-brand-text">
 					Folder Already Exists
 				</h3>
-				<p class="mb-4 text-sm text-gray-400">
-					The folder <span class="font-mono text-xs text-gray-200"
+				<p class="mb-4 text-sm text-brand-text-muted">
+					The folder <span class="font-mono text-xs text-brand-text"
 						>{newFolderCwd}</span
 					> already exists. Do you want to initialize a Git repository in it?
 				</p>
@@ -944,15 +955,15 @@
 							type="checkbox"
 							bind:checked={newFolderGitInit}
 							disabled={pathStatus.isGit}
-							class="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
+							class="h-4 w-4 rounded border-brand-border bg-brand-surface-3 text-brand-blue focus:ring-brand-blue disabled:opacity-50"
 						/>
 						<label
 							for="modal-git-init"
-							class="cursor-pointer text-sm text-gray-300 select-none disabled:opacity-50"
+							class="cursor-pointer text-sm text-brand-text select-none disabled:opacity-50"
 						>
 							Initialize Git repository
 							{#if pathStatus.isGit}
-								<span class="ml-1 text-xs text-gray-500"
+								<span class="ml-1 text-xs text-brand-text-muted"
 									>(already a Git repository)</span
 								>
 							{:else}
@@ -970,40 +981,42 @@
 									id="modal-create-remote"
 									type="checkbox"
 									bind:checked={createRemoteRepo}
-									class="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500"
+									class="h-4 w-4 rounded border-brand-border bg-brand-surface-3 text-brand-blue focus:ring-brand-blue"
 								/>
 								<label
 									for="modal-create-remote"
-									class="cursor-pointer text-sm text-gray-300 select-none"
+									class="cursor-pointer text-sm text-brand-text select-none"
 								>
 									Create remote {pathStatus.matchingRule.provider} repository
 								</label>
 							</div>
 
 							{#if createRemoteRepo}
-								<div class="flex items-center gap-4 pl-6 text-xs text-gray-400">
+								<div
+									class="flex items-center gap-4 pl-6 text-xs text-brand-text-muted"
+								>
 									<span>Visibility:</span>
 									<label
-										class="flex cursor-pointer items-center gap-1.5 transition-colors select-none hover:text-white"
+										class="flex cursor-pointer items-center gap-1.5 transition-colors select-none hover:text-brand-text"
 									>
 										<input
 											type="radio"
 											name="modal-visibility"
 											value="private"
 											bind:group={repoVisibility}
-											class="border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500"
+											class="border-brand-border bg-brand-surface-3 text-brand-blue focus:ring-brand-blue"
 										/>
 										Private
 									</label>
 									<label
-										class="flex cursor-pointer items-center gap-1.5 transition-colors select-none hover:text-white"
+										class="flex cursor-pointer items-center gap-1.5 transition-colors select-none hover:text-brand-text"
 									>
 										<input
 											type="radio"
 											name="modal-visibility"
 											value="public"
 											bind:group={repoVisibility}
-											class="border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500"
+											class="border-brand-border bg-brand-surface-3 text-brand-blue focus:ring-brand-blue"
 										/>
 										Public
 									</label>
@@ -1017,7 +1030,7 @@
 					<button
 						type="button"
 						onclick={() => (showGitInitConfirmModal = false)}
-						class="rounded bg-gray-700 px-3.5 py-1.5 text-xs font-semibold text-gray-300 transition-colors hover:bg-gray-600"
+						class="rounded bg-brand-surface-3 px-3.5 py-1.5 text-xs font-semibold text-brand-text transition-colors hover:bg-brand-surface-2"
 					>
 						Cancel
 					</button>
@@ -1033,7 +1046,7 @@
 								pathStatus.matchingRule ? repoVisibility : undefined,
 							);
 						}}
-						class="rounded bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
+						class="rounded bg-gradient-to-r from-brand-cyan to-brand-blue px-3.5 py-1.5 text-xs font-semibold text-brand-text transition-all hover:opacity-90"
 					>
 						Confirm & Create
 					</button>
