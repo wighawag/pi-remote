@@ -220,6 +220,13 @@ async function main(): Promise<void> {
     }
   }
 
+  function broadcastSessionsUpdated(): void {
+    const updateMsg: ServerMessage = { type: 'sessions_updated' };
+    for (const c of clients.values()) {
+      sendWS(c.ws, updateMsg);
+    }
+  }
+
   function broadcastAgentEvent(sessionFile: string, event: AgentSessionEvent): void {
     let msg: ServerMessage | null = null;
     const sessionId = sessionPool.getSession(sessionFile)?.sessionId || '';
@@ -332,6 +339,10 @@ async function main(): Promise<void> {
           sendWS(c.ws, msg);
         }
       }
+    }
+
+    if (event.type === 'message_end' || event.type === 'agent_end') {
+      broadcastSessionsUpdated();
     }
   }
 
@@ -706,6 +717,7 @@ async function main(): Promise<void> {
         if (result.error) {
           sendJSON(res, 500, { error: result.error });
         } else {
+          broadcastSessionsUpdated();
           sendJSON(res, 201, {
             sessionId: result.tracked.sessionId,
             sessionFile: result.tracked.sessionFile,
@@ -896,7 +908,7 @@ async function main(): Promise<void> {
       }
 
       try {
-        await handleWSMessage(msg, client, sessionPool, clients, broadcastToSession);
+        await handleWSMessage(msg, client, sessionPool, clients, broadcastToSession, broadcastSessionsUpdated);
       } catch (err) {
         console.error('WS message processing error:', err);
         const errorText = (err as Error).message || 'An error occurred';
@@ -932,6 +944,7 @@ async function main(): Promise<void> {
         } else {
           sessionPool.removeClient(client.sessionId, clientId);
         }
+        broadcastSessionsUpdated();
       }
       clients.delete(clientId);
     });
@@ -976,11 +989,14 @@ This encrypts all network traffic securely and enables safe, private remote acce
   process.on('SIGINT', shutdown);
 }
 
-function switchClientSession(client: WSClient, newSessionFile: string | null, pool: SessionPool) {
+function switchClientSession(client: WSClient, newSessionFile: string | null, pool: SessionPool, onSessionsUpdated?: () => void) {
   if (client.sessionId && client.sessionId !== newSessionFile) {
     pool.removeClient(client.sessionId, client.id);
   }
   client.sessionId = newSessionFile;
+  if (onSessionsUpdated) {
+    onSessionsUpdated();
+  }
 }
 
 async function handleWSMessage(
@@ -989,6 +1005,7 @@ async function handleWSMessage(
   pool: SessionPool,
   clients: Map<string, WSClient>,
   broadcast: (sessionFile: string, message: ServerMessage, excludeId?: string) => void,
+  onSessionsUpdated: () => void,
 ): Promise<void> {
   switch (msg.type) {
     case 'cli_register': {
@@ -999,6 +1016,7 @@ async function handleWSMessage(
         sendWS(client.ws, { type: 'session_error', error: result.error });
       } else {
         console.log(`Registered CLI Bridge for session ${msg.sessionFile} at ${msg.cwd}`);
+        onSessionsUpdated();
         const sId = result.tracked.sessionId;
         const msgToWeb: ServerMessage = {
           type: 'session_created',
@@ -1055,7 +1073,7 @@ async function handleWSMessage(
       }
 
       pool.addClient(result.tracked.sessionFile, client.id);
-      switchClientSession(client, result.tracked.sessionFile, pool);
+      switchClientSession(client, result.tracked.sessionFile, pool, onSessionsUpdated);
       client.readOnly = false;
 
       sendWS(client.ws, {
@@ -1096,7 +1114,7 @@ async function handleWSMessage(
       // let's switch their session to null first so that the existing session has 0 clients. This ensures
       // pool.createNewSession will create a brand new session instead of returning the existing one.
       if (existing && existing.clients.has(client.id)) {
-        switchClientSession(client, null, pool);
+        switchClientSession(client, null, pool, onSessionsUpdated);
       }
 
       const result = await pool.createNewSession(msg.cwd, msg.model, msg.gitInit, msg.createRemote, msg.repoVisibility);
@@ -1106,7 +1124,7 @@ async function handleWSMessage(
       }
 
       pool.addClient(result.tracked.sessionFile, client.id);
-      switchClientSession(client, result.tracked.sessionFile, pool);
+      switchClientSession(client, result.tracked.sessionFile, pool, onSessionsUpdated);
       client.readOnly = false;
 
       sendWS(client.ws, {
@@ -1128,7 +1146,7 @@ async function handleWSMessage(
 
     case 'session_leave': {
       if (client.sessionId) {
-        switchClientSession(client, null, pool);
+        switchClientSession(client, null, pool, onSessionsUpdated);
         client.readOnly = false;
       }
       break;
@@ -1157,7 +1175,7 @@ async function handleWSMessage(
                   ? 'Another client started a new session in this folder'
                   : 'Another client took over this folder',
               });
-              switchClientSession(intClient, null, pool);
+              switchClientSession(intClient, null, pool, onSessionsUpdated);
             }
           }
 
@@ -1170,7 +1188,7 @@ async function handleWSMessage(
             }
 
             pool.addClient(result.tracked.sessionFile, client.id);
-            switchClientSession(client, result.tracked.sessionFile, pool);
+            switchClientSession(client, result.tracked.sessionFile, pool, onSessionsUpdated);
             client.readOnly = false;
 
             sendWS(client.ws, {
@@ -1190,7 +1208,7 @@ async function handleWSMessage(
           } else if (tracked) {
             // Join the existing session
             pool.addClient(tracked.sessionFile, client.id);
-            switchClientSession(client, tracked.sessionFile, pool);
+            switchClientSession(client, tracked.sessionFile, pool, onSessionsUpdated);
             client.readOnly = false;
 
             sendWS(client.ws, {
@@ -1212,7 +1230,7 @@ async function handleWSMessage(
         } else {
           // Join the existing session as read-only
           pool.addClient(existingTracked.sessionFile, client.id);
-          switchClientSession(client, existingTracked.sessionFile, pool);
+          switchClientSession(client, existingTracked.sessionFile, pool, onSessionsUpdated);
           client.readOnly = true;
 
           sendWS(client.ws, {
