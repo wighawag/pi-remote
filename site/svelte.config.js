@@ -9,10 +9,13 @@ const config = {
 		adapter: adapter({
 			assets: 'build',
 			pages: 'build',
-			fallback: 'index.html',
 		}),
 		paths: {
 			relative: true,
+		},
+		serviceWorker: {
+			// we do not use it for now
+			register: false,
 		},
 	},
 };

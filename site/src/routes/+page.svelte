@@ -1,5 +1,6 @@
 <script lang="ts">
 	import '../app.css';
+	import {url} from '$lib/core/utils/web/path';
 
 	const features = [
 		{
@@ -102,12 +103,12 @@
 		},
 	];
 
-	function scrollTo(id) {
+	function scrollTo(id: string) {
 		document.getElementById(id)?.scrollIntoView({behavior: 'smooth'});
 	}
 
-	function getFeatureIcon(icon) {
-		const icons = {
+	function getFeatureIcon(icon: string) {
+		const icons: {[key: string]: string} = {
 			mirror: 'M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4',
 			handover:
 				'M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5',
@@ -133,7 +134,7 @@
 	<div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
 		<div class="flex h-16 items-center justify-between">
 			<div class="flex items-center gap-3">
-				<img src="/logo.svg" alt="pi-remote logo" class="h-8 w-8" />
+				<img src={url('/logo.svg')} alt="pi-remote logo" class="h-8 w-8" />
 				<span class="gradient-text text-lg font-bold">pi-remote</span>
 			</div>
 			<div class="hidden items-center gap-8 md:flex">
@@ -184,7 +185,7 @@
 		<div class="text-center">
 			<div class="mb-8 flex justify-center">
 				<img
-					src="/logo.svg"
+					src={url('/logo.svg')}
 					alt="pi-remote"
 					class="h-24 w-24 sm:h-32 sm:w-32"
 				/>
@@ -477,9 +478,9 @@
 	<div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
 		<div class="flex flex-col items-center justify-between gap-6 md:flex-row">
 			<div class="flex items-center gap-3">
-				<img src="/logo.svg" alt="pi-remote logo" class="h-6 w-6" />
+				<img src={url('/logo.svg')} alt="pi-remote logo" class="h-6 w-6" />
 				<span class="text-sm text-brand-text-muted">
-					Copyright &copy; 2024 pi-remote. Released under the
+					Copyright &copy; 2026 Ronan Sandford. Released under the
 					<a
 						href="https://opensource.org/licenses/MIT"
 						target="_blank"

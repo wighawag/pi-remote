@@ -15,6 +15,7 @@
 	} from '$lib/session-store';
 	import type {ChatMessage} from '$lib/pi-remote';
 	import {onMount} from 'svelte';
+	import {url} from '$lib/core/utils/web/path';
 
 	function parseUserMessage(content: string) {
 		if (!content) return {cleanContent: '', attachments: []};
@@ -538,7 +539,7 @@
 			>
 				<div class="mb-5 text-center">
 					<div class="mb-3 flex justify-center">
-						<img src="/logo.svg" alt="Pi Remote" class="h-16 w-16" />
+						<img src={url('/logo.svg')} alt="Pi Remote" class="h-16 w-16" />
 					</div>
 					<h2 class="mb-1 text-2xl font-bold">
 						<span class="gradient-text">Pi Remote</span>

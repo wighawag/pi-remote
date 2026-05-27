@@ -72,6 +72,10 @@ importers:
         version: 5.9.3
 
   site:
+    dependencies:
+      named-logs:
+        specifier: ^0.4.1
+        version: 0.4.1
     devDependencies:
       '@sveltejs/adapter-static':
         specifier: ^3.0.10
@@ -94,6 +98,9 @@ importers:
       '@types/node':
         specifier: ^24.3.0
         version: 24.12.4
+      ipfs-gateway-emulator:
+        specifier: 4.2.1-ipfs.2
+        version: 4.2.1-ipfs.2
       prettier:
         specifier: ^3.7.3
         version: 3.8.3

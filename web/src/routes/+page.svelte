@@ -21,6 +21,7 @@
 	} from '$lib/pi-remote';
 	import {fetchSessions, availableModels} from '$lib/session-store';
 	import {onMount} from 'svelte';
+	import {url} from '$lib/core/utils/web/path';
 
 	let sidebarOpen = $state(false);
 	let showSettings = $state(false);
@@ -173,7 +174,7 @@
 						class="flex items-center gap-2 text-left"
 						title="Show Main Screen / New Session"
 					>
-						<img src="/logo.svg" alt="Pi Remote" class="h-6 w-6" />
+						<img src={url('/logo.svg')} alt="Pi Remote" class="h-6 w-6" />
 						<span class="gradient-text text-lg font-bold">Pi Remote</span>
 					</button>
 					<div class="flex items-center gap-2">

@@ -37,7 +37,6 @@ const config = {
 		adapter: adapter({
 			assets: 'build',
 			pages: 'build',
-			fallback: 'index.html',
 		}),
 		serviceWorker: {
 			// we handle it ourselves here : src/service-worker-handler.ts
