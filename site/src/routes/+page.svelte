@@ -4,15 +4,15 @@
 
 	const features = [
 		{
-			title: 'CLI Mirroring',
+			title: 'Session Mirroring',
 			description:
-				'Every command you run in your terminal is mirrored to the web dashboard in real-time. Watch your workspace update, edit files, and run commands from any device.',
+				'Your live sessions and chat conversations are synchronized to the web dashboard in real-time. Follow along, write prompts, and watch edits happen from any device.',
 			icon: 'mirror',
 		},
 		{
 			title: 'Headless Handover',
 			description:
-				'Walk away from your terminal and pick up right where you left off on your phone. Seamless context transfer between your desktop and remote sessions.',
+				'Walk away from your desktop and pick up right where you left off on your phone. Seamless conversation and context transfer between devices.',
 			icon: 'handover',
 		},
 		{
@@ -22,15 +22,15 @@
 			icon: 'voice',
 		},
 		{
-			title: 'Bash Execution',
+			title: 'Natural Language Execution',
 			description:
-				'Run shell commands directly from the dashboard. Execute, monitor, and kill terminal processes with a beautiful mobile-first interface.',
+				'Write or speak prompts in English or your native language. The AI agent executes bash commands, edits files, and manages tools on your remote machine behind the scenes.',
 			icon: 'terminal',
 		},
 		{
 			title: 'File Uploads',
 			description:
-				'Drag and drop files into your workspace. Upload context files, configs, or assets directly from your browser to the remote machine.',
+				'Drag and drop files into your conversations. Upload context, config files, or assets directly from your browser to give the AI agent the exact information it needs.',
 			icon: 'upload',
 		},
 		{
@@ -199,8 +199,8 @@
 				class="mx-auto mb-10 max-w-2xl text-lg text-brand-text-muted sm:text-xl"
 			>
 				A beautiful remote workspace that puts your development environment in
-				your pocket. Mirror your terminal, manage sessions from any device, and
-				pick up wherever you left off.
+				your pocket. Sync your live conversations, manage sessions from any device,
+				and pick up wherever you left off.
 			</p>
 			<div class="mb-16 flex flex-col justify-center gap-4 sm:flex-row">
 				<button
