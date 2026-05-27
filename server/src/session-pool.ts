@@ -3,6 +3,24 @@ import os from 'node:os';
 import fs from 'node:fs';
 import { execSync } from 'node:child_process';
 
+/**
+ * Normalize a path to prevent duplicate session folders.
+ * - Removes trailing slashes (except for root "/")
+ * - Resolves . and .. segments
+ * - Ensures consistent encoding for same physical path
+ */
+export function normalizePath(p: string): string {
+  // Resolve to absolute path first (handles . and ..)
+  let normalized = path.resolve(p);
+  
+  // Remove trailing slash (except for root "/")
+  if (normalized !== '/' && normalized.endsWith('/')) {
+    normalized = normalized.slice(0, -1);
+  }
+  
+  return normalized;
+}
+
 export interface RemoteRepoRule {
   pattern: string;
   provider: 'github' | 'codeberg' | 'gitea' | 'forgejo';
@@ -197,6 +215,7 @@ export class SessionPool {
         }
 
         const sessionCwd = cwd || header.cwd || process.cwd();
+        const normalizedCwd = normalizePath(sessionCwd);
         let model: Model<Api> | undefined;
 
         if (modelStr) {
@@ -214,16 +233,16 @@ export class SessionPool {
           }
         }
 
-        const settingsManager = SettingsManager.create(sessionCwd, this.agentDir);
+        const settingsManager = SettingsManager.create(normalizedCwd, this.agentDir);
         const resourceLoader = new DefaultResourceLoader({
-          cwd: sessionCwd,
+          cwd: normalizedCwd,
           agentDir: this.agentDir,
           settingsManager,
         });
         await resourceLoader.reload();
 
         const { session: agentSession } = await createAgentSession({
-          cwd: sessionCwd,
+          cwd: normalizedCwd,
           authStorage: this.authStorage,
           modelRegistry: this.modelRegistry,
           model,
@@ -238,7 +257,7 @@ export class SessionPool {
           type: 'server',
           sessionId: agentSession.sessionId,
           sessionFile: resolvedFile,
-          cwd: sessionCwd,
+          cwd: normalizedCwd,
           model: modelLabel,
           agentSession,
           clients: new Set(),
@@ -271,6 +290,8 @@ export class SessionPool {
     } else {
       resolvedCwd = path.resolve(cwd);
     }
+
+    resolvedCwd = normalizePath(resolvedCwd);
 
     const existing = this.findActiveSessionByCwd(resolvedCwd);
     if (existing && existing.clients.size > 0) {
@@ -475,8 +496,9 @@ export class SessionPool {
   }
 
   findActiveSessionByCwd(cwd: string): TrackedSession | null {
+    const normalizedCwd = normalizePath(cwd);
     for (const s of this.sessions.values()) {
-      if (s.cwd === cwd) return s;
+      if (s.cwd === normalizedCwd) return s;
     }
     return null;
   }
@@ -486,8 +508,9 @@ export class SessionPool {
       return { conflict: false };
     }
 
+    const normalizedTargetCwd = normalizePath(targetCwd);
     for (const s of this.sessions.values()) {
-      if (s.cwd === targetCwd && s.clients.size > 0) {
+      if (s.cwd === normalizedTargetCwd && s.clients.size > 0) {
         return { conflict: true, otherSessionId: s.sessionId, otherCwd: s.cwd };
       }
     }
@@ -587,7 +610,7 @@ export class SessionPool {
       } else if (!path.isAbsolute(rawCwd)) {
         cwd = path.join(os.homedir(), rawCwd);
       }
-      cwd = path.resolve(cwd);
+      cwd = normalizePath(cwd);
 
       if (!folderMap.has(cwd)) {
         folderMap.set(cwd, []);
@@ -832,11 +855,13 @@ export class SessionPool {
       }
     }
 
+    const normalizedCwd = normalizePath(cwd);
+
     const tracked: CliTrackedSession = {
       type: 'cli',
       sessionId,
       sessionFile,
-      cwd,
+      cwd: normalizedCwd,
       model: modelStr || '',
       clients,
       isIdle: true,
