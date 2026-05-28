@@ -26,13 +26,18 @@ Wherever is a TypeScript extension for the [pi coding agent](https://pi.dev) tha
   - Mobile usage options
   - Troubleshooting guide
 
-### Web Applications
+### Web Applications & Extensions
 
 - **`web/`** - SvelteKit dashboard app (mobile-friendly)
   - Real-time WebSocket connection to wherever-dev server
   - Chat interface, session browser, voice dictation
   - Served by the server at `/` when connecting to a server
   - Built to `web/build/`
+- **`vscode/`** - Wherever VS Code Companion Extension
+  - IDE-native Sidebar Chat GUI
+  - Establishes local loopback with `@wherever-dev/client`
+  - Integrated with VS Code commands and native theme variables
+  - Direct editor actions: Open Document and side-by-side git diff view
 - **`site/`** - Standalone marketing/info website
   - Landing page, features, install guide, architecture diagram
   - Built as a static site for GitHub Pages deployment
@@ -194,6 +199,9 @@ wherever/
 │   └── USAGE.md          # Complete API docs
 ├── web/                  # SvelteKit dashboard app (mobile-friendly)
 ├── site/                 # Standalone marketing/info website (GitHub Pages)
+├── vscode/               # VS Code Companion extension (Sidebar Chat GUI)
+├── client/               # Isomorphic TS Client module
+├── server/               # Multi-session standalone server
 ├── .github/
 │   └── workflows/
 │       └── deploy-gh-pages.yml  # CI/CD for marketing site

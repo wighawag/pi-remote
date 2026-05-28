@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <!-- Background glow linear gradient -->
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06b6d4"/>
+      <stop offset="50%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="waveGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06b6d4" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0.5"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Glowing wireless waves in the background -->
+  <g opacity="0.3" filter="url(#glow)">
+    <circle cx="60" cy="60" r="48" stroke="url(#waveGrad)" stroke-width="1" fill="none" stroke-dasharray="4 8" />
+    <circle cx="60" cy="60" r="36" stroke="url(#waveGrad)" stroke-width="1.5" fill="none" stroke-dasharray="6 6" />
+  </g>
+
+  <!-- Modern, sleek, overlapping loop forming a 'W' -->
+  <g filter="url(#glow)">
+    <!-- Main W ribbon -->
+    <path d="M 28,38 C 28,38 35,82 46,82 C 55,82 54,44 60,44 C 66,44 65,82 74,82 C 85,82 92,38 92,38" 
+          stroke="url(#grad)" 
+          stroke-width="10" 
+          fill="none" 
+          stroke-linecap="round" 
+          stroke-linejoin="round"/>
+  </g>
+
+  <!-- Connection / node endpoints -->
+  <g>
+    <!-- Left endpoint -->
+    <circle cx="28" cy="38" r="4" fill="#06b6d4" />
+    <circle cx="28" cy="38" r="1.5" fill="#fff" />
+    
+    <!-- Right endpoint -->
+    <circle cx="92" cy="38" r="4" fill="#8b5cf6" />
+    <circle cx="92" cy="38" r="1.5" fill="#fff" />
+
+    <!-- Center peak node -->
+    <circle cx="60" cy="44" r="3" fill="#3b82f6" />
+  </g>
+</svg>

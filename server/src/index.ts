@@ -73,7 +73,7 @@ function generateId(): string {
   return Math.random().toString(36).substring(2) + Date.now().toString(36);
 }
 
-function parseArgs(): { port: number; host: string; token?: string; idleTimeout: number; sslKey?: string; sslCert?: string; noSsl: boolean } {
+function parseArgs(): { port: number; host: string; token?: string; idleTimeout: number; sslKey?: string; sslCert?: string; noSsl: boolean; httpLocalhostFallbackPort?: number } {
   const args = process.argv.slice(2);
   let port = parseInt(process.env.PI_REMOTE_PORT || '31415', 10);
   let host = process.env.PI_REMOTE_HOST || '127.0.0.1';
@@ -82,6 +82,17 @@ function parseArgs(): { port: number; host: string; token?: string; idleTimeout:
   let sslKey = process.env.PI_REMOTE_SSL_KEY || undefined;
   let sslCert = process.env.PI_REMOTE_SSL_CERT || undefined;
   let noSsl = process.env.PI_REMOTE_NO_SSL === 'true' || process.env.PI_REMOTE_HTTP === 'true';
+  let httpLocalhostFallbackPort: number | undefined = undefined;
+
+  if (process.env.PI_REMOTE_HTTP_LOCALHOST_FALLBACK) {
+    const envVal = process.env.PI_REMOTE_HTTP_LOCALHOST_FALLBACK;
+    if (envVal === 'true') {
+      httpLocalhostFallbackPort = -1; // auto
+    } else {
+      const parsed = parseInt(envVal, 10);
+      httpLocalhostFallbackPort = isNaN(parsed) ? -1 : parsed;
+    }
+  }
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
@@ -107,10 +118,25 @@ function parseArgs(): { port: number; host: string; token?: string; idleTimeout:
       case '--http':
         noSsl = true;
         break;
+      case '--http-localhost-fallback': {
+        const nextArg = args[i + 1];
+        if (nextArg && !nextArg.startsWith('--')) {
+          const parsedPort = parseInt(nextArg, 10);
+          if (!isNaN(parsedPort)) {
+            httpLocalhostFallbackPort = parsedPort;
+            i++; // consume port
+          } else {
+            httpLocalhostFallbackPort = -1; // auto
+          }
+        } else {
+          httpLocalhostFallbackPort = -1; // auto
+        }
+        break;
+      }
     }
   }
 
-  return { port, host, token, idleTimeout, sslKey, sslCert, noSsl };
+  return { port, host, token, idleTimeout, sslKey, sslCert, noSsl, httpLocalhostFallbackPort };
 }
 
 function authenticate(req: IncomingMessage, token?: string): boolean {
@@ -172,7 +198,7 @@ function sendWS(ws: WebSocket, msg: ServerMessage): void {
 }
 
 async function main(): Promise<void> {
-  const { port, host, token, idleTimeout, sslKey, sslCert, noSsl } = parseArgs();
+  const { port, host, token, idleTimeout, sslKey, sslCert, noSsl, httpLocalhostFallbackPort } = parseArgs();
   const sessionPool = new SessionPool(idleTimeout);
   await sessionPool.initialize();
 
@@ -856,6 +882,7 @@ async function main(): Promise<void> {
   };
 
   let server;
+  let httpServer: any = null;
   let isSecureServer = false;
   if (isSecure && actualSslKey && actualSslCert) {
     try {
@@ -865,6 +892,10 @@ async function main(): Promise<void> {
       };
       server = createHttpsServer(options, requestHandler);
       isSecureServer = true;
+      // Instantiate plain HTTP server on localhost if fallback option is enabled
+      if (httpLocalhostFallbackPort !== undefined) {
+        httpServer = createHttpServer(requestHandler);
+      }
     } catch (err) {
       console.error(`Failed to load SSL certificates from ${actualSslKey} and ${actualSslCert}. Falling back to HTTP.`, (err as Error).message);
       server = createHttpServer(requestHandler);
@@ -875,7 +906,7 @@ async function main(): Promise<void> {
 
   const wss = new WebSocketServer({ noServer: true });
 
-  server.on('upgrade', (req, socket, head) => {
+  const upgradeHandler = (req: any, socket: any, head: any) => {
     if (req.url?.startsWith('/ws')) {
       if (!authenticate(req, token)) {
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
@@ -888,7 +919,12 @@ async function main(): Promise<void> {
     } else {
       socket.destroy();
     }
-  });
+  };
+
+  server.on('upgrade', upgradeHandler);
+  if (httpServer) {
+    httpServer.on('upgrade', upgradeHandler);
+  }
 
   wss.on('connection', (ws) => {
     const clientId = generateId();
@@ -978,6 +1014,18 @@ This encrypts all network traffic securely and enables safe, private remote acce
 `);
     }
   });
+
+  if (httpServer && httpLocalhostFallbackPort !== undefined) {
+    const insecurePort = httpLocalhostFallbackPort === -1 ? port + 1 : httpLocalhostFallbackPort;
+    const authInfo = token ? ' (token-protected)' : ' (no authentication)';
+    // Strictly bind to 127.0.0.1 (localhost) for absolute security
+    httpServer.listen(insecurePort, '127.0.0.1', () => {
+      console.log(`\n🔓 Wherever Server (Insecure HTTP/WS Fallback): http://127.0.0.1:${insecurePort}${authInfo}`);
+    });
+    httpServer.on('error', (err: any) => {
+      console.warn('Insecure HTTP Server fallback failed to start:', err.message);
+    });
+  }
 
   server.on('error', (err) => {
     console.error('Server error:', err.message);

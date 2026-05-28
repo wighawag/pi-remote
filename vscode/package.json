@@ -1,0 +1,87 @@
+{
+  "name": "wherever-vscode",
+  "displayName": "Wherever Companion",
+  "description": "IDE Sidebar Chat Companion for Wherever standalone server",
+  "version": "0.1.0",
+  "publisher": "wherever-dev",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Machine Learning",
+    "Programming Languages"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onView:wherever.chatView"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "wherever-sidebar-container",
+          "title": "Wherever",
+          "icon": "media/logo.svg"
+        }
+      ]
+    },
+    "views": {
+      "wherever-sidebar-container": [
+        {
+          "type": "webview",
+          "id": "wherever.chatView",
+          "name": "Wherever Chat",
+          "visibility": "visible"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "wherever.reconnect",
+        "title": "Wherever: Reconnect Sidebar View"
+      }
+    ],
+    "configuration": {
+      "title": "Wherever Settings",
+      "properties": {
+        "wherever.host": {
+          "type": "string",
+          "default": "localhost",
+          "description": "Host of the remote/local standalone server"
+        },
+        "wherever.port": {
+          "type": "integer",
+          "default": 31416,
+          "description": "Port of the remote/local standalone server"
+        },
+        "wherever.token": {
+          "type": "string",
+          "default": "",
+          "description": "Authentication token for the standalone server"
+        },
+        "wherever.secure": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use secure WebSocket (wss://) and HTTPS"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "@wherever-dev/client": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.20.0",
+    "esbuild-svelte": "^0.8.0",
+    "svelte": "^5.0.0",
+    "svelte-preprocess": "^5.1.3",
+    "typescript": "^5.7.0"
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "package": "vsce package"
+  }
+}
