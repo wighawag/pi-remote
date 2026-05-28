@@ -889,6 +889,12 @@ export class SessionPool {
       if (!result.error && result.tracked) {
         result.tracked.clients = tracked.clients;
         if (this.onEvent) {
+          if (tracked.isStreaming) {
+            this.onEvent(sessionFile, {
+              type: 'session_error' as any,
+              error: 'CLI terminal disconnected. Active execution was aborted.'
+            } as any);
+          }
           this.onEvent(sessionFile, { type: 'agent_end' } as any);
         }
       }

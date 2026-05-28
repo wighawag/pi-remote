@@ -1,12 +1,14 @@
 # Wherever VS Code Companion — Integration Design & Plan
 
-This document outlines the architectural plan for adding a VS Code extension package (`vscode-extension/`) and a shared logic package (`client/`) to the Wherever monorepo. It details how the Sidebar Chat GUI operates, how it integrates with the local standalone server, and how it uses a dedicated, narrow-first UI designed specifically for the IDE workspace.
+This document outlines the detailed architectural, implementation, and packaging plan for adding the VS Code extension package (`vscode/`) to the Wherever monorepo. 
+
+Our goal is to build a lightweight, professional, IDE-native Sidebar Chat GUI that integrates seamlessly with the local standalone server, utilizes the newly extracted `@wherever-dev/client` shared engine, and communicates directly with the VS Code extension host to trigger deep editor actions.
 
 ---
 
-## 1. Architectural Overview: Server-Driven Sidebar Webview
+## 1. Architectural Overview
 
-In this model, the VS Code Extension acts as a lightweight, IDE-native controller and client for the Wherever standalone server. **A visible CLI terminal is completely optional.**
+The VS Code Extension operates as a lightweight, IDE-native controller and client for the `wherever-dev` standalone server. It spawns the background server automatically, establishes local loopback, and presents a responsive, Svelte 5-based chat UI inside the sidebar.
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
@@ -14,123 +16,419 @@ In this model, the VS Code Extension acts as a lightweight, IDE-native controlle
 │                                                                │
 │  ┌──────────────────────┐  (postMessage)   ┌────────────────┐  │
 │  │  Sidebar Chat Panel  │◄────────────────►│ Extension Host │  │
-│  │  - Narrow-optimized  │                  │ - Command      │  │
+│  │  - Svelte 5 Webview  │                  │ - Command      │  │
 │  │  - Native CSS Theme  │                  │   registry     │  │
 │  └──────────▲───────────┘                  └────────┬───────┘  │
 └─────────────┼───────────────────────────────────────┼──────────┘
-              │ WS (real-time stream)                 │ File System
+              │ WS (using @wherever-dev/client)       │ File System & Git
               ▼                                       ▼
         ┌─────────────────────────────────────────────────────┐
         │ Local Standalone Server (`wherever-dev`)            │
         │ - Runs in background (Node process)                 │
-        │ - Manages a native `ServerTrackedSession`           │
         │ - Spawns Pi agent loop directly on workspace        │
-        └─────────────────────────────────────────────┘
+        └─────────────────────────────────────────────────────┘
 ```
 
-### Core Architecture Specifications:
-- **No Folder Selection:** Since the user has already opened a folder/workspace in VS Code, the extension automatically binds to that active workspace path. No hard drive browsing is required.
-- **VS Code Theme Alignment:** The Sidebar Chat UI uses VS Code's native CSS variables (e.g., `--vscode-editor-background`, `--vscode-foreground`) to automatically adapt to any user theme (Dark, Light, Monokai, etc.) without custom theme files.
-- **Narrow-First Layout:** The user interface is custom-tailored for the narrow sidebar panel (typically 300px wide), focusing strictly on a clean conversation view and tool cards.
-- **WebSocket Loopback & CORS Security:** Since VS Code Webviews run inside an iframe with a secure origin (e.g., `vscode-webview://...`), the `wherever-dev` standalone server (`server/src/index.ts`) will skip WebSocket origin checking for `vscode-webview://` to ensure smooth local loopback connectivity.
-- **Automatic Token Handshake:** The VS Code Extension Host acts as the Single Source of Truth for authentication. It reads/generates the secure token, spawns the background `wherever-dev` server with it, and injects that same token into the Webview HTML template via `window.WHEREVER_VSCODE_CONFIG`—guaranteeing a flawless handshake on every startup.
+### Core Architecture Decisions:
+1. **Workspace Binding (No Folder Selection):** The extension binds automatically to the active VS Code workspace directory (`vscode.workspace.workspaceFolders[0].uri.fsPath`). No manual hard drive browsing is required.
+2. **VS Code Theme Adaptation:** The Webview UI uses VS Code's native CSS variables (e.g., `--vscode-sideBar-background`, `--vscode-editor-foreground`, `--vscode-button-background`) to automatically adapt to any theme (Dark, Light, High Contrast) out-of-the-box.
+3. **Automatic Token Handshake:** The extension host acts as the Single Source of Truth for authentication. It reads/generates a secure token (from user settings or dynamically generated), boots the background `wherever-dev` server with it, and injects it into the Webview HTML template via a global configuration object (`window.WHEREVER_VSCODE_CONFIG`), guaranteeing a flawless, zero-configuration handshake.
+4. **Standalone Server Lifecycle:**
+   - The extension automatically spawns the background server as a child process if the configuration `wherever.autoStartServer` is `true`.
+   - The server binary path is dynamically resolved using `require.resolve('@wherever-dev/server/dist/index.js')`, ensuring standard, clean npm module resolution.
 
 ---
 
-## 2. Shared Logic Core (`@wherever-dev/client`) & Custom Sidebar Skin
+## 2. Directory Structure & Workspace Integration
 
-To deliver a premium native experience with absolute code efficiency, we decouple our logic into a dedicated, reusable client-side package:
+We will register the new `"vscode"` package inside `pnpm-workspace.yaml`:
 
-```
-                  ┌──────────────────────┐
-                  │   @wherever-dev/web  │
-                  │   (Web Dashboard)    │
-                  └──────────▲───────────┘
-                             │ imports
-┌────────────────────────────┴───────────────────────────┐
-│              @wherever-dev/client (Shared Logic)       │
-│              - Connection Managers & Retry Backoff     │
-│              - WebSocket Event Dispatchers             │
-│              - ChatMessage & Tool Execution Parsers    │
-│              - Reusable Client Stores (State Engine)   │
-└────────────────────────────▲──────────────────▲────────┘
-                             │ imports          │ imports
-                  ┌──────────▼───────────┐  ┌───┴──────────────────┐
-                  │ @wherever-dev/vscode │  │  @wherever-dev/pi    │
-                  │  (VS Code Sidebar)   │  │   (CLI Extension)    │
-                  └──────────────────────┘  └──────────────────────┘
+```yaml
+packages:
+  - "extension"
+  - "web"
+  - "site"
+  - "server"
+  - "client"
+  - "vscode"
 ```
 
-### Shared Logic & Coding Guidelines (`@wherever-dev/client`):
-We will extract the logic currently residing in `web/src/lib/wherever.ts` into a dedicated monorepo library under `./client/`. 
-
-- **100% Pure TypeScript Library:** The `./client/` package contains absolutely **no Svelte templates or `.svelte` files**. It is a pure, compile-fast TypeScript package.
-- **Isomorphic & Dependency-Free:** The library uses browser-native `WebSocket` and `EventTarget` APIs. When used in Node environments (the CLI extension or server), we pass a compatible Node `ws` adapter, ensuring Svelte/Webview code remains extremely lightweight and standard-compliant.
-- **No Svelte Framework Dependency:** We omit the `svelte` package dependency inside `@wherever-dev/client`. To implement standard Svelte store reactivity (`writable`, `readable`, `derived`), we use a lightweight, zero-dependency store library like `sveltore` (or implement a minimal store pattern). Since Svelte store subscribability is a simple agnostic contract (`subscribe(run) => unsubscribe`), these stores remain 100% interoperable with standard Svelte 5 and SvelteKit frontends.
-- **Strict Logic Separation:** All WebSocket connections, state tracking, and parsed logic reside inside pure `.ts` files, completely avoiding Svelte 5 runes or `.svelte.ts` files. Svelte components (`.svelte` files) are strictly confined to the consumer view layers in `./web` and `./vscode-extension/src/webview/`.
-- **CLI Extension Unification:** The CLI extension (`@wherever-dev/pi`) will also import `@wherever-dev/client` for its WebSocket connection and retry handlers, removing duplicate backoff code and maintaining single-point API type-safety.
-
----
-
-## 3. Deep IDE Actions (Webview ↔ Extension Host Communication)
-
-The narrow-optimized sidebar chat panel inside VS Code will communicate with the Extension Host process using the standard VS Code `postMessage` API. This allows triggering native editor actions directly from Svelte click handlers:
-
-1. **`openFile`**: Clicking a file name in a tool card tells the extension host to open that file in the editor:
-   ```typescript
-   vscode.workspace.openTextDocument(filePath).then(doc => {
-       vscode.window.showTextDocument(doc);
-   });
-   ```
-2. **`openDiff`**: When Pi edits a file, clicking "Review Changes" triggers VS Code's native side-by-side diff editor:
-   ```typescript
-   vscode.commands.executeCommand("vscode.diff", originalUri, modifiedUri, "Pi Changes");
-   ```
-
----
-
-## 4. Package Directory & Code Layout
-
-Our monorepo will have two new directories:
-
-### A. The Client-Shared Library: `./client/`
+### File Tree Layout (`./vscode/`)
 ```
-client/
-├── package.json              # Package name: "@wherever-dev/client"
-├── tsconfig.json             # Shared TS settings
+vscode/
+├── package.json              # Extension manifest & sidebar contributions
+├── tsconfig.json             # VS Code target settings
+├── esbuild.js                # Bundles Extension Host (node) & Svelte 5 Webview (browser)
 ├── src/
-│   ├── index.ts              # Entrypoint, exports core client classes/stores
-│   ├── connection.ts         # WebSocket management & exponential backoff logic
-│   └── types.ts              # Unified ChatMessage, ToolExecution, and State models
-```
-
-### B. The VS Code Extension: `./vscode-extension/`
-```
-vscode-extension/
-├── package.json              # Extension metadata, sidebar contributions, settings
-├── tsconfig.json             # TS compiler configuration
-├── esbuild.js                # Build script for bundling extension and webview code
-├── src/
-│   ├── extension.ts          # Extension activator, handles commands and server lifecycle
-│   ├── server-manager.ts     # Monitors, spawns, and kills the background `wherever-dev` server
-│   ├── webview-provider.ts   # Resolves the sidebar Webview, binds messaging
-│   └── webview/              # The Sidebar UI code
-│       ├── main.ts           # Webview entrypoint (Svelte mounting)
-│       ├── Sidebar.svelte    # Main Chat View (optimized for narrow space)
-│       └── global.d.ts       # Types for VS Code Webview API (acquireVsCodeApi)
+│   ├── extension.ts          # Activator, commands, and overall extension orchestration
+│   ├── server-manager.ts     # Child process spawning/killing of @wherever-dev/server
+│   ├── git-provider.ts       # Handles git show HEAD to provide original file text for diffs
+│   ├── webview-provider.ts   # Resolves Sidebar Webview, injects token config, handles postMessage
+│   └── webview/
+│       ├── main.ts           # Webview entrypoint (Svelte 5 mounting)
+│       ├── Sidebar.svelte    # Narrow-optimized Conversation and Tool Timeline view
+│       ├── components/       # Custom lightweight UI components optimized for 300px panel
+│       └── global.d.ts       # Type definitions for acquireVsCodeApi() and config injection
 └── media/
-    └── logo.svg              # Extension sidebar and activity bar icon
+    └── logo.svg              # Activity Bar Icon
 ```
 
-### VS Code Extension Options (settings.json):
-Users will configure:
-- `wherever.host` (default `127.0.0.1`)
-- `wherever.port` (default `31415`)
-- `wherever.token` (default `test123`)
-- `wherever.autoStartServer` (default `true`)
-- `wherever.piPath` (default `pi`)
+---
 
-### Packaging & Delivery Specifications:
-To guarantee seamless packaging and user installation without requiring access to workspace development source files:
-- **Static Assets Compilation:** At extension compile-time, the Svelte sidebar view will be bundled into `vscode-extension/dist/webview.js` and `dist/webview.css` using `esbuild` loaded with `esbuild-svelte` (with compiler configurations tuned for pure client-side rendering).
-- **VSIX Inclusion:** The `files` array inside `vscode-extension/package.json` will explicitly include `dist/` and `media/` to guarantee all compiled UI views and SVGs are bundled inside the compiled `.vsix` archive.
+## 3. Package Configurations
+
+### A. Extension Manifest (`vscode/package.json`)
+The manifest defines configuration settings, custom sidebar icons, and command registrations:
+
+```json
+{
+  "name": "wherever-vscode",
+  "displayName": "Wherever Companion",
+  "description": "IDE Sidebar Chat Companion for Wherever standalone server",
+  "version": "0.1.0",
+  "publisher": "wherever-dev",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Machine Learning",
+    "Programming Languages"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "wherever-sidebar-container",
+          "title": "Wherever",
+          "icon": "media/logo.svg"
+        }
+      ]
+    },
+    "views": {
+      "wherever-sidebar-container": [
+        {
+          "type": "webview",
+          "id": "wherever.chatView",
+          "name": "Wherever Chat",
+          "visibility": "visible"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "wherever.startServer",
+        "title": "Wherever: Start Standalone Server"
+      },
+      {
+        "command": "wherever.stopServer",
+        "title": "Wherever: Stop Standalone Server"
+      },
+      {
+        "command": "wherever.reconnect",
+        "title": "Wherever: Reconnect Sidebar View"
+      }
+    ],
+    "configuration": {
+      "title": "Wherever Settings",
+      "properties": {
+        "wherever.host": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "Host of the remote/local standalone server"
+        },
+        "wherever.port": {
+          "type": "integer",
+          "default": 31415,
+          "description": "Port of the remote/local standalone server"
+        },
+        "wherever.token": {
+          "type": "string",
+          "default": "test123",
+          "description": "Authentication token for the standalone server"
+        },
+        "wherever.autoStartServer": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically spawn/manage the background wherever-dev server"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "@wherever-dev/client": "workspace:*",
+    "@wherever-dev/server": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.20.0",
+    "esbuild-svelte": "^0.8.0",
+    "svelte": "^5.0.0",
+    "typescript": "^5.7.0"
+  },
+  "scripts": {
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "vsce package"
+  }
+}
+```
+
+### B. TS Configuration (`vscode/tsconfig.json`)
+```json
+{
+  "compilerOptions": {
+    "module": "NodeNext",
+    "target": "ES2022",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src/**/*"]
+}
+```
+
+---
+
+## 4. Webview & Extension Host Communication (Deep IDE Actions)
+
+The Webview UI communicates with the Extension Host via `vscode.postMessage` to perform deep IDE tasks:
+
+### Message Schema (Webview → Extension Host)
+- **Open File:** `{ type: 'openFile', filePath: string }`
+- **Open Diff:** `{ type: 'openDiff', filePath: string }`
+
+### Extension Host Message Handler
+```typescript
+webviewView.webview.onDidReceiveMessage(async (message) => {
+  switch (message.type) {
+    case 'openFile': {
+      const fullPath = path.resolve(workspaceRoot, message.filePath);
+      const uri = vscode.Uri.file(fullPath);
+      const doc = await vscode.workspace.openTextDocument(uri);
+      await vscode.window.showTextDocument(doc);
+      break;
+    }
+    case 'openDiff': {
+      const fullPath = path.resolve(workspaceRoot, message.filePath);
+      const relativePath = path.relative(workspaceRoot, fullPath);
+
+      const originalUri = vscode.Uri.parse(`wherever-git-show:${relativePath}`);
+      const modifiedUri = vscode.Uri.file(fullPath);
+
+      await vscode.commands.executeCommand(
+        "vscode.diff",
+        originalUri,
+        modifiedUri,
+        `${path.basename(fullPath)} (HEAD ↔ Edited)`
+      );
+      break;
+    }
+  }
+});
+```
+
+### Git Show HEAD Text Document Content Provider
+To display the diff side-by-side without polluting the local filesystem with temporary files, register a custom `TextDocumentContentProvider`:
+
+```typescript
+import { exec } from 'child_process';
+
+export class GitShowDocumentProvider implements vscode.TextDocumentContentProvider {
+  private workspaceRoot: string;
+
+  constructor(workspaceRoot: string) {
+    this.workspaceRoot = workspaceRoot;
+  }
+
+  provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
+    const relativePath = uri.path; // URI is structured as wherever-git-show:path/to/file
+    return new Promise((resolve, reject) => {
+      exec(`git show HEAD:"${relativePath}"`, { cwd: this.workspaceRoot }, (err, stdout) => {
+        if (err) {
+          // Fall back to empty string if file is untracked/new
+          resolve('');
+        } else {
+          resolve(stdout);
+        }
+      });
+    });
+  }
+}
+
+// Registered in extension.ts:
+// vscode.workspace.registerTextDocumentContentProvider('wherever-git-show', new GitShowDocumentProvider(workspaceRoot));
+```
+
+---
+
+## 5. UI Layout Design (Narrow-Optimized Sidebar)
+
+Since the sidebar chat is typically restricted to a narrow column (~300px), standard broad desktop components (like our web dashboard) will wrap poorly. The Svelte 5 `Sidebar.svelte` panel will follow these design specifications:
+
+- **Strict Vertical Stacking:** Chat input stays pinned at the absolute bottom; message history scrolls in the center.
+- **Narrow Timeline:** Tool execution blocks (`$ bash ...`) are rendered inside lightweight, clickable, expandable timeline nodes with minimal padding and subtle borders.
+- **CSS Variable Color Palette:**
+  - `background-color: var(--vscode-sideBar-background);`
+  - `color: var(--vscode-sideBar-foreground);`
+  - Fonts match VS Code's editor typeface automatically: `font-family: var(--vscode-font-family);`
+- **Action Buttons:** Hovering over a file name inside a chat message displays inline action icons:
+  - 📄 **Open Document** (triggers `openFile` action)
+  - 🔍 **Review Changes** (triggers `openDiff` action, active if the file was recently mutated)
+
+---
+
+## 6. Svelte Webview Bootstrapping
+
+In `webview-provider.ts`, compile the template and inject configuration settings natively:
+
+```typescript
+const config = vscode.workspace.getConfiguration('wherever');
+const host = config.get<string>('host') || '127.0.0.1';
+const port = config.get<number>('port') || 31415;
+const token = config.get<string>('token') || '';
+
+const webviewConfig = {
+  host,
+  port,
+  token,
+  secure: false
+};
+
+const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="${cssUri}">
+  <style>
+    body {
+      padding: 10px;
+      background-color: var(--vscode-sideBar-background);
+      color: var(--vscode-sideBar-foreground);
+      font-family: var(--vscode-font-family);
+      font-size: var(--vscode-font-size);
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script>
+    window.WHEREVER_VSCODE_CONFIG = ${JSON.stringify(webviewConfig)};
+  </script>
+  <script src="${jsUri}"></script>
+</body>
+</html>
+`;
+```
+
+In `src/webview/main.ts`, the Svelte application retrieves this config and instantiates `@wherever-dev/client` seamlessly:
+
+```typescript
+import { mount } from "svelte";
+import Sidebar from "./Sidebar.svelte";
+import { WhereverClient } from "@wherever-dev/client";
+
+// Retrieve config injected from WebviewProvider
+const config = (window as any).WHEREVER_VSCODE_CONFIG;
+
+const client = new WhereverClient({
+  host: config.host,
+  port: config.port,
+  token: config.token,
+  secure: config.secure
+});
+
+// Mount Svelte sidebar component
+const app = mount(Sidebar, {
+  target: document.getElementById("app")!,
+  props: {
+    client
+  }
+});
+
+export default app;
+```
+
+---
+
+## 7. Build and Bundling (`esbuild.js`)
+
+We will use a unified `esbuild.js` build script to compile both the Node-based Extension Host and the browser-based Svelte 5 Webview in one pipeline:
+
+```javascript
+import esbuild from "esbuild";
+import esbuildSvelte from "esbuild-svelte";
+import sveltePreprocess from "svelte-preprocess";
+
+const isWatch = process.argv.includes("--watch");
+
+// 1. Extension Host Build (Node.js target)
+const extensionCtx = await esbuild.context({
+  entryPoints: ["src/extension.ts"],
+  bundle: true,
+  outfile: "dist/extension.js",
+  platform: "node",
+  target: "node18",
+  external: ["vscode"],
+  sourcemap: true,
+  minify: !isWatch
+});
+
+// 2. Webview Client Build (Browser target)
+const webviewCtx = await esbuild.context({
+  entryPoints: ["src/webview/main.ts"],
+  bundle: true,
+  outfile: "dist/webview.js",
+  platform: "browser",
+  target: "es2022",
+  sourcemap: true,
+  minify: !isWatch,
+  plugins: [
+    esbuildSvelte({
+      compilerOptions: { css: "external" }
+    })
+  ]
+});
+
+if (isWatch) {
+  await extensionCtx.watch();
+  await webviewCtx.watch();
+  console.log("👀 Watching for changes in extension and webview...");
+} else {
+  await extensionCtx.rebuild();
+  await webviewCtx.rebuild();
+  console.log("⚡ Extension and webview bundled successfully!");
+  process.exit(0);
+}
+```
+
+---
+
+## 8. Implementation Checklist for Next Agent
+
+A fresh agent context can execute this plan systematically using the following sequence:
+
+- [ ] **Step 1: Workspace Setup**
+  - Create directory `./vscode/`
+  - Create `vscode/package.json` and `vscode/tsconfig.json`
+  - Register `"vscode"` in `pnpm-workspace.yaml`
+  - Create `vscode/esbuild.js`
+- [ ] **Step 2: Server Manager & Git Provider**
+  - Implement `vscode/src/server-manager.ts` to spawn/manage `@wherever-dev/server` as a child process using npm's dynamic file resolution (`require.resolve`).
+  - Implement `vscode/src/git-provider.ts` containing the `GitShowDocumentProvider` class to support clean file diffs.
+- [ ] **Step 3: Extension Host Orchestration**
+  - Write `vscode/src/extension.ts` to coordinate settings loading, boot/kill server cycles, register git show provider, and initialize WebviewProvider.
+- [ ] **Step 4: Webview Host Bridging**
+  - Write `vscode/src/webview-provider.ts` to bind `wherever.chatView`, output the HTML wrapper, inject configuration parameters, and listen for incoming editor message actions.
+- [ ] **Step 5: Webview Svelte UI Design**
+  - Create `vscode/src/webview/main.ts` to parse `window.WHEREVER_VSCODE_CONFIG` and mount the application.
+  - Implement Svelte components under `vscode/src/webview/` utilizing `@wherever-dev/client` to bind state stores natively. Use vertical stacking and VS Code's standard CSS palette to align the theme and optimize for narrow layouts.
+- [ ] **Step 6: Bundling & Packaging**
+  - Run `pnpm install` and compile via `pnpm --filter wherever-vscode run build`.
+  - Compile packaging archive `.vsix` to verify complete bundling of media, layouts, and scripts.

@@ -309,6 +309,14 @@ async function main(): Promise<void> {
         }
         break;
       }
+      case 'session_error' as any: {
+        msg = {
+          type: 'session_error',
+          sessionId,
+          error: (event as any).error
+        };
+        break;
+      }
       case 'tool_execution_start':
         msg = { type: 'tool_start', sessionId, toolName: event.toolName, args: event.args };
         break;
