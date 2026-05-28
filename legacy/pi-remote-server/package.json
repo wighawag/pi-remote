@@ -1,0 +1,12 @@
+{
+  "name": "pi-remote-server",
+  "version": "0.2.0",
+  "description": "Deprecated - Please use wherever-dev instead",
+  "type": "module",
+  "bin": {
+    "pi-remote-server": "./index.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

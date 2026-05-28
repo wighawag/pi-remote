@@ -1,0 +1,15 @@
+{
+  "name": "pi-remote",
+  "version": "0.2.0",
+  "description": "Deprecated - Please use @wherever-dev/pi instead",
+  "type": "module",
+  "main": "./index.js",
+  "pi": {
+    "extensions": [
+      "./index.js"
+    ]
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
