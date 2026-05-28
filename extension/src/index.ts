@@ -14,6 +14,7 @@
 
 import WebSocket from "ws";
 import { spawn } from "node:child_process";
+import { WhereverClient } from "@wherever-dev/client";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -54,25 +55,18 @@ export default async function (pi: ExtensionAPI) {
   pi.registerCommand("remote-reconnect", {
     description: "Manually reconnect to the standalone remote server",
     handler: async (args: string, ctx: any) => {
-      if (isConnected) {
+      if (client && client.getIsConnected()) {
         ctx.ui.notify("[Wherever] Already connected to standalone server", "info");
         return;
       }
       ctx.ui.notify("[Wherever] Initiating manual reconnect...", "info");
-      reconnectDelay = 2000;
       connect();
     },
   });
 
-  let ws: WebSocket | null = null;
-  let isConnected = false;
+  let client: WhereverClient | null = null;
   let sessionFile: string | null = null;
   let ctxVal: ExtensionContext | null = null;
-
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  let reconnectDelay = 2000;
-  const MAX_RECONNECT_DELAY = 15000;
-  let isInitialConnect = true;
 
   function updateCliWidget(status: 'disconnected' | 'connecting' | 'connected') {
     if (!ctxVal) return;
@@ -103,27 +97,24 @@ export default async function (pi: ExtensionAPI) {
   }
 
   function sendCliEvent(event: any) {
-    if (!ws || !isConnected || !sessionFile) return;
+    if (!client || !client.getIsConnected() || !sessionFile) return;
     try {
-      ws.send(
-        JSON.stringify({
-          type: "cli_event",
-          sessionFile,
-          event,
-        })
-      );
+      client.send({
+        type: "cli_event",
+        sessionFile,
+        event,
+      });
     } catch (err) {
       // Quiet fail if connection dropped suddenly during a send
     }
   }
 
   function connect() {
-    if (ws) {
+    if (client) {
       try {
-        ws.removeAllListeners();
-        ws.close();
+        client.disconnect(true);
       } catch (err) {}
-      ws = null;
+      client = null;
     }
 
     if (!ctxVal || !sessionFile) return;
@@ -135,37 +126,26 @@ export default async function (pi: ExtensionAPI) {
     const token = pi.getFlag("remote-token") as string | undefined;
     const isSecure = pi.getFlag("remote-secure") !== false;
 
-    const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : "";
-    const protocol = isSecure ? "wss" : "ws";
-    const wsUrl = `${protocol}://${host}:${port}/ws${tokenQuery}`;
-
-    const wsOptions = isSecure ? { rejectUnauthorized: false } : {};
-    const currentWs = new WebSocket(wsUrl, wsOptions);
-    ws = currentWs;
-
-    currentWs.on("open", () => {
-      if (ws !== currentWs) return;
-      isConnected = true;
-      reconnectDelay = 2000; // Reset reconnect delay back to 2s
-      isInitialConnect = false;
-
-      updateCliWidget('connected');
-
-      // Register this CLI session with the server
-      currentWs.send(
-        JSON.stringify({
-          type: "cli_register",
-          sessionFile,
-          cwd: ctxVal?.cwd,
-          model: ctxVal?.model ? `${ctxVal.model.provider}:${ctxVal.model.id}` : "",
-        })
-      );
+    client = new WhereverClient({
+      host,
+      port,
+      token,
+      secure: isSecure,
+      WebSocketCtor: WebSocket
     });
 
-    currentWs.on("message", (data) => {
-      if (ws !== currentWs) return;
+    client.stateStore.subscribe((s) => {
+      if (s.connected) {
+        updateCliWidget('connected');
+      } else if (s.connecting) {
+        updateCliWidget('connecting');
+      } else {
+        updateCliWidget('disconnected');
+      }
+    });
+
+    client.onMessage((msg) => {
       try {
-        const msg = JSON.parse(data.toString());
         switch (msg.type) {
           case "cli_message": {
             ctxVal?.ui.notify(`[Wherever] Received remote command: ${msg.message.slice(0, 40)}...`, "info");
@@ -278,33 +258,22 @@ export default async function (pi: ExtensionAPI) {
       }
     });
 
-    currentWs.on("close", () => {
-      if (ws !== currentWs) return;
-      if (isConnected) {
-        isConnected = false;
-        updateCliWidget('disconnected');
+    let wasConnected = false;
+    client.stateStore.subscribe((s) => {
+      if (s.connected && !wasConnected) {
+        wasConnected = true;
+        client?.send({
+          type: "cli_register",
+          sessionFile,
+          cwd: ctxVal?.cwd,
+          model: ctxVal?.model ? `${ctxVal.model.provider}:${ctxVal.model.id}` : "",
+        });
+      } else if (!s.connected) {
+        wasConnected = false;
       }
-      scheduleReconnect();
     });
 
-    currentWs.on("error", (err: any) => {
-      if (ws !== currentWs) return;
-      if (isConnected || isInitialConnect) {
-        isConnected = false;
-        isInitialConnect = false;
-        updateCliWidget('disconnected');
-      }
-      scheduleReconnect();
-    });
-  }
-
-  function scheduleReconnect() {
-    if (reconnectTimer) return;
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null;
-      reconnectDelay = Math.min(reconnectDelay * 1.5, MAX_RECONNECT_DELAY);
-      connect();
-    }, reconnectDelay);
+    client.connect();
   }
 
   pi.on("session_start", async (event: SessionStartEvent, ctx: ExtensionContext) => {
@@ -319,23 +288,16 @@ export default async function (pi: ExtensionAPI) {
   });
 
   pi.on("session_shutdown", async () => {
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-    }
-
     const oldCtx = ctxVal;
     ctxVal = null;
     sessionFile = null;
 
-    if (ws) {
+    if (client) {
       try {
-        ws.removeAllListeners();
-        ws.close();
+        client.disconnect(true);
       } catch (err) {}
-      ws = null;
+      client = null;
     }
-    isConnected = false;
 
     if (oldCtx) {
       try {

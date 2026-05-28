@@ -1,0 +1,18 @@
+{
+  "name": "@wherever-dev/client",
+  "version": "0.2.0",
+  "description": "Framework-agnostic isomorphic TypeScript client for Wherever standalone server",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "sveltore": "^0.0.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}
