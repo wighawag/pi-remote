@@ -84,19 +84,12 @@
 		},
 		{
 			number: '02',
-			title: 'Install the Agent & Extension',
-			description:
-				'Wherever bridges the open-source "pi" coding agent. Make sure pi is installed and configured with your preferred AI model (local or remote), then add the bridge extension:',
-			code: 'pi install npm:@wherever-dev/pi',
-		},
-		{
-			number: '03',
 			title: 'Start the Server',
 			description: 'Launch the server with your preferred token and port.',
 			code: 'wherever',
 		},
 		{
-			number: '04',
+			number: '03',
 			title: 'Open the Dashboard',
 			description:
 				'Open the dashboard in your browser and start creating and maintaining your apps.',
@@ -199,8 +192,8 @@
 				class="mx-auto mb-10 max-w-2xl text-lg text-brand-text-muted sm:text-xl"
 			>
 				A beautiful remote workspace that puts your development environment in
-				your pocket. Sync your live conversations, manage sessions from any device,
-				and pick up wherever you left off.
+				your pocket. Sync your live conversations, manage sessions from any
+				device, and pick up wherever you left off.
 			</p>
 			<div class="mb-16 flex flex-col justify-center gap-4 sm:flex-row">
 				<button
@@ -327,8 +320,8 @@
 				<span class="gradient-text">Everything you need</span>
 			</h2>
 			<p class="mx-auto max-w-xl text-lg text-brand-text-muted">
-				A complete remote development experience, designed for both desktop
-				and mobile.
+				A complete remote development experience, designed for both desktop and
+				mobile.
 			</p>
 		</div>
 		<div class="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">

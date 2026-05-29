@@ -34,12 +34,16 @@ The system operates in one of two states for a given session:
 ### Headless Mode (Standard Server-side Agent)
 When no physical terminal CLI is open, the Standalone Server runs a headless instance of the pi agent using the Pi SDK. You can communicate with the agent entirely from the web frontend, and the server executes commands and logs responses.
 
+> 💡 **No Pi CLI Dependency:** You do **not** need the `pi` CLI installed globally on your machine to use Headless Mode. The `wherever-dev` standalone server directly depends on and executes `@earendil-works/pi-coding-agent` (the Pi SDK) in-process.
+
 ### Bridge Mode (Terminal CLI Sync)
 When you run `pi` in a local directory, the **CLI Bridge Extension** connects to the server and registers itself.
 * **Handover:** The server shuts down its headless agent and transfers execution authority to your CLI.
 * **Terminal Control:** The terminal CLI drives the agent. All inputs, outputs, and tool executions in your terminal are mirrored on the web dashboard.
 * **Remote Commands:** Typing in the web UI forwards commands to the CLI process to execute inside your visual terminal.
 * **Auto-Recovery:** If the CLI exits, the server resumes headless control instantly. If the connection drops, the extension automatically reconnects in the background using an exponential backoff.
+
+> ⚠️ **Bridge Mode Limitation:** When executing in Bridge Mode, the `pi` CLI process in your terminal takes exclusive control of the session's execution loop ("brain operation"). Quitting or killing the `pi` CLI process (e.g. via `Ctrl+C` or closing your terminal) will immediately interrupt any active conversation or running tools, even if you are viewing or interacting with it on the web frontend. This is an architectural limitation of the `pi` CLI.
 
 ---
 
