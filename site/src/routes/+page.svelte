@@ -53,27 +53,6 @@
 		},
 	];
 
-	const architectureSteps = [
-		{
-			number: '01',
-			title: 'Web Dashboard',
-			description:
-				'A beautiful, mobile-responsive interface that connects to your server via WebSocket. Control everything from any browser.',
-		},
-		{
-			number: '02',
-			title: 'Standalone Server',
-			description:
-				'A lightweight extension server that bridges WebSocket clients with the pi CLI. Handles sessions, auth, and event broadcasting.',
-		},
-		{
-			number: '03',
-			title: 'CLI Extension',
-			description:
-				"The @wherever-dev/pi extension plugs into pi's extension system, forwarding commands to and from the server in real-time.",
-		},
-	];
-
 	const installSteps = [
 		{
 			number: '01',
@@ -138,11 +117,6 @@
 					>Features</button
 				>
 				<button
-					on:click={() => scrollTo('architecture')}
-					class="text-brand-text-muted transition-colors hover:text-brand-text"
-					>How it Works</button
-				>
-				<button
 					on:click={() => scrollTo('install')}
 					class="text-brand-text-muted transition-colors hover:text-brand-text"
 					>Install</button
@@ -167,7 +141,7 @@
 
 <!-- Hero Section -->
 <section
-	class="relative flex min-h-screen items-center justify-center overflow-hidden pt-16"
+	class="relative flex overflow-hidden pt-32 pb-20 sm:pt-40 sm:pb-28"
 >
 	<div
 		class="absolute top-1/4 left-1/4 h-96 w-96 rounded-full bg-brand-cyan/10 blur-3xl"
@@ -175,7 +149,7 @@
 	<div
 		class="absolute right-1/4 bottom-1/4 h-96 w-96 rounded-full bg-brand-purple/10 blur-3xl"
 	></div>
-	<div class="relative z-10 mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
+	<div class="relative z-10 mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
 		<div class="text-center">
 			<div class="mb-8 flex justify-center">
 				<img
@@ -195,7 +169,7 @@
 				your pocket. Sync your live conversations, manage sessions from any
 				device, and pick up wherever you left off.
 			</p>
-			<div class="mb-16 flex flex-col justify-center gap-4 sm:flex-row">
+			<div class="flex flex-col justify-center gap-4 sm:flex-row">
 				<button
 					on:click={() => scrollTo('install')}
 					class="rounded-xl bg-gradient-to-r from-brand-cyan via-brand-blue to-brand-purple px-8 py-4 text-lg font-semibold text-white shadow-lg shadow-brand-blue/25 transition-opacity hover:opacity-90"
@@ -214,99 +188,6 @@
 					>
 					View on GitHub
 				</a>
-			</div>
-
-			<!-- Architecture Mini Diagram -->
-			<div class="mx-auto max-w-2xl">
-				<div
-					class="rounded-2xl border border-brand-border bg-brand-surface p-6 sm:p-8"
-				>
-					<p
-						class="mb-6 text-sm font-medium tracking-wider text-brand-text-muted uppercase"
-					>
-						Architecture Overview
-					</p>
-					<div
-						class="flex flex-col items-center justify-center gap-4 sm:flex-row sm:gap-6"
-					>
-						<!-- Browser -->
-						<div class="flex flex-col items-center gap-2">
-							<div
-								class="flex h-14 w-14 items-center justify-center rounded-xl border border-brand-border bg-brand-surface-2 sm:h-16 sm:w-16"
-							>
-								<svg
-									class="h-7 w-7 text-brand-cyan sm:h-8 sm:w-8"
-									fill="none"
-									stroke="currentColor"
-									viewBox="0 0 24 24"
-									><path
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										stroke-width="1.5"
-										d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-									/></svg
-								>
-							</div>
-							<span class="text-xs text-brand-text-muted">Browser</span>
-						</div>
-						<!-- Connector: Browser → Server -->
-						<div class="flex items-center gap-1">
-							<div
-								class="h-px w-8 bg-gradient-to-r from-brand-cyan/50 to-brand-blue/50 sm:w-12"
-							></div>
-							<span class="px-1 text-[10px] text-brand-text-muted">WS</span>
-							<div class="h-2 w-2 rounded-full bg-brand-cyan/50"></div>
-						</div>
-						<!-- Server -->
-						<div class="flex flex-col items-center gap-2">
-							<div
-								class="flex h-14 w-14 items-center justify-center rounded-xl border border-brand-border bg-brand-surface-2 sm:h-16 sm:w-16"
-							>
-								<svg
-									class="h-7 w-7 text-brand-blue sm:h-8 sm:w-8"
-									fill="none"
-									stroke="currentColor"
-									viewBox="0 0 24 24"
-									><path
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										stroke-width="1.5"
-										d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"
-									/></svg
-								>
-							</div>
-							<span class="text-xs text-brand-text-muted">Server</span>
-						</div>
-						<!-- Connector: Server → CLI -->
-						<div class="flex items-center gap-1">
-							<div
-								class="h-px w-8 bg-gradient-to-r from-brand-blue/50 to-brand-purple/50 sm:w-12"
-							></div>
-							<span class="px-1 text-[10px] text-brand-text-muted">Ext</span>
-							<div class="h-2 w-2 rounded-full bg-brand-blue/50"></div>
-						</div>
-						<!-- pi CLI -->
-						<div class="flex flex-col items-center gap-2">
-							<div
-								class="flex h-14 w-14 items-center justify-center rounded-xl border border-brand-border bg-brand-surface-2 sm:h-16 sm:w-16"
-							>
-								<svg
-									class="h-7 w-7 text-brand-purple sm:h-8 sm:w-8"
-									fill="none"
-									stroke="currentColor"
-									viewBox="0 0 24 24"
-									><path
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										stroke-width="1.5"
-										d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-									/></svg
-								>
-							</div>
-							<span class="text-xs text-brand-text-muted">pi CLI</span>
-						</div>
-					</div>
-				</div>
 			</div>
 		</div>
 	</div>
@@ -353,55 +234,6 @@
 					</p>
 				</div>
 			{/each}
-		</div>
-	</div>
-</section>
-
-<!-- How it Works Section -->
-<section id="architecture" class="bg-brand-surface py-24 sm:py-32">
-	<div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-		<div class="mb-16 text-center">
-			<h2 class="mb-4 text-3xl font-bold sm:text-4xl">
-				<span class="gradient-text">How it works</span>
-			</h2>
-			<p class="mx-auto max-w-xl text-lg text-brand-text-muted">
-				Three simple components that work together to give you complete remote
-				control.
-			</p>
-		</div>
-		<div class="grid grid-cols-1 gap-8 md:grid-cols-3">
-			{#each architectureSteps as step}
-				<div class="relative">
-					<div
-						class="h-full rounded-2xl border border-brand-border bg-brand-dark p-8"
-					>
-						<div class="gradient-text mb-4 text-4xl font-bold">
-							{step.number}
-						</div>
-						<h3 class="mb-3 text-xl font-semibold text-brand-text">
-							{step.title}
-						</h3>
-						<p class="leading-relaxed text-brand-text-muted">
-							{step.description}
-						</p>
-					</div>
-				</div>
-			{/each}
-		</div>
-		<div
-			class="mt-16 rounded-2xl border border-brand-border bg-brand-dark p-4 sm:p-8"
-		>
-			<div class="overflow-x-auto">
-				<pre
-					class="min-w-[320px] font-mono text-xs leading-relaxed whitespace-pre text-brand-text-muted sm:text-sm">
-┌──────────────────┐         ┌─────────────────────────────┐         ┌──────────────────┐
-│                  │  WS     │                             │  Ext    │                  │
-│  Web Browser     │────────►│    wherever Server          │────────►│  pi CLI          │
-│  (any device)    │◄────────│    (Extension + REST API)   │◄────────│  (Agent + Tools) │
-│                  │  WS     │                             │  Ext    │                  │
-└──────────────────┘         └─────────────────────────────┘         └──────────────────┘
-			</pre>
-			</div>
 		</div>
 	</div>
 </section>
