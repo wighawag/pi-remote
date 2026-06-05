@@ -21,6 +21,20 @@ export function normalizePath(p: string): string {
   return normalized;
 }
 
+/** True only for a real Date with a finite (valid) time value. */
+function isValidDate(d: Date | undefined | null): d is Date {
+  return d instanceof Date && Number.isFinite(d.getTime());
+}
+
+/**
+ * Convert a Date to an ISO string, tolerating invalid/missing dates.
+ * Belt-and-suspenders guard: a single malformed session timestamp must never
+ * crash listSessions(), even if a bad record slips past the upstream filter.
+ */
+function safeToISOString(d: Date | undefined | null): string {
+  return isValidDate(d) ? d.toISOString() : new Date(0).toISOString();
+}
+
 export interface RemoteRepoRule {
   pattern: string;
   provider: 'github' | 'codeberg' | 'gitea' | 'forgejo';
@@ -603,6 +617,17 @@ export class SessionPool {
     const folderMap = new Map<string, FolderSessionInfo[]>();
 
     for (const s of diskSessions) {
+      // Skip incomplete/stub session files: a valid-looking `session` header
+      // can still be missing its `timestamp` (e.g. test stubs written as
+      // {"type":"session","id":"abc","cwd":"."}). Upstream tolerates a
+      // missing timestamp for `modified` (falls back to file mtime) but not
+      // for `created`, leaving it as an Invalid Date. Such a session has no
+      // meaningful creation time, so we drop it from the list rather than
+      // surfacing a bogus 1970 entry.
+      if (!isValidDate(s.created)) {
+        continue;
+      }
+
       const rawCwd = s.cwd || '';
       let cwd = rawCwd;
       if (rawCwd.startsWith('~')) {
@@ -620,8 +645,8 @@ export class SessionPool {
         path: s.path,
         id: s.id,
         name: s.name,
-        created: s.created.toISOString(),
-        modified: s.modified.toISOString(),
+        created: safeToISOString(s.created),
+        modified: safeToISOString(s.modified),
         messageCount: s.messageCount,
         firstMessage: s.firstMessage,
         isActive: !!active,
