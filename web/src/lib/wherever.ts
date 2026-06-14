@@ -103,7 +103,11 @@ client.onMessage((msg) => {
 			if (pendingSearchQuery !== null) {
 				const query = pendingSearchQuery;
 				pendingSearchQuery = null;
-				client.sendMessage(query);
+				// App onMessage listeners run BEFORE the client's internal switch
+				// sets sessionId on its state store, and sendMessage() drops the
+				// message when sessionId is still null. Defer to the next microtask
+				// so the store is populated before we send the query.
+				queueMicrotask(() => client.sendMessage(query));
 			}
 			break;
 

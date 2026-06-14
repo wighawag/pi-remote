@@ -13,7 +13,27 @@
 	import {getBaseUrl, getToken} from '$lib/session-store';
 	import SpeechButton from './speech/SpeechButton.svelte';
 
-	let {disabled, onSend}: {disabled: boolean; onSend?: () => void} = $props();
+	let {
+		disabled,
+		onSend,
+		onSubmit,
+		placeholder,
+		submitLabel,
+		showAttach = true,
+		searchMode = false,
+		searchConfigured = false,
+	}: {
+		disabled: boolean;
+		onSend?: () => void;
+		// When provided (search mode), submit routes here instead of sendMessage.
+		onSubmit?: (text: string) => void;
+		placeholder?: string;
+		submitLabel?: string;
+		showAttach?: boolean;
+		searchMode?: boolean;
+		// Whether a search folder is configured (gates enablement in search mode).
+		searchConfigured?: boolean;
+	} = $props();
 
 	let text = $state('');
 	let enterToSend = $state(true);
@@ -32,8 +52,13 @@
 	let connected = $derived($isConnected);
 	let appState = $derived($piState);
 
+	// In search mode the composer must work with no active session: it requires
+	// only a live connection and a configured search folder. In chat mode it
+	// stays gated on an active session as before.
 	let effectivelyDisabled = $derived(
-		disabled || readOnly || !sessionInfo.sessionId || !!queuedText,
+		searchMode
+			? disabled || !connected || !searchConfigured
+			: disabled || readOnly || !sessionInfo.sessionId || !!queuedText,
 	);
 
 	let isAnyUploading = $derived(attachments.some((a) => a.uploading));
@@ -51,6 +76,13 @@
 			enterToSend = stored === 'true';
 		}
 	});
+
+	// Exposed so a parent can focus the textarea SYNCHRONOUSLY inside a user
+	// gesture (required to raise the mobile virtual keyboard, esp. iOS Safari).
+	export function focusInput() {
+		if (isCollapsed) isCollapsed = false;
+		textarea?.focus();
+	}
 
 	function toggleEnterToSend() {
 		enterToSend = !enterToSend;
@@ -163,6 +195,17 @@
 
 	function handleSend() {
 		const trimmed = text.trim();
+
+		// Search mode: route to the injected handler, skip slash commands,
+		// attachments and the streaming/queue machinery entirely.
+		if (searchMode) {
+			if (!trimmed || effectivelyDisabled) return;
+			onSubmit?.(trimmed);
+			text = '';
+			onSend?.();
+			return;
+		}
+
 		if (!trimmed && attachments.length === 0) return;
 
 		let messageToSend = trimmed;
@@ -266,9 +309,11 @@
 				class="flex w-full items-center justify-between rounded-lg border border-brand-border bg-brand-surface-2 px-4 py-2.5 text-sm text-brand-text-muted transition-all hover:bg-brand-surface-3 hover:text-brand-text"
 			>
 				<span class="flex items-center gap-2">
-					<span>💬</span>
+					<span>{searchMode ? '🔍' : '💬'}</span>
 					<span>
-						{#if queuedText}
+						{#if searchMode}
+							{placeholder ?? 'Search the web...'}
+						{:else if queuedText}
 							Message is queued...
 						{:else if streaming}
 							Agent is working (click to type next)...
@@ -349,13 +394,15 @@
 					onkeydown={handleKeydown}
 					disabled={effectivelyDisabled}
 					rows={1}
-					placeholder={streaming
-						? 'Agent is working (type next message...)'
-						: readOnly
-							? 'Read-only mode'
-							: !sessionInfo.sessionId
-								? 'Select a session first...'
-								: 'Type a message...'}
+					placeholder={searchMode
+						? (placeholder ?? 'Search the web...')
+						: streaming
+							? 'Agent is working (type next message...)'
+							: readOnly
+								? 'Read-only mode'
+								: !sessionInfo.sessionId
+									? 'Select a session first...'
+									: 'Type a message...'}
 					class="h-full max-h-48 min-h-[120px] w-full resize-none overflow-y-auto rounded-lg border border-brand-border bg-brand-surface-2 px-4 py-3 leading-relaxed placeholder-brand-text-muted focus:border-brand-blue focus:outline-none disabled:opacity-50 {queuedText
 						? 'text-brand-text-muted italic'
 						: 'text-brand-text'}"
@@ -363,22 +410,24 @@
 			</div>
 
 			<div class="flex w-[80px] shrink-0 flex-col justify-end gap-2">
-				<button
-					type="button"
-					onclick={() => fileInput?.click()}
-					disabled={effectivelyDisabled}
-					class="flex h-[40px] w-full items-center justify-center rounded-lg border border-brand-border bg-brand-surface-2 text-brand-text-muted transition-colors hover:bg-brand-surface-3 hover:text-brand-text disabled:cursor-not-allowed disabled:opacity-50"
-					title="Attach file (image or document)"
-				>
-					📎
-				</button>
-				<input
-					bind:this={fileInput}
-					type="file"
-					multiple
-					onchange={handleFileChange}
-					class="hidden"
-				/>
+				{#if showAttach && !searchMode}
+					<button
+						type="button"
+						onclick={() => fileInput?.click()}
+						disabled={effectivelyDisabled}
+						class="flex h-[40px] w-full items-center justify-center rounded-lg border border-brand-border bg-brand-surface-2 text-brand-text-muted transition-colors hover:bg-brand-surface-3 hover:text-brand-text disabled:cursor-not-allowed disabled:opacity-50"
+						title="Attach file (image or document)"
+					>
+						📎
+					</button>
+					<input
+						bind:this={fileInput}
+						type="file"
+						multiple
+						onchange={handleFileChange}
+						class="hidden"
+					/>
+				{/if}
 				<div class="flex w-full justify-center">
 					<SpeechButton
 						bind:text
@@ -400,7 +449,9 @@
 						disabled={!canSend}
 						class="flex h-[40px] w-full items-center justify-center rounded-lg bg-gradient-to-r from-brand-cyan to-brand-blue text-xs font-medium text-brand-text transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:bg-brand-surface-3 disabled:from-brand-surface-3 disabled:to-brand-surface-3 disabled:opacity-50"
 					>
-						{#if streaming}
+						{#if searchMode}
+							{submitLabel ?? 'Search'}
+						{:else if streaming}
 							Queue
 						{:else}
 							Send

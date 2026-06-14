@@ -202,31 +202,38 @@
 
 	let isCreating = $derived($isCreatingSession);
 	let searchFolder = $derived($searchFolderStore);
-	let searchQuery = $state('');
-	let searchInput: HTMLInputElement | null = $state(null);
 
-	// Autofocus the search bar on first load once connected and configured.
+	// The bottom composer is always mounted but mode-switched: it acts as the
+	// search composer when connected, a search folder is configured, and no
+	// session is active. Keeping it mounted (not conditionally rendered) means it
+	// exists at tap time so we can focus it synchronously inside a user gesture.
+	let chatInput: {focusInput: () => void} | undefined = $state();
+	let searchActive = $derived(
+		connected && !!searchFolder && !sessionInfo.sessionFile,
+	);
+
+	// On page load with no session, focus the search composer so it is ready to
+	// type. (One-shot; not inside the tap path, so no mobile-keyboard concern.)
 	let hasFocusedSearch = $state(false);
 	$effect(() => {
-		if (
-			connected &&
-			searchFolder &&
-			!sessionInfo.sessionFile &&
-			!hasFocusedSearch &&
-			searchInput
-		) {
+		if (searchActive && !hasFocusedSearch && chatInput) {
 			hasFocusedSearch = true;
-			searchInput.focus();
+			chatInput.focusInput();
 		}
 	});
 
-	function handleSearch(e: Event) {
-		e.preventDefault();
-		const q = searchQuery.trim();
-		if (!q) return;
-		if (runSearch(q)) {
-			searchQuery = '';
+	// Top-bar magnifier (active-session case): leave the session and focus the
+	// search composer SYNCHRONOUSLY inside this gesture so the mobile virtual
+	// keyboard rises (focusing later from a reactive effect would not, esp. iOS).
+	function startSearch() {
+		// Clear the hash synchronously so the chat area drops straight to the
+		// search empty-state instead of flashing the "Loading session..." spinner
+		// (ChatMessageList reads window.location.hash, which is not reactive).
+		if (typeof window !== 'undefined' && window.location.hash) {
+			window.location.hash = '';
 		}
+		leaveSession();
+		chatInput?.focusInput();
 	}
 </script>
 
@@ -405,40 +412,29 @@
 				=
 			</button>
 
-			<!-- Search bar (web-search mode) -->
-			{#if connected && searchFolder}
-				<form
-					class="flex min-w-0 flex-1 items-center gap-2"
-					onsubmit={handleSearch}
+			<!-- Compact search affordance (active-session case): drop to the search
+			     empty-state. Hidden in the empty-state itself, where the bottom
+			     composer already IS the search input. -->
+			{#if connected && searchFolder && sessionInfo.sessionFile}
+				<button
+					type="button"
+					onclick={startSearch}
+					class="flex flex-shrink-0 items-center justify-center rounded border border-brand-border bg-brand-surface-2 px-2.5 py-1.5 text-sm text-brand-text-muted transition-colors hover:bg-brand-surface-3 hover:text-brand-text"
+					title="Search the web"
+					aria-label="Search the web"
 				>
-					<div class="relative min-w-0 flex-1">
-						<span
-							class="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-sm text-brand-text-muted"
-						>🔍</span
-						>
-						<input
-							bind:this={searchInput}
-							bind:value={searchQuery}
-							type="search"
-							placeholder="Search the web..."
-							class="w-full rounded border border-brand-border bg-brand-surface-2 py-1.5 pr-3 pl-8 text-sm text-brand-text placeholder:text-brand-text-muted focus:border-brand-blue focus:outline-none"
-							aria-label="Search the web"
-						/>
-					</div>
-					<button
-						type="submit"
-						disabled={!searchQuery.trim()}
-						class="flex-shrink-0 rounded border border-brand-blue bg-brand-blue/10 px-3 py-1.5 text-sm font-semibold text-brand-blue transition-colors hover:bg-brand-blue/20 disabled:cursor-not-allowed disabled:opacity-40"
-					>
-						Search
-					</button>
-				</form>
+					🔍
+				</button>
 			{/if}
 
 			<!-- Status indicator -->
 			{#if !connected || !sessionInfo.sessionFile}
 				<div class="flex min-w-0 items-center gap-2">
-					{#if connected}
+					{#if connected && searchActive}
+						<span class="text-sm text-brand-text-muted"
+							>Search the web below, or pick a session from the sidebar</span
+						>
+					{:else if connected}
 						<span class="text-sm text-brand-text-muted"
 							>Select a session from sidebar</span
 						>
@@ -542,9 +538,19 @@
 		<!-- Chat area -->
 		<ChatMessageList bind:this={chatList} onMessageSent={() => {}} />
 
-		<!-- Input -->
+		<!-- Input: one composer, mode-switched. Search mode when connected, a
+		     search folder is configured, and no session is active; chat mode
+		     otherwise. Always mounted so it can be focused inside a tap gesture. -->
 		<ChatInput
-			disabled={!connected || readOnly || !sessionInfo.sessionFile}
+			bind:this={chatInput}
+			searchMode={searchActive}
+			searchConfigured={!!searchFolder}
+			onSubmit={(q) => runSearch(q)}
+			placeholder="Search the web..."
+			submitLabel="Search"
+			disabled={searchActive
+				? !connected
+				: !connected || readOnly || !sessionInfo.sessionFile}
 			onSend={() => chatList?.forceScrollToBottom()}
 		/>
 	</div>
