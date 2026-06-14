@@ -40,8 +40,10 @@ const logoSvg = join(staticDir, 'logo.svg');
 const MASKABLE_BG = '#000000';
 // Safe zone: the logo must fit within the inner ~80% (Android masks ~10% on
 // each side). We render the logo at ~62% of the canvas, centered.
-const CANVAS = 512;
-const LOGO_SIZE = Math.round(CANVAS * 0.62);
+// Generate maskable icons at both launcher sizes: some browsers (notably
+// Firefox Android) prefer/expect a maskable icon at 192, not only 512.
+const MASKABLE_SIZES = [192, 512];
+const LOGO_SCALE = 0.62;
 
 function fail(msg) {
 	console.error(`[pwa-postprocess] ${msg}`);
@@ -59,38 +61,47 @@ if (!existsSync(logoSvg)) {
 
 mkdirSync(pwaDir, {recursive: true});
 
-// --- 1. Generate the padded maskable icon from the logo ----------------------
-const maskableName = 'maskable-512.png';
-const maskablePath = join(pwaDir, maskableName);
-try {
-	// Render the SVG logo to a transparent PNG at the inner size, then composite
-	// it centered onto a solid-color CANVASxCANVAS background.
-	const tmpLogo = join(pwaDir, '.logo-tmp.png');
-	execFileSync('convert', [
-		'-background',
-		'none',
-		'-density',
-		'384',
-		'-resize',
-		`${LOGO_SIZE}x${LOGO_SIZE}`,
-		logoSvg,
-		tmpLogo,
-	]);
-	execFileSync('convert', [
-		'-size',
-		`${CANVAS}x${CANVAS}`,
-		`xc:${MASKABLE_BG}`,
-		tmpLogo,
-		'-gravity',
-		'center',
-		'-composite',
-		maskablePath,
-	]);
-	// Clean up the temp logo render.
-	execFileSync('rm', ['-f', tmpLogo]);
-	console.log(`[pwa-postprocess] wrote ${maskableName}`);
-} catch (err) {
-	fail(`failed to generate maskable icon: ${err.message}`);
+// --- 1. Generate padded maskable icons (192 + 512) from the logo -------------
+const maskableIcons = [];
+for (const size of MASKABLE_SIZES) {
+	const name = `maskable-${size}.png`;
+	const outPath = join(pwaDir, name);
+	const logoSize = Math.round(size * LOGO_SCALE);
+	try {
+		// Render the SVG logo to a transparent PNG at the inner size, then
+		// composite it centered onto a solid-color size x size background.
+		const tmpLogo = join(pwaDir, `.logo-tmp-${size}.png`);
+		execFileSync('convert', [
+			'-background',
+			'none',
+			'-density',
+			'384',
+			'-resize',
+			`${logoSize}x${logoSize}`,
+			logoSvg,
+			tmpLogo,
+		]);
+		execFileSync('convert', [
+			'-size',
+			`${size}x${size}`,
+			`xc:${MASKABLE_BG}`,
+			tmpLogo,
+			'-gravity',
+			'center',
+			'-composite',
+			outPath,
+		]);
+		execFileSync('rm', ['-f', tmpLogo]);
+		maskableIcons.push({
+			src: name,
+			type: 'image/png',
+			sizes: `${size}x${size}`,
+			purpose: 'maskable',
+		});
+		console.log(`[pwa-postprocess] wrote ${name}`);
+	} catch (err) {
+		fail(`failed to generate maskable icon ${name}: ${err.message}`);
+	}
 }
 
 // --- 2. Copy screenshots (committed sources -> gitignored static/pwa) --------
@@ -139,17 +150,17 @@ for (const s of screenshots) {
 // --- 3. Patch the manifest ---------------------------------------------------
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
 
-// Replace any existing maskable icon entries with our generated one, keep the
-// non-maskable (regular) icons that pwag produced.
-manifest.icons = (manifest.icons || []).filter(
-	(i) => !(i.purpose && i.purpose.includes('maskable')),
-);
-manifest.icons.push({
-	src: maskableName,
-	type: 'image/png',
-	sizes: `${CANVAS}x${CANVAS}`,
-	purpose: 'maskable',
-});
+// Keep the non-maskable (regular) icons pwag produced, and give them an
+// explicit `purpose: "any"`. Although the spec defaults missing purpose to
+// "any", some browsers (notably Firefox Android) are more reliable at adopting
+// the icon when it is explicit, instead of falling back to a generated letter
+// icon.
+manifest.icons = (manifest.icons || [])
+	.filter((i) => !(i.purpose && i.purpose.includes('maskable')))
+	.map((i) => ({...i, purpose: i.purpose || 'any'}));
+
+// Append the generated maskable icons (192 + 512).
+manifest.icons.push(...maskableIcons);
 
 if (manifestScreenshots.length > 0) {
 	manifest.screenshots = manifestScreenshots;
