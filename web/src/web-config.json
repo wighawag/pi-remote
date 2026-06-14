@@ -7,12 +7,5 @@
 	"ENSName": null,
 	"themeColor": "#000000",
 	"appleStatusBarStyle": "black-translucent",
-	"icon": "static/icon.png",
-	"maskableIcons": [
-		{
-			"src": "../maskable_icon_512x512.png",
-			"type": "image/png",
-			"sizes": "512x512"
-		}
-	]
+	"icon": "static/logo.svg"
 }
