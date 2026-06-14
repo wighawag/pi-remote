@@ -121,6 +121,8 @@ wherever
 The server will boot up and automatically generate self-signed SSL certificates for a secure `https`/`wss` local environment. Open `https://localhost:31415` in your browser. (The first time, proceed past your browser's SSL warning).
 _(Note: Automatic certificate generation requires `openssl` to be installed on your host system. If `openssl` is missing, the server will gracefully fall back to HTTP/WS)._
 
+_The self-signed certificate is fine for everyday use, but browsers will not treat it as a secure context, which prevents installing the dashboard as a standalone PWA from a remote device. To enable a proper standalone PWA install over Tailscale, see [Trusted HTTPS for Tailscale](#trusted-https-for-tailscale-recommended-for-pwa-install)._
+
 #### 4. Run Pi (Optional — Only for Terminal Bridge Mode)
 
 To connect your local terminal CLI to the Standalone Server, run `pi` as normal in any project folder:
@@ -319,6 +321,49 @@ Using a secure private mesh VPN like [Tailscale](https://tailscale.com) or [Head
    ```
    _Warning: Always use a strong `--token` when binding to any interface other than localhost!_
 3. Access your Svelte dashboard securely from your remote device's browser at `https://<your-tailscale-ip>:31415` with your token.
+
+#### Trusted HTTPS for Tailscale (recommended for PWA install)
+
+The server's auto-generated certificate is **self-signed** (issued for `CN=localhost`). Browsers will load the dashboard after you click past the warning, but they do **not** treat a self-signed origin as a _secure context_. As a result:
+
+- **Installing the dashboard as a PWA** (Add to Home Screen) will not launch in its own standalone window: it opens in a normal browser tab instead.
+- Chrome's _Application → Manifest_ panel reports `Page is not served from a secure origin`, and Lighthouse shows no PWA category.
+
+To get a genuinely trusted origin (and a working standalone PWA), use Tailscale's built-in HTTPS to issue a real Let's Encrypt certificate for your MagicDNS name. This requires **HTTPS** and **MagicDNS** to be enabled for your tailnet (see the Tailscale admin console → DNS).
+
+Replace `your-machine.your-tailnet.ts.net` below with your device's MagicDNS name (`tailscale status` shows it).
+
+**Method A — explicit flags:**
+
+```bash
+# Issue a cert for your MagicDNS name (writes <name>.crt and <name>.key)
+tailscale cert your-machine.your-tailnet.ts.net
+
+wherever --host 0.0.0.0 --token your-secure-token \
+  --ssl-cert your-machine.your-tailnet.ts.net.crt \
+  --ssl-key  your-machine.your-tailnet.ts.net.key
+```
+
+**Method B — drop-in (no flags needed):**
+
+The server auto-loads `~/.wherever/certs/localhost.crt` + `~/.wherever/certs/localhost.key` when present, and only generates a self-signed pair if they are **missing**. So you can write the Tailscale cert directly to those paths and the server will pick it up automatically on the next start:
+
+```bash
+tailscale cert \
+  --cert-file ~/.wherever/certs/localhost.crt \
+  --key-file  ~/.wherever/certs/localhost.key \
+  your-machine.your-tailnet.ts.net
+
+wherever --host 0.0.0.0 --token your-secure-token
+```
+
+_(The filenames stay `localhost.*` but contain a cert for your MagicDNS name; the server only cares about the path, not the name.)_
+
+Then open `https://your-machine.your-tailnet.ts.net:31415` (the **name**, not the IP — the cert is bound to the name). The origin is now trusted, so the PWA installs and launches standalone.
+
+> **Renewal:** `tailscale cert` certificates are short-lived (Let's Encrypt, ~90 days). The server reads the certificate files only at startup, so to renew, re-run the `tailscale cert` command (overwriting the files) and restart `wherever`.
+>
+> **DNS note:** all devices (including the server host itself) must be able to resolve the MagicDNS name. If `getent hosts your-machine.your-tailnet.ts.net` fails on the server while `nslookup your-machine.your-tailnet.ts.net 100.100.100.100` succeeds, your system DNS is bypassing Tailscale's MagicDNS resolver (commonly a NetworkManager / `systemd-resolved` `/etc/resolv.conf` conflict). See [tailscale.com/s/dns-fight](https://tailscale.com/s/dns-fight).
 
 ### 2. Local Network Access
 
