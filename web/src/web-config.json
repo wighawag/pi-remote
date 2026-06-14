@@ -1,7 +1,8 @@
 {
-	"name": "Template Website",
-	"title": "Template Website",
-	"description": "A template to build website",
+	"name": "Wherever",
+	"title": "Wherever",
+	"description": "Create & maintain apps from wherever with a beautiful remote workspace.",
+	"display": "standalone",
 	"canonicalURL": "https://localhost",
 	"ENSName": null,
 	"themeColor": "#000000",
