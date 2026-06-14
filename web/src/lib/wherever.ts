@@ -11,6 +11,8 @@ import {
 	getToken,
 	uploadMethodStore,
 	fetchSessions,
+	searchFolderStore,
+	searchCreateRemoteStore,
 } from './session-store';
 
 export type {ChatMessage, WhereverState};
@@ -89,11 +91,26 @@ export const client = new WhereverClient({
 
 export const state = client.stateStore;
 
+// When runSearch() creates a session, hold the query here until the matching
+// session_created arrives, then send it as the first message of that session.
+let pendingSearchQuery: string | null = null;
+
 // Sync WebSocket messages with Svelte session-store state side-effects
 client.onMessage((msg) => {
 	switch (msg.type) {
 		case 'session_created':
 			setCurrentSession(msg.sessionFile);
+			if (pendingSearchQuery !== null) {
+				const query = pendingSearchQuery;
+				pendingSearchQuery = null;
+				client.sendMessage(query);
+			}
+			break;
+
+		case 'session_error':
+			// A search that failed to create a session must not leave a stale
+			// pending query that would fire on the next unrelated session.
+			pendingSearchQuery = null;
 			break;
 
 		case 'session_destroyed':
@@ -157,6 +174,31 @@ export function createSession(
 	repoVisibility?: 'private' | 'public',
 ) {
 	client.createSession(cwd, model, gitInit, createRemote, repoVisibility);
+}
+
+/**
+ * Run a web search: create a fresh session in the configured search folder and,
+ * once it is created, send the query as the first message. Each search is a new
+ * session, grouped in the sidebar under the search folder. Uses the server
+ * default model. Returns false (no-op) if no search folder is configured.
+ */
+export function runSearch(query: string): boolean {
+	const trimmed = query.trim();
+	if (!trimmed) return false;
+	const folder = get(searchFolderStore);
+	if (!folder) return false;
+	const createRemote = get(searchCreateRemoteStore);
+	pendingSearchQuery = trimmed;
+	// model omitted -> server default. gitInit follows remote intent.
+	// repoVisibility forced to 'private' when a remote is created.
+	client.createSession(
+		folder,
+		undefined,
+		createRemote,
+		createRemote,
+		createRemote ? 'private' : undefined,
+	);
+	return true;
 }
 
 export function leaveSession() {

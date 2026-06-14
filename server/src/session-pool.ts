@@ -56,6 +56,10 @@ export interface WhereverConfig {
     subDir?: string;
     method?: 'post' | 'websocket';
   };
+  /** Folder used by "search mode" sessions. No default; must be set explicitly. */
+  searchFolder?: string;
+  /** When true, the on-demand search folder gets a remote, forced to private visibility. Default false. */
+  searchCreateRemote?: boolean;
 }
 
 export function getWhereverConfig(): WhereverConfig {
@@ -83,6 +87,50 @@ export function getWhereverConfig(): WhereverConfig {
     }
   }
   return {};
+}
+
+const SEARCH_WORKSPACE_AGENTS_MD = `# Search workspace
+
+This folder is a **search workspace**, not a coding project. Sessions started
+here (from the wherever search bar, or via \`pisearch\`) exist to answer questions
+with current information from the live web.
+
+## How to behave here
+
+- Use the **web-search skill**: lead with \`web_search\`, open the most promising
+  1-3 results with \`web_fetch\` to verify, then answer.
+- Answer the question **directly and concisely**, then list the **source URLs**
+  you actually used. Prefer recent, authoritative sources; weight recency for
+  time-sensitive questions.
+- **Do not start a coding task** or edit files unless explicitly asked. There is
+  no project to build here.
+- If the web tools cannot reach Ollama (connection refused / 401), say so and
+  tell the user to start Ollama or run \`ollama signin\`. Do not silently answer
+  from memory without flagging it.
+`;
+
+/**
+ * If resolvedCwd is the configured search folder, drop a default AGENTS.md into
+ * it when none exists. Resolves the config's searchFolder (tilde-expanded) and
+ * compares it to resolvedCwd via normalizePath. Best-effort: never throws, never
+ * overwrites an existing AGENTS.md.
+ */
+export function maybeSeedSearchWorkspace(resolvedCwd: string): void {
+  try {
+    const config = getWhereverConfig();
+    let searchFolder = config.searchFolder;
+    if (!searchFolder) return;
+    if (searchFolder.startsWith('~')) {
+      searchFolder = path.join(os.homedir(), searchFolder.slice(1));
+    }
+    if (normalizePath(searchFolder) !== normalizePath(resolvedCwd)) return;
+    const agentsPath = path.join(resolvedCwd, 'AGENTS.md');
+    if (fs.existsSync(agentsPath)) return;
+    fs.writeFileSync(agentsPath, SEARCH_WORKSPACE_AGENTS_MD, 'utf8');
+    console.log(`Seeded search workspace AGENTS.md in ${resolvedCwd}`);
+  } catch (err) {
+    console.error('Failed to seed search workspace AGENTS.md:', err);
+  }
 }
 
 export function setupUpstreamTracking(resolvedCwd: string) {
@@ -321,6 +369,12 @@ export class SessionPool {
         if (!fs.existsSync(resolvedCwd)) {
           fs.mkdirSync(resolvedCwd, { recursive: true });
         }
+
+        // If this is the configured search folder, seed a default AGENTS.md so
+        // search sessions behave correctly even in the browser path (where the
+        // web-search skill is only discoverable, not preloaded). Self-healing:
+        // re-created if the folder was deleted. Never clobbers an existing file.
+        maybeSeedSearchWorkspace(resolvedCwd);
 
         // Git initialization if requested
         if (gitInit) {

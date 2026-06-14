@@ -19,8 +19,13 @@
 		changeModel,
 		joinSession,
 		isCreatingSession,
+		runSearch,
 	} from '$lib/wherever';
-	import {fetchSessions, availableModels} from '$lib/session-store';
+	import {
+		fetchSessions,
+		availableModels,
+		searchFolderStore,
+	} from '$lib/session-store';
 	import {onMount} from 'svelte';
 	import {url} from '$lib/core/utils/web/path';
 
@@ -196,6 +201,33 @@
 	});
 
 	let isCreating = $derived($isCreatingSession);
+	let searchFolder = $derived($searchFolderStore);
+	let searchQuery = $state('');
+	let searchInput: HTMLInputElement | null = $state(null);
+
+	// Autofocus the search bar on first load once connected and configured.
+	let hasFocusedSearch = $state(false);
+	$effect(() => {
+		if (
+			connected &&
+			searchFolder &&
+			!sessionInfo.sessionFile &&
+			!hasFocusedSearch &&
+			searchInput
+		) {
+			hasFocusedSearch = true;
+			searchInput.focus();
+		}
+	});
+
+	function handleSearch(e: Event) {
+		e.preventDefault();
+		const q = searchQuery.trim();
+		if (!q) return;
+		if (runSearch(q)) {
+			searchQuery = '';
+		}
+	}
 </script>
 
 <Head title="Wherever" description="Create & maintain apps from wherever" />
@@ -372,6 +404,36 @@
 			>
 				=
 			</button>
+
+			<!-- Search bar (web-search mode) -->
+			{#if connected && searchFolder}
+				<form
+					class="flex min-w-0 flex-1 items-center gap-2"
+					onsubmit={handleSearch}
+				>
+					<div class="relative min-w-0 flex-1">
+						<span
+							class="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-sm text-brand-text-muted"
+						>🔍</span
+						>
+						<input
+							bind:this={searchInput}
+							bind:value={searchQuery}
+							type="search"
+							placeholder="Search the web..."
+							class="w-full rounded border border-brand-border bg-brand-surface-2 py-1.5 pr-3 pl-8 text-sm text-brand-text placeholder:text-brand-text-muted focus:border-brand-blue focus:outline-none"
+							aria-label="Search the web"
+						/>
+					</div>
+					<button
+						type="submit"
+						disabled={!searchQuery.trim()}
+						class="flex-shrink-0 rounded border border-brand-blue bg-brand-blue/10 px-3 py-1.5 text-sm font-semibold text-brand-blue transition-colors hover:bg-brand-blue/20 disabled:cursor-not-allowed disabled:opacity-40"
+					>
+						Search
+					</button>
+				</form>
+			{/if}
 
 			<!-- Status indicator -->
 			{#if !connected || !sessionInfo.sessionFile}

@@ -429,9 +429,15 @@ async function main(): Promise<void> {
 
     if (pathname === '/config' && req.method === 'GET') {
       const config = getWhereverConfig();
+      let searchFolder: string | undefined = config.searchFolder;
+      if (searchFolder && searchFolder.startsWith('~')) {
+        searchFolder = path.join(os.homedir(), searchFolder.slice(1));
+      }
       sendJSON(res, 200, {
         gitInitDefault: !!config.gitInitDefault,
-        uploadMethod: config.uploads?.method || 'websocket'
+        uploadMethod: config.uploads?.method || 'websocket',
+        searchFolder: searchFolder || null,
+        searchCreateRemote: !!config.searchCreateRemote
       });
       return;
     }
