@@ -1,0 +1,5 @@
+# Wherever is a private, Tailscale-only remote workspace; it is not meant to be
+# crawled or indexed. This file exists mainly so the SPA fallback does not serve
+# the HTML app shell for /robots.txt (which Lighthouse flags as invalid).
+User-agent: *
+Disallow: /

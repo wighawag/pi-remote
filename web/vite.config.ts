@@ -29,7 +29,10 @@ export default defineConfig({
 	],
 	build: {
 		emptyOutDir: true,
-		minify: false,
+		// Minification left to Vite's default (esbuild) so production assets are
+		// minified. The previous `minify: false` was inherited from a quick-dev
+		// template and tanked Lighthouse (unminified JS/CSS, slow FCP/LCP).
+		// Sourcemaps stay on so production stack traces remain debuggable.
 		sourcemap: true,
 	},
 });

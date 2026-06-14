@@ -46,17 +46,35 @@ function serveStaticFile(reqPath: string, res: ServerResponse) {
     '.gif': 'image/gif',
     '.svg': 'image/svg+xml',
     '.ico': 'image/x-icon',
-    '.wasm': 'application/wasm'
+    '.wasm': 'application/wasm',
+    '.txt': 'text/plain',
+    '.webmanifest': 'application/manifest+json'
   };
 
   const contentType = mimeTypes[ext] || 'application/octet-stream';
+
+  // Cache-Control: content-hashed build assets under /_app/immutable/ never
+  // change for a given URL, so they can be cached aggressively. Everything
+  // else (HTML app shell, the manifest, top-level icons) must stay revalidated
+  // so a freshly deployed build is picked up. This addresses Lighthouse's
+  // "efficient cache lifetimes" audit without affecting the service worker's
+  // own caching (which keys off the build version).
+  // Only treat it as an immutable asset when the resolved file actually lives
+  // under the hashed immutable folder (not when the SPA fallback served
+  // index.html for an /_app/immutable/* miss).
+  const servedImmutable =
+    reqPath.startsWith('/_app/immutable/') &&
+    filePath.includes(`${path.sep}_app${path.sep}immutable${path.sep}`);
+  const cacheControl = servedImmutable
+    ? 'public, max-age=31536000, immutable'
+    : 'no-cache';
 
   fs.readFile(filePath, (err, data) => {
     if (err) {
       res.writeHead(500);
       res.end(`Server Error: ${err.code}`);
     } else {
-      res.writeHead(200, { 'Content-Type': contentType });
+      res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': cacheControl });
       res.end(data);
     }
   });
