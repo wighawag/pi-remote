@@ -30,6 +30,9 @@ const defaultState: WhereverState = {
 	activeModel: null,
 	hideThinking: false,
 	hideTools: false,
+	historyTotalCount: 0,
+	historyOffset: 0,
+	loadingMoreHistory: false,
 };
 
 export class WhereverClient {
@@ -573,80 +576,35 @@ export class WhereverClient {
 
       case 'message_history':
         this.stateStore.update((s: WhereverState) => {
-          const mapped: ChatMessage[] = [];
-          const pendingCalls: Record<string, string[]> = {};
+          const mapped = this.mapHistory(msg.messages, msg.sessionId, s.isStreaming);
+          const totalCount =
+            typeof msg.totalCount === 'number' ? msg.totalCount : mapped.length;
+          const offset = typeof msg.offset === 'number' ? msg.offset : 0;
+          return {
+            ...s,
+            messages: mapped,
+            historyTotalCount: totalCount,
+            historyOffset: offset,
+            loadingMoreHistory: false,
+          };
+        });
+        break;
 
-          for (const m of msg.messages) {
-            if (m.role === 'tool_call') {
-              const tName = m.toolName || 'unknown';
-              if (!pendingCalls[tName]) {
-                pendingCalls[tName] = [];
-              }
-              pendingCalls[tName].push(m.content || '');
-            } else if (m.role === 'tool_result') {
-              const tName = m.toolName || 'unknown';
-              const tArgs =
-                pendingCalls[tName] && pendingCalls[tName].length > 0
-                  ? pendingCalls[tName].shift()!
-                  : '';
-              mapped.push({
-                id: this.generateId(),
-                role: 'tool',
-                content: tArgs
-                  ? `$ ${tName} ${tArgs}\n${m.content}`
-                  : `$ ${tName}\n${m.content}`,
-                timestamp: m.timestamp,
-                isStreaming: false,
-                toolName: tName,
-                toolArgs: tArgs,
-                toolOutput: m.content,
-                isError: m.isError,
-                sessionId: msg.sessionId,
-              });
-            } else {
-              mapped.push({
-                id: this.generateId(),
-                role: m.role,
-                content: m.content,
-                timestamp: m.timestamp,
-                isStreaming: false,
-                toolName: m.toolName,
-                sessionId: msg.sessionId,
-              });
-            }
+      case 'message_history_prepend':
+        this.stateStore.update((s: WhereverState) => {
+          // Older window prepended ahead of currently-loaded messages. No
+          // streaming-tail handling here (those messages are historical).
+          const older = this.mapHistory(msg.messages, msg.sessionId, false);
+          const offset = typeof msg.offset === 'number' ? msg.offset : 0;
+          if (older.length === 0) {
+            return {...s, loadingMoreHistory: false, historyOffset: offset};
           }
-
-          for (const [tName, argsList] of Object.entries(pendingCalls)) {
-            for (const args of argsList) {
-              mapped.push({
-                id: this.generateId(),
-                role: 'tool',
-                content: args ? `$ ${tName} ${args}` : `$ ${tName}`,
-                timestamp:
-                  mapped.length > 0
-                    ? mapped[mapped.length - 1].timestamp + 1
-                    : Date.now(),
-                isStreaming: s.isStreaming,
-                toolName: tName,
-                toolArgs: args,
-                toolOutput: '',
-                sessionId: msg.sessionId,
-              });
-            }
-          }
-
-          if (s.isStreaming && mapped.length > 0) {
-            const lastIndex = mapped.length - 1;
-            const lastMsg = mapped[lastIndex];
-            if (lastMsg.role === 'assistant' || lastMsg.role === 'thinking') {
-              mapped[lastIndex] = {
-                ...lastMsg,
-                isStreaming: true,
-              };
-            }
-          }
-
-          return {...s, messages: mapped};
+          return {
+            ...s,
+            messages: [...older, ...s.messages],
+            historyOffset: offset,
+            loadingMoreHistory: false,
+          };
         });
         break;
 
@@ -657,6 +615,114 @@ export class WhereverClient {
         }));
         break;
     }
+  }
+
+  /**
+   * Map a server `HistoryMessage[]` window into UI `ChatMessage[]`. When
+   * `applyStreamingTail` is true, the last assistant/thinking message and any
+   * unmatched tool-call placeholders are marked streaming (used only for the
+   * live tail window, not for prepended older history).
+   */
+  private mapHistory(
+    rawMessages: any[],
+    sessionId: string,
+    applyStreamingTail: boolean,
+  ): ChatMessage[] {
+    const mapped: ChatMessage[] = [];
+    const pendingCalls: Record<string, string[]> = {};
+
+    for (const m of rawMessages) {
+      if (m.role === 'tool_call') {
+        const tName = m.toolName || 'unknown';
+        if (!pendingCalls[tName]) {
+          pendingCalls[tName] = [];
+        }
+        pendingCalls[tName].push(m.content || '');
+      } else if (m.role === 'tool_result') {
+        const tName = m.toolName || 'unknown';
+        const tArgs =
+          pendingCalls[tName] && pendingCalls[tName].length > 0
+            ? pendingCalls[tName].shift()!
+            : '';
+        mapped.push({
+          id: this.generateId(),
+          role: 'tool',
+          content: tArgs
+            ? `$ ${tName} ${tArgs}\n${m.content}`
+            : `$ ${tName}\n${m.content}`,
+          timestamp: m.timestamp,
+          isStreaming: false,
+          toolName: tName,
+          toolArgs: tArgs,
+          toolOutput: m.content,
+          isError: m.isError,
+          sessionId,
+        });
+      } else {
+        mapped.push({
+          id: this.generateId(),
+          role: m.role,
+          content: m.content,
+          timestamp: m.timestamp,
+          isStreaming: false,
+          toolName: m.toolName,
+          sessionId,
+        });
+      }
+    }
+
+    for (const [tName, argsList] of Object.entries(pendingCalls)) {
+      for (const args of argsList) {
+        mapped.push({
+          id: this.generateId(),
+          role: 'tool',
+          content: args ? `$ ${tName} ${args}` : `$ ${tName}`,
+          timestamp:
+            mapped.length > 0
+              ? mapped[mapped.length - 1].timestamp + 1
+              : Date.now(),
+          isStreaming: applyStreamingTail,
+          toolName: tName,
+          toolArgs: args,
+          toolOutput: '',
+          sessionId,
+        });
+      }
+    }
+
+    if (applyStreamingTail && mapped.length > 0) {
+      const lastIndex = mapped.length - 1;
+      const lastMsg = mapped[lastIndex];
+      if (lastMsg.role === 'assistant' || lastMsg.role === 'thinking') {
+        mapped[lastIndex] = {
+          ...lastMsg,
+          isStreaming: true,
+        };
+      }
+    }
+
+    return mapped;
+  }
+
+  /**
+   * Request the previous window of older history for the active session.
+   * No-op when there is nothing older to load or a request is already in
+   * flight.
+   */
+  public loadMoreHistory() {
+    const s = get(this.stateStore);
+    if (!s.sessionId) return;
+    if (s.loadingMoreHistory) return;
+    if (s.historyOffset <= 0) return;
+    this.stateStore.update((st: WhereverState) => ({
+      ...st,
+      loadingMoreHistory: true,
+    }));
+    this.send({
+      type: 'history_load_more',
+      sessionId: s.sessionId,
+      beforeOffset: s.historyOffset,
+    });
   }
 
   public send(msg: any) {

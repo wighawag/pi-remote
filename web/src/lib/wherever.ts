@@ -1,5 +1,10 @@
-import { derived, get } from 'svelte/store';
-import { WhereverClient, type ChatMessage, type WhereverState, type ConflictInfo } from "@wherever-dev/client";
+import {derived, get} from 'svelte/store';
+import {
+	WhereverClient,
+	type ChatMessage,
+	type WhereverState,
+	type ConflictInfo,
+} from '@wherever-dev/client';
 import {
 	setCurrentSession,
 	getBaseUrl,
@@ -8,7 +13,7 @@ import {
 	fetchSessions,
 } from './session-store';
 
-export type { ChatMessage, WhereverState };
+export type {ChatMessage, WhereverState};
 
 function getStoredConfig() {
 	try {
@@ -74,7 +79,10 @@ export const client = new WhereverClient({
 	host: initialConfig.host,
 	port: initialConfig.port,
 	token: initialConfig.token,
-	secure: typeof window !== 'undefined' && window.location && window.location.protocol === 'https:',
+	secure:
+		typeof window !== 'undefined' &&
+		window.location &&
+		window.location.protocol === 'https:',
 	hideThinking: !!initialConfig.hideThinking,
 	hideTools: !!initialConfig.hideTools,
 });
@@ -109,7 +117,10 @@ export function connect() {
 	const config = getConfig();
 	saveConfig(config);
 
-	const isSecure = typeof window !== 'undefined' && window.location && window.location.protocol === 'https:';
+	const isSecure =
+		typeof window !== 'undefined' &&
+		window.location &&
+		window.location.protocol === 'https:';
 
 	client.connect({
 		host: config.host,
@@ -151,6 +162,10 @@ export function createSession(
 export function leaveSession() {
 	client.leaveSession();
 	setCurrentSession(null);
+}
+
+export function loadMoreHistory() {
+	client.loadMoreHistory();
 }
 
 export function resolveConflict(
@@ -214,6 +229,11 @@ export const activeSessionInfo = derived(piState, ($s) => ({
 	sessionId: $s.sessionId,
 }));
 export const isCreatingSession = derived(piState, ($s) => $s.creatingSession);
+export const hasMoreHistory = derived(piState, ($s) => $s.historyOffset > 0);
+export const isLoadingMoreHistory = derived(
+	piState,
+	($s) => $s.loadingMoreHistory,
+);
 
 async function uploadFileViaPost(
 	sessionId: string,
@@ -253,7 +273,8 @@ function uploadFileViaWebSocket(
 					const result = reader.result as string;
 					const base64Data = result.split(',')[1] || '';
 
-					client.uploadFileViaWebSocket(sessionId, file.name, base64Data)
+					client
+						.uploadFileViaWebSocket(sessionId, file.name, base64Data)
 						.then(resolve)
 						.catch(reject);
 				} catch (err) {

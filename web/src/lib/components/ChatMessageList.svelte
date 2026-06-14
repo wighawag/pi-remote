@@ -7,6 +7,9 @@
 		createSession,
 		piState,
 		updateConfig,
+		loadMoreHistory,
+		hasMoreHistory,
+		isLoadingMoreHistory,
 	} from '$lib/wherever';
 	import {
 		availableModels,
@@ -500,6 +503,37 @@
 		forceScroll = true;
 		setTimeout(scrollToBottom, 0);
 	}
+
+	let moreHistory = $derived($hasMoreHistory);
+	let loadingMore = $derived($isLoadingMoreHistory);
+
+	// Scroll anchoring: when older messages are prepended, keep the viewport on
+	// the same content by preserving the distance from the bottom.
+	let pendingAnchorFromBottom = $state<number | null>(null);
+
+	function handleLoadMore() {
+		if (!messageList || loadingMore || !moreHistory) return;
+		// Record how far we are from the bottom so we can restore it after the
+		// older window is prepended and the list grows upward.
+		pendingAnchorFromBottom = messageList.scrollHeight - messageList.scrollTop;
+		loadMoreHistory();
+	}
+
+	$effect(() => {
+		// When messages change and we have a pending anchor (older history was
+		// just prepended), restore the scroll position relative to the bottom.
+		const _len = $messages.length;
+		if (pendingAnchorFromBottom !== null && messageList) {
+			const anchor = pendingAnchorFromBottom;
+			pendingAnchorFromBottom = null;
+			// Defer until after DOM paints the prepended nodes.
+			requestAnimationFrame(() => {
+				if (messageList) {
+					messageList.scrollTop = messageList.scrollHeight - anchor;
+				}
+			});
+		}
+	});
 </script>
 
 <div class="flex flex-1 flex-col overflow-hidden bg-brand-dark">
@@ -779,9 +813,7 @@
 				<p class="mb-2 text-lg font-medium text-brand-text">
 					New Session Started
 				</p>
-				<p class="text-sm">
-					Type a message below to start building
-				</p>
+				<p class="text-sm">Type a message below to start building</p>
 			</div>
 		</div>
 	{:else}
@@ -789,6 +821,21 @@
 			bind:this={messageList}
 			class="flex-1 space-y-4 overflow-y-auto overscroll-y-contain p-4"
 		>
+			{#if moreHistory}
+				<div class="flex justify-center pb-2">
+					<button
+						onclick={handleLoadMore}
+						disabled={loadingMore}
+						class="rounded border border-brand-border bg-brand-surface-2 px-3 py-1.5 text-xs text-brand-text-muted transition-colors hover:bg-brand-surface-3 hover:text-brand-text disabled:cursor-not-allowed disabled:opacity-50"
+					>
+						{#if loadingMore}
+							Loading older messages...
+						{:else}
+							Load older messages
+						{/if}
+					</button>
+				</div>
+			{/if}
 			{#each msgList as msg (msg.id)}
 				<div
 					class="flex {msg.role === 'user' ? 'justify-end' : 'justify-start'}"

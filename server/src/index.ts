@@ -5,6 +5,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent';
 import { SessionPool, getWhereverConfig, type WhereverConfig } from './session-pool.js';
 import type { ClientMessage, ServerMessage } from './protocol.js';
+import { INITIAL_HISTORY_LIMIT, HISTORY_PAGE_SIZE } from './protocol.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1085,11 +1086,13 @@ async function handleWSMessage(
         for (const c of clients.values()) {
           if (c.sessionId === msg.sessionFile && !c.isCliBridge) {
             sendWS(c.ws, msgToWeb);
-            const history = pool.getSessionHistory(msg.sessionFile);
+            const history = pool.getSessionHistoryWindow(msg.sessionFile, INITIAL_HISTORY_LIMIT);
             sendWS(c.ws, {
               type: 'message_history',
               sessionId: sId,
-              messages: history,
+              messages: history.messages,
+              totalCount: history.totalCount,
+              offset: history.offset,
             });
           }
         }
@@ -1141,11 +1144,33 @@ async function handleWSMessage(
         isStreaming: pool.isStreaming(result.tracked.sessionFile),
       });
 
-      const history = pool.getSessionHistory(result.tracked.sessionFile);
+      const history = pool.getSessionHistoryWindow(result.tracked.sessionFile, INITIAL_HISTORY_LIMIT);
       sendWS(client.ws, {
         type: 'message_history',
         sessionId: result.tracked.sessionId,
-        messages: history,
+        messages: history.messages,
+        totalCount: history.totalCount,
+        offset: history.offset,
+      });
+      break;
+    }
+
+    case 'history_load_more': {
+      // Lazily fetch an older window of history for the client's active session.
+      const targetFile = client.sessionId;
+      if (!targetFile) return;
+      const tracked = pool.getSession(targetFile);
+      if (!tracked) return;
+      const window = pool.getSessionHistoryWindow(
+        targetFile,
+        HISTORY_PAGE_SIZE,
+        msg.beforeOffset,
+      );
+      sendWS(client.ws, {
+        type: 'message_history_prepend',
+        sessionId: tracked.sessionId,
+        messages: window.messages,
+        offset: window.offset,
       });
       break;
     }
@@ -1276,11 +1301,13 @@ async function handleWSMessage(
               isStreaming: pool.isStreaming(tracked.sessionFile),
             });
 
-            const history = pool.getSessionHistory(tracked.sessionFile);
+            const history = pool.getSessionHistoryWindow(tracked.sessionFile, INITIAL_HISTORY_LIMIT);
             sendWS(client.ws, {
               type: 'message_history',
               sessionId: tracked.sessionId,
-              messages: history,
+              messages: history.messages,
+              totalCount: history.totalCount,
+              offset: history.offset,
             });
           }
         } else {
@@ -1298,11 +1325,13 @@ async function handleWSMessage(
             isStreaming: pool.isStreaming(existingTracked.sessionFile),
           });
 
-          const history = pool.getSessionHistory(existingTracked.sessionFile);
+          const history = pool.getSessionHistoryWindow(existingTracked.sessionFile, INITIAL_HISTORY_LIMIT);
           sendWS(client.ws, {
             type: 'message_history',
             sessionId: existingTracked.sessionId,
-            messages: history,
+            messages: history.messages,
+            totalCount: history.totalCount,
+            offset: history.offset,
           });
         }
       }

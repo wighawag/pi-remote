@@ -54,8 +54,58 @@
 		};
 
 		window.addEventListener('hashchange', handleHashChange);
+
+		// --- Background/resume handling (esp. Firefox Android screen-lock) ---
+		// While the page is backgrounded we close the WebSocket. An open WS makes
+		// the page ineligible for the browser's back/forward cache, which on
+		// mobile pushes the browser toward a full, slow reload on resume. Closing
+		// it improves bfcache eligibility (instant restore) and, when a real
+		// reload does happen, the active session is restored from the URL hash.
+		// The disconnect is delayed so quick tab switches don't churn the
+		// connection; reconnect is immediate on return.
+		let hiddenTimer: ReturnType<typeof setTimeout> | null = null;
+		const HIDE_DISCONNECT_DELAY = 8000;
+
+		const handleVisibility = () => {
+			if (document.visibilityState === 'hidden') {
+				if (hiddenTimer) clearTimeout(hiddenTimer);
+				hiddenTimer = setTimeout(() => {
+					hiddenTimer = null;
+					if (document.visibilityState === 'hidden' && connected) {
+						disconnect();
+					}
+				}, HIDE_DISCONNECT_DELAY);
+			} else {
+				if (hiddenTimer) {
+					clearTimeout(hiddenTimer);
+					hiddenTimer = null;
+				}
+				if (!connected) {
+					connect();
+				}
+			}
+		};
+
+		const handlePageShow = (e: PageTransitionEvent) => {
+			// On bfcache restore (e.persisted) or any return to a visible page,
+			// ensure we are connected. The client rejoins the hash session.
+			if (hiddenTimer) {
+				clearTimeout(hiddenTimer);
+				hiddenTimer = null;
+			}
+			if (document.visibilityState !== 'hidden' && !connected) {
+				connect();
+			}
+		};
+
+		document.addEventListener('visibilitychange', handleVisibility);
+		window.addEventListener('pageshow', handlePageShow);
+
 		return () => {
 			window.removeEventListener('hashchange', handleHashChange);
+			document.removeEventListener('visibilitychange', handleVisibility);
+			window.removeEventListener('pageshow', handlePageShow);
+			if (hiddenTimer) clearTimeout(hiddenTimer);
 		};
 	});
 

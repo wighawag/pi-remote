@@ -92,9 +92,18 @@
 	});
 
 	function handleUnqueue() {
+		// Restore the queued message into the editable input so the user can
+		// edit or resend it, instead of discarding it.
+		const restore = queuedTextBackup ?? queuedText ?? '';
 		queuedText = null;
-		text = '';
-		setTimeout(() => textarea?.focus(), 0);
+		queuedTextBackup = null;
+		text = restore;
+		setTimeout(() => {
+			textarea?.focus();
+			if (textarea) {
+				textarea.selectionStart = textarea.selectionEnd = text.length;
+			}
+		}, 0);
 	}
 
 	async function handleFileChange(e: Event) {

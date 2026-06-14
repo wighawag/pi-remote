@@ -36,4 +36,11 @@ export interface WhereverState {
 	activeModel: string | null;
 	hideThinking: boolean;
 	hideTools: boolean;
+	// Tail-first history pagination. `historyTotalCount` is the total number of
+	// history messages on the server; `historyOffset` is the index of the first
+	// message currently loaded in `messages`. When `historyOffset > 0`, older
+	// history can be fetched via `loadMoreHistory()`.
+	historyTotalCount: number;
+	historyOffset: number;
+	loadingMoreHistory: boolean;
 }

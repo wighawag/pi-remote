@@ -1,11 +1,18 @@
 import { HistoryMessage } from './session-types.js';
 
+// Initial number of (most recent) history messages sent when a session is
+// loaded/joined. Older messages are fetched lazily via `history_load_more`.
+export const INITIAL_HISTORY_LIMIT = 60;
+// Number of older messages returned per `history_load_more` request.
+export const HISTORY_PAGE_SIZE = 60;
+
 export type ClientMessage =
   | { type: 'connect' }
   | { type: 'message'; message: string; sessionId: string }
   | { type: 'abort'; sessionId: string }
   | { type: 'ping' }
   | { type: 'session_load'; sessionFile: string; cwd?: string; model?: string }
+  | { type: 'history_load_more'; sessionId: string; beforeOffset: number }
   | { type: 'session_new'; cwd: string; model?: string; gitInit?: boolean; createRemote?: boolean; repoVisibility?: 'private' | 'public' }
   | { type: 'session_leave'; sessionId: string }
   | { type: 'session_resolve_conflict'; action: 'take_over' | 'read_only'; sessionId: string; cwd?: string }
@@ -34,7 +41,8 @@ export type ServerMessage =
   | { type: 'session_error'; sessionId?: string; error: string; detail?: string }
   | { type: 'session_conflict'; sessionId: string; conflictingSession: string; conflictingCwd: string }
   | { type: 'session_interrupted'; sessionId: string; reason: string }
-  | { type: 'message_history'; sessionId: string; messages: HistoryMessage[] }
+  | { type: 'message_history'; sessionId: string; messages: HistoryMessage[]; totalCount?: number; offset?: number }
+  | { type: 'message_history_prepend'; sessionId: string; messages: HistoryMessage[]; offset: number }
   | { type: 'model_changed'; sessionId: string; model: string }
   | { type: 'file_uploaded'; uploadId: string; sessionId: string; filename: string; savedPath: string }
   | { type: 'file_upload_error'; uploadId: string; sessionId: string; error: string }

@@ -37,6 +37,24 @@ if (DEV) {
 	regexesOnlineFirst.push('localhost');
 }
 
+// Dynamic server data must never be served stale from the cache. These are the
+// server API endpoints (mirrors `isApiRequest` in server/src/index.ts). Routed
+// online-first so they hit the network, falling back to cache only when
+// offline. This is what prevents the "stale sessions list / config on first
+// load" problem caused by the broad same-origin cache-first rule below.
+const regexesApiOnlineFirst = [
+	'/sessions(\\?|$|/)',
+	'/models(\\?|$|/)',
+	'/config(\\?|$|/)',
+	'/check-path(\\?|$|/)',
+	'/autocomplete-path(\\?|$|/)',
+	'/session/',
+	'/health(\\?|$)',
+];
+for (const r of regexesApiOnlineFirst) {
+	regexesOnlineFirst.push(r);
+}
+
 const regexesOnlineOnly: string[] = [];
 
 const regexesCacheFirst = [
@@ -159,6 +177,15 @@ async function getResponse(event: FetchEvent): Promise<Response> {
 		registration.waiting.postMessage('skipWaiting');
 		const response = new Response('', {headers: {Refresh: '0'}});
 		return response;
+	}
+
+	// App-shell navigations are served online-first so a freshly deployed build
+	// is picked up on the next load (with cache fallback when offline). Without
+	// this, navigations fall through to the broad same-origin cache-first rule
+	// and keep serving the previously cached (stale) prerendered shell.
+	if (event.request.mode === 'navigate' && event.request.method === 'GET') {
+		const cached = await caches.match(request);
+		return onlineFirst.method(request, cached);
 	}
 
 	// TODO remove query param from matching, query param are used as config (why not use hashes then ?) const normalizedUrl = normalizeUrl(event.request.url);

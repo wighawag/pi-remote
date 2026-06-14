@@ -612,6 +612,39 @@ export class SessionPool {
     return messages;
   }
 
+  /**
+   * Tail-first windowed history. Returns the last `limit` messages (the most
+   * recent), along with the total count and the offset of the first returned
+   * message, so the client can lazily request older history.
+   *
+   * `beforeOffset`, when provided, returns the window of `limit` messages
+   * ending just before that offset (used for "load older" requests).
+   */
+  getSessionHistoryWindow(
+    sessionFileOrId: string,
+    limit: number,
+    beforeOffset?: number,
+  ): { messages: HistoryMessage[]; totalCount: number; offset: number } {
+    const all = this.getSessionHistory(sessionFileOrId);
+    const totalCount = all.length;
+
+    if (limit <= 0 || totalCount === 0) {
+      const end = beforeOffset ?? totalCount;
+      return { messages: [], totalCount, offset: Math.max(0, Math.min(end, totalCount)) };
+    }
+
+    const end =
+      beforeOffset === undefined
+        ? totalCount
+        : Math.max(0, Math.min(beforeOffset, totalCount));
+    const start = Math.max(0, end - limit);
+    return {
+      messages: all.slice(start, end),
+      totalCount,
+      offset: start,
+    };
+  }
+
   async listSessions(): Promise<FolderWithSessions[]> {
     const diskSessions = await SessionManager.listAll();
     const folderMap = new Map<string, FolderSessionInfo[]>();
