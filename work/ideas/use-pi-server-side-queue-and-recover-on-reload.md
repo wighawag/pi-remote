@@ -171,6 +171,15 @@ Beyond the queue work above, wherever must **render ALL user messages on the ses
 - Whether the pi-remote frontend ever showed a transient “queued” state that was then lost on reconnect (UI-side), vs the message going straight to the server queue. Not reproduced.
 - The harness/job-record side: `harness: "pi"` recorded `adapter: "null"` with no `harness.session` pointer in the job-record JSON (the session FILE exists at the predictable path above, but the record doesn't point to it). Tracked separately in agent-runner `work/observations/harness-pi-resolves-to-null-adapter-in-job-record.md`.
 
+## Related: the INTENTIONAL fork feature (`docs/FORK_ANALYSIS.md`)
+
+This note is about an ACCIDENTAL fork (frozen-HEAD desync). pi-remote ALSO has a planned/partially-implemented INTENTIONAL fork feature — edit-a-past-message → branch the session, plus a forks-as-forks UI — documented in `docs/FORK_ANALYSIS.md`. They MUST be implemented with shared foundations (cross-referenced there too):
+
+- **Shared seam — HEAD reconciliation before send.** The fix here (“reconcile a client's HEAD to the session's actual latest leaf, or mark it stale, before allowing a send”) is the SAME machinery that makes an intentional fork land on the chosen node. Build it once; both consume it.
+- **Shared seam — branch-aware rendering + `/resume` follow-on.** Rendering branches AS branches (and making `/resume` follow post-resume arrivals) is BOTH the feature's UI and the observability safety-net that stops an accidental fork from ever being silently invisible again.
+- **`FORK_ANALYSIS.md` §4 “Bug Analysis” Cause 2 & 3** (CLI re-init race / disconnect; `clientId`-changed re-registration during `session_created`) are the SAME failure-mode family as the frozen-HEAD desync diagnosed here — our forensics (one client sending from a 68-min-stale node) are a concrete reproduction.
+- **Distinct intent, must not be conflated:** `/fork` is an explicit user action (wanted); the desync fork is an accident (a bug). The feature must NOT ship without closing the accidental path, or unintended forks masquerade as intended ones.
+
 ## Pointers
 
 - Server queue + event: `node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js`

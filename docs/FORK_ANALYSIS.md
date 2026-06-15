@@ -2,7 +2,37 @@
 
 This document details the architecture, implemented changes, and bug analysis for adding the ability to edit a past message and branch/fork the session within the Wherever web interface.
 
----
+> **CROSS-REFERENCE — read alongside `work/ideas/use-pi-server-side-queue-and-recover-on-reload.md`.**
+> That note diagnoses a related but DISTINCT problem: an ACCIDENTAL (unintended) fork
+> caused by a client whose HEAD froze (stream/follow-on desync) while it could still
+> SEND, so it kept parenting new messages to a stale node — manufacturing a branch
+> nobody asked for, invisible to the other client. THIS document is the INTENTIONAL
+> fork feature (`/fork` via edit-a-past-message + a forks-as-forks UI). The two MUST
+> be designed together because they share the same seams:
+>
+> - **Both turn on `parentId`/leaf topology + a per-client HEAD** (`activeSessionFile`,
+>   the `entryId`/`targetLeafId` a fork branches from). The accidental-fork fix
+>   (“reconcile HEAD to the actual latest leaf, or mark the client stale, before
+>   sending”) is the SAME machinery that makes an intentional fork land on the right
+>   node — build the HEAD-reconciliation seam ONCE and both consume it.
+> - **Bug Analysis Cause 2 & 3 below (CLI re-init race / disconnect; slow or
+>   `clientId`-changed re-registration during `session_created`) are SIBLINGS of the
+>   desync that caused the accidental fork.** A client that reconnects with a different
+>   `clientId`, or stops following events mid-stream, ends up with a stale HEAD that
+>   silently forks on the next send. Fixing intentional-fork re-association robustly
+>   should also close the accidental-fork hole; conversely, the accidental-fork forensics
+>   (one frozen client kept sending from a 68-min-stale node, the ONLY branch point in
+>   the session) are a concrete reproduction of the failure mode these causes describe.
+> - **The forks-as-forks UI this feature adds is also the OBSERVABILITY fix for the
+>   accidental case:** if the frontend renders branches AS branches (and `/resume`
+>   follows on post-resume arrivals), an accidental fork can never again be silently
+>   invisible — the user would SEE the divergence. The UI work serves both the wanted
+>   feature and the safety net.
+>
+> Net: build the HEAD-reconciliation-before-send seam + branch-aware rendering as SHARED
+> foundations; layer intentional `/fork` on top; treat “accidental fork from a frozen/stale
+> HEAD” as a BUG the same foundations prevent. Shipping `/fork` WITHOUT closing the
+> accidental path means unintended forks will masquerade as intended ones.
 
 ## 1. Feature Requirements
 1. **Pencil/Edit Button**: Hovering over any previous user message in the chat list should display an "Edit" (pencil) icon.
