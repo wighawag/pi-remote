@@ -108,6 +108,27 @@ The confusion that triggered this note is only PARTLY explained; recorded here v
 - On return (05:41+), the loop was still running; the user's later messages interleaved with ongoing tool calls (activity log shows each user msg followed within seconds by an assistant turn that then continues tool work) — consistent with pi's server-side steer/followUp queue injecting messages at turn boundaries of the SINGLE running agent.
 - `deliverAs`/`source`/`streamingBehavior` are NOT persisted on the user-message entries in the `.jsonl` (runtime-only delivery hints), so the steer-vs-normal distinction could NOT be read back from the log directly — inferred from timestamps + the user's own “this message is queued” note (06:18:14).
 
+### ROOT CAUSE — CONFIRMED LIVE (2026-06-15, multi-client on one session)
+
+A controlled experiment proved the interleaving cause. With the SAME session open in BOTH the pi CLI and the wherever web client, a unique sentinel was sent from the CLI:
+
+```
+08:57:47Z  (wherever)  "Well wonder if we could try the ci install-ci..."
+08:59:58Z  (pi CLI)    "SENTINEL-CLI-7Q2 from the cli frontend, ignore for content"
+09:00:40Z  (wherever)  "Message sent, re install+ci tests..."
+```
+
+The CLI sentinel **landed in the SAME session `.jsonl` as a `user` message, interleaved between two wherever messages** — AND the wherever-attached agent turn-stream **never surfaced it** (no response turn; invisible in the wherever view). So:
+
+- **Both frontends attach to the ONE server-side `AgentSession`** (`tracked.clients` is a Set — multi-client per session is a supported state; `takeOver`/`session_interrupted` exist precisely for it). A message from EITHER client is appended to the one session and fed to the one agent loop.
+- **wherever does NOT follow-on / render messages that arrive from the OTHER client.** The CLI message drove the shared loop but was invisible in wherever — the "wherever pi-extension doesn't follow new messages" bug.
+
+This is the actual cause of all the session's "messages I didn't send / activity I couldn't see" confusion: a second client (pi CLI) on the same session, feeding the same loop, with wherever failing to sync the other client's messages. NOT a fork, NOT a separate agent, NOT (for the interleaving) the reload-queue path.
+
+### Additional fix implied by the confirmed root cause
+
+Beyond the queue work above, wherever must **render ALL user messages on the session, regardless of which client sent them** — subscribe to the session's message stream (the server already sees every appended user message) and display messages authored by other clients (CLI or another browser), so a multi-client session is coherent and the user is never surprised by invisible turns. Tie this to the existing `takeOver`/`session_interrupted` multi-client machinery (`server/src/index.ts` / `session-pool.ts`).
+
 ### STILL OPEN (left for now, do not assume resolved)
 
 - Exactly HOW the user's messages reached the running loop across reload(s): server-side steer-queue is the strong hypothesis but was NOT proven from the log (the delivery-mode field isn't persisted). Whether any reload actually dropped or duplicated a queued message in this specific session is unconfirmed.
