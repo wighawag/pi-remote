@@ -1,5 +1,14 @@
 # @wherever-dev/pi
 
+## 0.2.1
+
+### Patch Changes
+
+- 37de34b: Extract core client WebSocket and state management logic into a dedicated, framework-agnostic `@wherever-dev/client` monorepo package. Update both the web dashboard (`@wherever-dev/web`) and the CLI extension (`@wherever-dev/pi`) to use the new shared client, reducing duplicate code and establishing a modular architecture for future integrations.
+- Updated dependencies [37de34b]
+- Updated dependencies [ffd28c7]
+  - @wherever-dev/client@0.2.1
+
 ## 0.0.5
 
 ### Patch Changes

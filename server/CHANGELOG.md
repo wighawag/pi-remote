@@ -1,5 +1,51 @@
 # wherever-dev
 
+## 0.3.0
+
+### Minor Changes
+
+- a0a6adc: Reuse the chat composer as the search composer instead of a separate top-bar input.
+
+  ChatInput is now mode-aware via props (onSubmit, placeholder, submitLabel, showAttach, searchMode, searchConfigured). In search mode it routes submit to the injected handler (runSearch), is enabled with no active session (requires only a live connection and a configured search folder), shows the "Search the web..." placeholder and "Search" button, hides file attach, and skips slash-command handling. The mic, autosize, and Shift+Enter behaviour are kept in both modes.
+
+  On the page the inline single-line top-bar search input is removed. The always-mounted bottom composer becomes the search composer in the empty state (connected, search folder configured, no active session), which is also the page-load state, so users can type directly. When a session is active, a compact magnifier button in the top bar drops back to the search empty state and focuses the composer synchronously inside the tap gesture so the mobile virtual keyboard rises (notably on iOS Safari). Only one search input is ever shown at a time.
+
+  Also fixes a bug where a search query was silently dropped: the client runs app message listeners before its internal state update, so sending the pending query directly from the session_created handler hit sendMessage while sessionId was still null. The query is now deferred to a microtask so the session is fully established first, and the magnifier clears the URL hash synchronously to avoid flashing the "Loading session..." spinner.
+
+- 242b652: Add a web "search mode". A search bar in the dashboard top bar (visible when connected and a search folder is configured, autofocused on first load) creates a fresh session in the configured search folder and sends the query as the first message, returning a current, cited answer. New `searchFolder` and `searchCreateRemote` config keys (in `~/.wherever/config.json`) are exposed via `GET /config`; the search folder is created on demand on first search, with a private remote when `searchCreateRemote` is enabled and a matching remote rule exists. The reusable web-search skill (in `skills/web-search`) drives the same behaviour from the terminal via the companion `pisearch` installer.
+
+### Patch Changes
+
+- 37de34b: Extract core client WebSocket and state management logic into a dedicated, framework-agnostic `@wherever-dev/client` monorepo package. Update both the web dashboard (`@wherever-dev/web`) and the CLI extension (`@wherever-dev/pi`) to use the new shared client, reducing duplicate code and establishing a modular architecture for future integrations.
+- ffd28c7: Improve resume behaviour after the page is backgrounded (notably Firefox on Android after a screen lock). The dashboard now closes its WebSocket after the page has been hidden for a short delay and reconnects immediately on return, improving back/forward-cache eligibility (so resume can be instant) and ensuring that, when a full reload does happen, the active session is restored quickly from the URL hash. Quick tab switches do not churn the connection.
+- ffd28c7: Fix stale data on first load: the service worker no longer serves cached responses for dynamic server API endpoints (`/sessions`, `/config`, `/models`, `/check-path`, `/autocomplete-path`, `/session/*`, `/health`), which are now fetched online-first. App-shell navigations are also served online-first so a freshly deployed build is picked up without needing a second reload. Hashed assets and images remain cache-first for offline support.
+- ffd28c7: Fix: unqueuing a queued message now restores its text into the editable input (so it can be edited or resent) instead of silently discarding it. Previously `Unqueue` cleared the input even though a backup of the message existed.
+- 40c88c7: robust againt invalid session file
+- ee52ff4: Improve Lighthouse scores for the dashboard PWA.
+  - Web: stop shipping un-minified production assets. The Vite build had an
+    inherited `minify: false` override which left JS/CSS unminified, roughly
+    halving the largest chunk's size and fixing slow First/Largest Contentful
+    Paint. Sourcemaps stay enabled for debuggable production stack traces.
+  - Server: set `Cache-Control` headers when serving static files. Content-hashed
+    `/_app/immutable/` assets are served `public, max-age=31536000, immutable`;
+    the HTML app shell, manifest and other top-level files stay `no-cache` so a
+    freshly deployed build is always picked up. This fixes the "efficient cache
+    lifetimes" audit without affecting the service worker's own caching.
+  - Server: add `.txt` and `.webmanifest` MIME types so robots.txt is served as
+    `text/plain` and the manifest as `application/manifest+json` instead of
+    `application/octet-stream`.
+  - Web: add a minimal valid `robots.txt` so the SPA fallback no longer returns
+    the HTML app shell for `/robots.txt` (which Lighthouse flagged as invalid).
+    Wherever is a private Tailscale-only tool, so it disallows all crawlers.
+
+- affc7cf: PWA: make the installed icon resolve correctly on Firefox Android. Regular icons now carry an explicit `purpose: "any"` (some Firefox versions otherwise fall back to a generated letter icon), and maskable icons are generated at both 192 and 512 (Firefox prefers a maskable at the launcher size). Firefox still overlays its own small badge on installed-PWA icons, which is a browser behaviour and not controllable from the manifest.
+- eb0cfd0: PWA polish: the installed app icon is now generated from the Wherever logo (`logo.svg`) instead of the old placeholder, a properly padded `maskable` icon is generated (fixing the previous broken/missing maskable icon reference), and the manifest now declares desktop (`wide`) and mobile screenshots so Chrome offers its richer install UI. Icon/screenshot assets are produced at build time via a post-process step from committed sources under `static/pwa-src/`.
+- 7b2ca04: PWA: set the web manifest `display` to `standalone` (was the pwag default `fullscreen`) and give the app a real identity (`name`/`title` "Wherever" with a proper description) instead of the template placeholder. This makes the installed app launch in its own window rather than a normal browser tab on browsers that honor `standalone`.
+- 347e214: Removed all architecture overview diagrams and explicit references to "pi CLI" from the website landing page to simplify the landing page experience and remove any installation dependencies on pi or the CLI extension for typical dashboard users.
+- a57e137: Rephrased website landing page copy, app description, and user onboarding elements to focus on building and maintaining apps "from wherever" (on any device), shifting the AI component to an implementation detail and correcting references from "mirroring terminal" to "syncing sessions and conversations".
+- ffd28c7: Speed up loading of long sessions with tail-first history windowing. On load/join, the server now sends only the most recent messages (with a total count and offset) instead of the entire history in one payload, and the web dashboard shows a "Load older messages" button that lazily fetches earlier windows (with scroll-position anchoring). This adds `history_load_more` / `message_history_prepend` to the protocol and a `loadMoreHistory()` method plus history pagination state to `@wherever-dev/client`.
+- fd8427d: Updated documentation and the landing page to clarify that installing the `pi` CLI is optional and not required to run Wherever in Headless Mode. Added notes detailing the architectural limitation where quitting/killing the `pi` CLI in Bridge Mode interrupts active sessions and running tools.
+
 ## 0.1.0
 
 ### Minor Changes
