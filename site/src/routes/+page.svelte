@@ -140,9 +140,7 @@
 </nav>
 
 <!-- Hero Section -->
-<section
-	class="relative flex overflow-hidden pt-32 pb-20 sm:pt-40 sm:pb-28"
->
+<section class="relative flex overflow-hidden pt-32 pb-20 sm:pt-40 sm:pb-28">
 	<div
 		class="absolute top-1/4 left-1/4 h-96 w-96 rounded-full bg-brand-cyan/10 blur-3xl"
 	></div>
