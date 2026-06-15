@@ -123,7 +123,27 @@ The CLI sentinel **landed in the SAME session `.jsonl` as a `user` message, inte
 - **Both frontends attach to the ONE server-side `AgentSession`** (`tracked.clients` is a Set — multi-client per session is a supported state; `takeOver`/`session_interrupted` exist precisely for it). A message from EITHER client is appended to the one session and fed to the one agent loop.
 - **wherever does NOT follow-on / render messages that arrive from the OTHER client.** The CLI message drove the shared loop but was invisible in wherever — the "wherever pi-extension doesn't follow new messages" bug.
 
-This is the actual cause of all the session's "messages I didn't send / activity I couldn't see" confusion: a second client (pi CLI) on the same session, feeding the same loop, with wherever failing to sync the other client's messages. NOT a fork, NOT a separate agent, NOT (for the interleaving) the reload-queue path.
+This is the actual cause of all the session's "messages I didn't send / activity I couldn't see" confusion: a second client (pi CLI) on the same session, feeding the same loop, with wherever failing to sync the other client's messages. NOT a separate agent, NOT (for the interleaving) the reload-queue path.
+
+### DEEPER ROOT CAUSE — a FORKED conversation DAG with no shared HEAD (confirmed by parentId tracing)
+
+Further investigation corrected the "wherever just doesn't render the other client's messages" framing — it is deeper and explains why BOTH frontends (wherever AND the pi CLI via `/resume`) skip the sentinel. The pi session is a TREE linked by `parentId`, not a linear log. Tracing the records:
+
+- The CLI sentinel (`id=0dd11bfb`) has `parentId=3ba59e8e` — an assistant message from ~07:51 (an HOUR earlier, back in the Gate investigation).
+- The next wherever message (`id=7adb7944`, "Message sent…") has `parentId=ca9b3e5e` — the recent "Baseline captured" node (~09:00).
+- So the two messages are SIBLINGS on DIVERGENT branches: the conversation DAG FORKED. The sentinel even got its own assistant reply (`id=40f703ca`) on its branch — it was answered, just on a branch the other client never walks.
+
+Mechanism: **each frontend, when it sends a message, sets `parentId` to the last node THAT CLIENT had loaded/rendered — not the session's true latest leaf.** The pi CLI's `/resume` loaded the session but did NOT follow-on messages that arrived after the resume (the user's own observation), so its "latest" pointer was STALE (`3ba59e8e`); it parented the sentinel there, forking a sibling branch an hour back. wherever, with its own newer pointer, extended a DIFFERENT branch. On any later load/resume each client walks ITS OWN branch's lineage, so the other branch's messages are structurally OFF-PATH — not filtered, not flagged, just not on the walked lineage. Whichever branch you resume determines what you can see.
+
+The records are otherwise byte-identical (same keys, same `role:user` shape) — there is NO per-message field distinguishing a skipped message; the discriminator is PURELY the `parentId` branch topology.
+
+### The REAL fix (supersedes "render the other client's messages")
+
+Clients must converge on a shared HEAD before appending. Options, best first:
+- **(a) Parent to the session's ACTUAL current leaf at send time** — re-read the session's latest leaf (server-authoritative) when composing `parentId`, so concurrent clients linearize instead of forking. The server already sees every appended record; it (not the client's stale view) should assign the parent.
+- **(b) Detect divergence + merge/linearize** — if a client's known-latest is no longer the leaf, reconcile before appending.
+- **(c) At minimum, render ALL branches** so an off-branch message is never silently invisible (and `/resume` must follow-on post-resume arrivals, not freeze its HEAD).
+This sits alongside the server-side-queue work above; both are facets of "multiple clients on one live session must stay coherent."
 
 ### Additional fix implied by the confirmed root cause
 
