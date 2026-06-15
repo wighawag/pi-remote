@@ -137,6 +137,22 @@ Mechanism: **each frontend, when it sends a message, sets `parentId` to the last
 
 The records are otherwise byte-identical (same keys, same `role:user` shape) — there is NO per-message field distinguishing a skipped message; the discriminator is PURELY the `parentId` branch topology.
 
+### THE FIRST CAUSE — one client's HEAD FROZE at 07:51 and never followed on (the sentinel is a REPEAT symptom)
+
+Mapping EVERY user message to its parent's timestamp shows the fork is NOT a `/fork` (never invoked) and NOT the steer/queue path (the agent was IDLE when both anomalous messages were sent). It is a **client follow-on / stream desync**: one client stayed connected enough to SEND but STOPPED advancing its HEAD as new messages appended, so it kept parenting new messages to a stale node.
+
+Evidence — nearly every user message parents to an assistant node from ~1-3 min earlier (healthy: HEAD current). EXACTLY TWO anomalies, and they share ONE parent:
+- `08:13:49` “well I would like to know where this gate review” → parent `3ba59e8e` (**07:51:11**, 22 min stale).
+- `08:59:58` SENTINEL (from the pi CLI) → parent `3ba59e8e` (**07:51:11**, 68 min stale).
+
+The message just BEFORE the first anomaly (`07:49:48`) parented to `07:49:45` (current). So between 07:49 and 08:13 ONE client's HEAD froze at `3ba59e8e` (07:51) and never moved. It sent BOTH the 08:13 message and the 08:59 sentinel from that frozen HEAD. `3ba59e8e` is the ONLY branch point in the whole session, with exactly those two children. The OTHER client (the one the agent was actively streaming replies to) kept its HEAD current throughout, so its lineage became the trunk (Branch A), and the frozen client's two messages became the divergent branch.
+
+What happened at ~07:51: a dense burst of assistant+toolResult records (the session-file grepping during the Gate investigation). The frozen client appears to have stopped CONSUMING new session events right after `3ba59e8e` while remaining able to send — a follow-on/stream break, not a full disconnect (a full disconnect+`removeClient` would not freeze a send-capable HEAD). So:
+- The sentinel (the SECOND fork) is NOT an independent bug — it is the SAME frozen-HEAD client from the FIRST fork (08:13) sending again 46 min later, still pinned to 07:51.
+- The CLI `/resume` later showing the message-but-not-the-sentinel is consistent: resuming walks ONE branch's lineage; the frozen-client branch is off the trunk.
+
+So the ORIGINATING defect to fix is: **a client must not keep a frozen HEAD while still able to send.** When follow-on stops (stream desync, missed events, a half-open socket), the client must either (a) reconcile its HEAD to the session's actual latest leaf before allowing a send, or (b) be told it is stale and re-sync. Pinning `parentId` to a stale HEAD is what manufactures the unintended fork. (Distinct from the WANTED `/fork` feature — that is an explicit user action; this is an accidental fork from desync.)
+
 ### The REAL fix (supersedes "render the other client's messages")
 
 Clients must converge on a shared HEAD before appending. Options, best first:
