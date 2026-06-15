@@ -2,6 +2,9 @@
   "name": "@wherever-dev/client",
   "version": "0.2.1",
   "description": "Framework-agnostic isomorphic TypeScript client for Wherever standalone server",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
