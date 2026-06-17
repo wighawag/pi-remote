@@ -10,6 +10,7 @@
 		loadMoreHistory,
 		hasMoreHistory,
 		isLoadingMoreHistory,
+		isLoadingSession,
 	} from '$lib/wherever';
 	import {
 		availableModels,
@@ -194,6 +195,7 @@
 	let {onMessageSent}: {onMessageSent: () => void} = $props();
 
 	let sessionInfo = $derived($activeSessionInfo);
+	let loadingSession = $derived($isLoadingSession);
 
 	let shouldAutoScroll = $state(true);
 	let forceScroll = $state(false);
@@ -403,15 +405,39 @@
 	});
 
 	let lastSessionFile = $state<string | null>(null);
+	let wasLoadingSession = $state(false);
+
+	// Scroll the freshly-loaded session to the bottom. The session history
+	// arrives as a separate WS message after the session itself, and the
+	// rendered messages (markdown, code blocks) keep growing for a few frames
+	// after they mount, so a single synchronous scroll lands too early. Retry
+	// across a couple of frames to settle on the true bottom.
+	function scrollToBottomSettled() {
+		forceScroll = true;
+		scrollToBottom();
+		requestAnimationFrame(() => {
+			scrollToBottom();
+			requestAnimationFrame(scrollToBottom);
+		});
+		setTimeout(scrollToBottom, 60);
+		setTimeout(scrollToBottom, 150);
+	}
 
 	$effect(() => {
-		// Force scroll to bottom when the active session changes
+		// Force scroll to bottom when the active session changes...
 		const sFile = sessionInfo.sessionFile;
 		if (sFile !== lastSessionFile) {
 			lastSessionFile = sFile;
 			forceScroll = true;
-			setTimeout(scrollToBottom, 50);
 		}
+
+		// ...and again once its history finishes loading, since the messages only
+		// render after loadingSession flips back to false.
+		const isLoading = loadingSession;
+		if (wasLoadingSession && !isLoading) {
+			scrollToBottomSettled();
+		}
+		wasLoadingSession = isLoading;
 	});
 
 	let msgList = $derived.by(() => {
@@ -583,7 +609,7 @@
 				</button>
 			</div>
 		</div>
-	{:else if !sessionInfo.sessionFile && typeof window !== 'undefined' && window.location.hash}
+	{:else if loadingSession || (!sessionInfo.sessionFile && typeof window !== 'undefined' && window.location.hash)}
 		<div
 			class="flex flex-1 flex-col items-center justify-center bg-brand-dark p-6 text-brand-text-muted"
 		>

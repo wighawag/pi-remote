@@ -15,6 +15,7 @@ const defaultState: WhereverState = {
 	connected: false,
 	connecting: false,
 	creatingSession: false,
+	loadingSession: false,
 	error: null,
 	session: null,
 	sessionId: null,
@@ -141,6 +142,9 @@ export class WhereverClient {
         ...s,
         connected: false,
         connecting: false,
+        // Never leave a session-load spinner stuck if the socket drops mid-load.
+        loadingSession: false,
+        creatingSession: false,
       }));
       this.scheduleReconnect();
     };
@@ -532,6 +536,7 @@ export class WhereverClient {
               activeSessionFile: null,
               activeCwd: null,
               activeModel: null,
+              loadingSession: false,
             };
           }
           return s;
@@ -544,6 +549,7 @@ export class WhereverClient {
           sessionError: msg.error,
           isStreaming: false,
           creatingSession: false,
+          loadingSession: false,
         }));
         break;
 
@@ -556,6 +562,7 @@ export class WhereverClient {
             conflictingCwd: msg.conflictingCwd,
           },
           creatingSession: false,
+          loadingSession: false,
         }));
         break;
 
@@ -571,6 +578,7 @@ export class WhereverClient {
           activeCwd: null,
           activeModel: null,
           creatingSession: false,
+          loadingSession: false,
         }));
         break;
 
@@ -586,6 +594,7 @@ export class WhereverClient {
             historyTotalCount: totalCount,
             historyOffset: offset,
             loadingMoreHistory: false,
+            loadingSession: false,
           };
         });
         break;
@@ -764,6 +773,7 @@ export class WhereverClient {
       ...s,
       conflict: null,
       sessionError: null,
+      loadingSession: true,
     }));
     this.send({type: 'session_load', sessionFile, cwd, model});
   }
@@ -780,6 +790,7 @@ export class WhereverClient {
       conflict: null,
       sessionError: null,
       creatingSession: true,
+      loadingSession: false,
     }));
     this.send({
       type: 'session_new',
@@ -805,6 +816,7 @@ export class WhereverClient {
       activeModel: null,
       readOnly: false,
       creatingSession: false,
+      loadingSession: false,
     }));
   }
 

@@ -21,6 +21,11 @@ export interface WhereverState {
 	connected: boolean;
 	connecting: boolean;
 	creatingSession: boolean;
+	// True from the moment a session_load is requested until its message_history
+	// (or an error/conflict) arrives. Distinguishes "opening an existing session"
+	// from "a brand new empty session" so the UI can show a loading state instead
+	// of the "New Session Started" empty state.
+	loadingSession: boolean;
 	error: string | null;
 	session: string | null;
 	sessionId: string | null;
