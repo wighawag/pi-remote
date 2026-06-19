@@ -60,6 +60,204 @@ export interface WhereverConfig {
   searchFolder?: string;
   /** When true, the on-demand search folder gets a remote, forced to private visibility. Default false. */
   searchCreateRemote?: boolean;
+  /** Session listing controls. */
+  sessions?: {
+    /**
+     * Glob patterns matched against a session's resolved cwd. Any session whose
+     * cwd matches is fully excluded from the listing AND its folder is skipped
+     * BEFORE its file bodies are read, so a large pile of throwaway sessions
+     * (e.g. "/tmp/**") no longer slows down /sessions. Tilde (~) is expanded.
+     * Empty/omitted = nothing ignored (no behaviour change).
+     */
+    ignore?: string[];
+  };
+}
+
+/**
+ * Convert a single glob pattern into a RegExp matched against a normalized,
+ * absolute filesystem path. Supports `*` (does not cross a path separator),
+ * `**` (crosses separators), and `?`. Tilde (`~`) is expanded to the home dir.
+ * No new dependency: this is a deliberately small, path-oriented matcher.
+ */
+function globToRegExp(glob: string): RegExp {
+  let g = glob.trim();
+  if (g.startsWith('~')) {
+    g = path.join(os.homedir(), g.slice(1));
+  }
+  // Normalize separators and collapse a trailing slash so "/tmp/" == "/tmp".
+  g = g.replace(/\\/g, '/');
+  if (g.length > 1 && g.endsWith('/')) g = g.slice(0, -1);
+
+  let re = '';
+  for (let i = 0; i < g.length; i++) {
+    const c = g[i];
+    if (c === '*') {
+      if (g[i + 1] === '*') {
+        // `**` -> any chars including separators (optionally followed by a `/`).
+        i++;
+        if (g[i + 1] === '/') i++;
+        re += '.*';
+      } else {
+        // `*` -> any chars except a path separator.
+        re += '[^/]*';
+      }
+    } else if (c === '?') {
+      re += '[^/]';
+    } else if ('\\^$.|+()[]{}'.includes(c)) {
+      re += '\\' + c;
+    } else {
+      re += c;
+    }
+  }
+  return new RegExp('^' + re + '$');
+}
+
+/**
+ * Build a predicate that returns true when a resolved cwd should be IGNORED.
+ * A cwd matches if it equals, or is nested under, any ignore glob. Patterns are
+ * compiled once; an empty list yields a predicate that never matches.
+ */
+export function makeIgnoreMatcher(patterns: string[] | undefined): (cwd: string) => boolean {
+  const globs = (patterns || []).filter((p) => typeof p === 'string' && p.trim().length > 0);
+  if (globs.length === 0) return () => false;
+  const regexps: RegExp[] = [];
+  for (const g of globs) {
+    try {
+      // A pattern should ignore both the directory itself AND everything nested
+      // under it, regardless of how it was written:
+      //   "/tmp"      -> match "/tmp" and "/tmp/anything"
+      //   "/tmp/**"   -> match "/tmp" and "/tmp/anything"
+      //   "/tmp/*"    -> match "/tmp" and "/tmp/anything"
+      // So we strip a trailing /* or /** to get the base, then add both the base
+      // and a "/**" nested variant.
+      const base = g.replace(/\/+\*{1,2}$/, '').replace(/\/+$/, '') || g;
+      regexps.push(globToRegExp(base));
+      regexps.push(globToRegExp(base + '/**'));
+      // Also honour the pattern exactly as written (e.g. a mid-path glob).
+      regexps.push(globToRegExp(g));
+    } catch (err) {
+      console.error(`Invalid sessions.ignore glob ${JSON.stringify(g)}:`, err);
+    }
+  }
+  return (cwd: string) => {
+    const norm = normalizePath(cwd).replace(/\\/g, '/');
+    return regexps.some((re) => re.test(norm));
+  };
+}
+
+/**
+ * Read only the header (first line) of a session .jsonl to recover its
+ * authoritative cwd, WITHOUT parsing the whole file. Returns '' if the header
+ * is missing/unreadable. This is the cheap pre-filter that lets us skip an
+ * ignored folder before reading its (potentially many, large) file bodies.
+ */
+function readSessionCwdFromHeader(filePath: string): string {
+  try {
+    const fd = fs.openSync(filePath, 'r');
+    try {
+      const buf = Buffer.alloc(8192);
+      const bytes = fs.readSync(fd, buf, 0, buf.length, 0);
+      const text = buf.toString('utf8', 0, bytes);
+      const nl = text.indexOf('\n');
+      const firstLine = nl === -1 ? text : text.slice(0, nl);
+      const header = JSON.parse(firstLine);
+      return typeof header?.cwd === 'string' ? header.cwd : '';
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Resolve a session's raw header cwd into a normalized absolute path, matching
+ * how listSessions() buckets folders (tilde-expand; relative -> under home).
+ */
+function resolveSessionCwd(rawCwd: string): string {
+  const raw = rawCwd || '';
+  let cwd = raw;
+  if (raw.startsWith('~')) {
+    cwd = path.join(os.homedir(), raw.slice(1));
+  } else if (!path.isAbsolute(raw)) {
+    cwd = path.join(os.homedir(), raw);
+  }
+  return normalizePath(cwd);
+}
+
+export interface DiskSessionInfo {
+  path: string;
+  id: string;
+  cwd: string;
+  name?: string;
+  created: Date;
+  modified: Date;
+  messageCount: number;
+  firstMessage: string;
+}
+
+/**
+ * Parse one session .jsonl into the subset of fields the listing needs. This is
+ * the directory-aware path's equivalent of pi's internal buildSessionInfo
+ * (which is not exported), used ONLY for folders that survived the ignore
+ * pre-filter. Returns null for a non-session / empty / unreadable file.
+ */
+function buildDiskSessionInfo(filePath: string): DiskSessionInfo | null {
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    const lines = content.trim().split('\n');
+    const entries: any[] = [];
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try { entries.push(JSON.parse(line)); } catch { /* skip malformed line */ }
+    }
+    if (entries.length === 0) return null;
+    const header = entries[0];
+    if (header?.type !== 'session') return null;
+
+    const stats = fs.statSync(filePath);
+    let messageCount = 0;
+    let firstMessage = '';
+    let name: string | undefined;
+    let lastMessageTime = 0;
+    for (const entry of entries) {
+      if (entry?.type === 'session_info') {
+        name = (entry.name && String(entry.name).trim()) || undefined;
+      }
+      if (entry?.type !== 'message') continue;
+      messageCount++;
+      const message = entry.message;
+      const role = message?.role;
+      if (role !== 'user' && role !== 'assistant') continue;
+      let textContent = '';
+      const c = message?.content;
+      if (typeof c === 'string') {
+        textContent = c;
+      } else if (Array.isArray(c)) {
+        textContent = c.map((p: any) => (typeof p?.text === 'string' ? p.text : '')).join('');
+      }
+      if (!textContent) continue;
+      if (!firstMessage && role === 'user') firstMessage = textContent;
+      const t = typeof entry.timestamp === 'string' ? new Date(entry.timestamp).getTime() : NaN;
+      if (Number.isFinite(t)) lastMessageTime = Math.max(lastMessageTime, t);
+    }
+
+    const headerTime = typeof header.timestamp === 'string' ? new Date(header.timestamp).getTime() : NaN;
+    const created = Number.isFinite(headerTime) ? new Date(headerTime) : new Date(NaN);
+    const modified = lastMessageTime > 0 ? new Date(lastMessageTime) : stats.mtime;
+    return {
+      path: filePath,
+      id: typeof header.id === 'string' ? header.id : '',
+      cwd: typeof header.cwd === 'string' ? header.cwd : '',
+      name,
+      created,
+      modified,
+      messageCount,
+      firstMessage: firstMessage || '(no messages)',
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function getWhereverConfig(): WhereverConfig {
@@ -700,7 +898,86 @@ export class SessionPool {
   }
 
   async listSessions(): Promise<FolderWithSessions[]> {
-    const diskSessions = await SessionManager.listAll();
+    const ignorePatterns = getWhereverConfig().sessions?.ignore;
+    const isIgnored = makeIgnoreMatcher(ignorePatterns);
+
+    // Fast path: no ignore patterns configured -> keep pi's listAll() exactly as
+    // before (no behaviour or perf change for users who haven't opted in).
+    if (!ignorePatterns || ignorePatterns.length === 0) {
+      const diskSessions = await SessionManager.listAll();
+      return this.buildFolders(
+        diskSessions.map((s) => ({
+          path: s.path,
+          id: s.id,
+          cwd: s.cwd,
+          name: s.name,
+          created: s.created,
+          modified: s.modified,
+          messageCount: s.messageCount,
+          firstMessage: s.firstMessage,
+        })),
+      );
+    }
+
+    // Directory-aware path: prune ignored folders BEFORE reading their file
+    // bodies, so a large pile of throwaway sessions does not slow down /sessions.
+    const sessionsRoot = path.join(this.agentDir, 'sessions');
+    let dirNames: string[] = [];
+    try {
+      dirNames = fs
+        .readdirSync(sessionsRoot, { withFileTypes: true })
+        .filter((e) => e.isDirectory())
+        .map((e) => e.name);
+    } catch {
+      return [];
+    }
+
+    const survivingFiles: string[] = [];
+    let ignoredFolders = 0;
+    for (const dirName of dirNames) {
+      const dirPath = path.join(sessionsRoot, dirName);
+      let files: string[];
+      try {
+        files = fs.readdirSync(dirPath).filter((f) => f.endsWith('.jsonl'));
+      } catch {
+        continue;
+      }
+      if (files.length === 0) continue;
+
+      // Cheap pre-filter: read ONLY the header of the first file to recover the
+      // authoritative cwd. All sessions in one folder share a cwd, so one header
+      // decides the whole folder. If it matches an ignore glob, skip the folder
+      // entirely (its file bodies are never read).
+      const probeCwd = resolveSessionCwd(readSessionCwdFromHeader(path.join(dirPath, files[0])));
+      if (probeCwd && isIgnored(probeCwd)) {
+        ignoredFolders++;
+        continue;
+      }
+      for (const f of files) survivingFiles.push(path.join(dirPath, f));
+    }
+
+    const infos: DiskSessionInfo[] = [];
+    for (const file of survivingFiles) {
+      const info = buildDiskSessionInfo(file);
+      if (!info) continue;
+      // A per-session header may still resolve to an ignored cwd even if the
+      // folder probe didn't (defensive: mixed/edge cases). Drop it too.
+      if (isIgnored(resolveSessionCwd(info.cwd))) continue;
+      infos.push(info);
+    }
+
+    if (ignoredFolders > 0) {
+      console.log(`[wherever] /sessions: skipped ${ignoredFolders} ignored folder(s) before reading file bodies`);
+    }
+    return this.buildFolders(infos);
+  }
+
+  /**
+   * Group flat disk-session infos into per-cwd folders, dropping stub sessions
+   * with no valid creation time, and sorted newest-first. Shared by both the
+   * fast (listAll) and directory-aware (ignore-filtered) listing paths.
+   */
+  private buildFolders(diskSessions: DiskSessionInfo[]): FolderWithSessions[] {
     const folderMap = new Map<string, FolderSessionInfo[]>();
 
     for (const s of diskSessions) {
@@ -715,14 +992,7 @@ export class SessionPool {
         continue;
       }
 
-      const rawCwd = s.cwd || '';
-      let cwd = rawCwd;
-      if (rawCwd.startsWith('~')) {
-        cwd = path.join(os.homedir(), rawCwd.slice(1));
-      } else if (!path.isAbsolute(rawCwd)) {
-        cwd = path.join(os.homedir(), rawCwd);
-      }
-      cwd = normalizePath(cwd);
+      const cwd = resolveSessionCwd(s.cwd);
 
       if (!folderMap.has(cwd)) {
         folderMap.set(cwd, []);

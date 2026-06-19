@@ -255,6 +255,10 @@ The configuration file is located at `~/.wherever/config.json` on the server mac
   - `apiUrl` (string, optional, Default: `'https://api.z.ai/api/paas/v4/audio/transcriptions'`): The cloud transcription HTTP endpoint. Can also be set via the `SPEECH_API_URL` environment variable.
   - `model` (string, optional, Default: `'glm-asr-2512'`): Model ID for transcription (e.g., Whisper models). Can also be set via the `SPEECH_MODEL` environment variable.
 
+- **`sessions`** (object, optional):
+  Controls which sessions appear in the dashboard's session list.
+  - `ignore` (array of glob strings, Default: `[]`): Session working directories matching any of these globs are fully excluded from the list. Crucially, a matching folder is skipped **before** its session files are read, so a large pile of throwaway sessions (e.g. agent scratch dirs under `/tmp`) no longer slows down the session list. Globs support `*` (does not cross a path separator), `**` (crosses separators), and `?`; `~` is expanded to the home directory. A pattern ignores both the directory itself and everything nested under it (so `"/tmp"`, `"/tmp/*"`, and `"/tmp/**"` all ignore `/tmp` and everything inside it). Omitting `ignore` (or leaving it empty) changes nothing.
+
 ### Rule Object Properties
 
 Each rule in `remoteRepoRules` can contain:
@@ -290,6 +294,9 @@ Each rule in `remoteRepoRules` can contain:
     "apiKey": "your-cloud-speech-api-key",
     "apiUrl": "https://api.z.ai/api/paas/v4/audio/transcriptions",
     "model": "glm-asr-2512"
+  },
+  "sessions": {
+    "ignore": ["/tmp/**", "~/.agent-runner/**"]
   }
 }
 ```
