@@ -70,6 +70,16 @@ export interface WhereverConfig {
      * Empty/omitted = nothing ignored (no behaviour change).
      */
     ignore?: string[];
+    /**
+     * Glob patterns (same syntax as `ignore`) matched against a session's
+     * resolved cwd. Matching sessions are HIDDEN from the default list (and,
+     * like ignore, their folders are skipped before their bodies are read on
+     * the default view), but remain viewable on a separate read-only page
+     * (`/sessions?view=readonly`). Opening one is forced read-only: the server
+     * refuses writes and the UI hides the composer. Intended for autonomous
+     * fleets (e.g. agent-runner) you want to observe but not drive.
+     */
+    readOnly?: string[];
   };
 }
 
@@ -897,13 +907,29 @@ export class SessionPool {
     };
   }
 
-  async listSessions(): Promise<FolderWithSessions[]> {
-    const ignorePatterns = getWhereverConfig().sessions?.ignore;
+  /**
+   * List session folders.
+   * - view='default' (the dashboard's main list): excludes `sessions.ignore`
+   *   AND `sessions.readOnly` folders.
+   * - view='readonly' (the separate read-only page): returns ONLY the
+   *   `sessions.readOnly` folders (still excluding `sessions.ignore`), each
+   *   tagged `readOnly: true`.
+   * In both cases, excluded folders are pruned BEFORE their file bodies are
+   *   read (cheap one-header probe per folder), so they cost nothing to scan.
+   */
+  async listSessions(view: 'default' | 'readonly' = 'default'): Promise<FolderWithSessions[]> {
+    const cfg = getWhereverConfig().sessions;
+    const ignorePatterns = cfg?.ignore;
+    const readOnlyPatterns = cfg?.readOnly;
     const isIgnored = makeIgnoreMatcher(ignorePatterns);
+    const isReadOnly = makeIgnoreMatcher(readOnlyPatterns);
+    const hasIgnore = !!ignorePatterns && ignorePatterns.length > 0;
+    const hasReadOnly = !!readOnlyPatterns && readOnlyPatterns.length > 0;
 
-    // Fast path: no ignore patterns configured -> keep pi's listAll() exactly as
-    // before (no behaviour or perf change for users who haven't opted in).
-    if (!ignorePatterns || ignorePatterns.length === 0) {
+    // Fast path: no ignore AND no read-only patterns, and the caller wants the
+    // default view -> keep pi's listAll() exactly as before (zero behaviour or
+    // perf change for users who haven't opted in).
+    if (view === 'default' && !hasIgnore && !hasReadOnly) {
       const diskSessions = await SessionManager.listAll();
       return this.buildFolders(
         diskSessions.map((s) => ({
@@ -919,8 +945,16 @@ export class SessionPool {
       );
     }
 
-    // Directory-aware path: prune ignored folders BEFORE reading their file
-    // bodies, so a large pile of throwaway sessions does not slow down /sessions.
+    // A folder is KEPT only if its cwd belongs in the requested view:
+    // - default: not ignored AND not read-only.
+    // - readonly: not ignored AND read-only.
+    const folderWanted = (cwd: string): boolean => {
+      if (isIgnored(cwd)) return false;
+      return view === 'readonly' ? isReadOnly(cwd) : !isReadOnly(cwd);
+    };
+
+    // Directory-aware path: prune unwanted folders BEFORE reading their file
+    // bodies, so the excluded sessions do not slow down /sessions.
     const sessionsRoot = path.join(this.agentDir, 'sessions');
     let dirNames: string[] = [];
     try {
@@ -933,7 +967,7 @@ export class SessionPool {
     }
 
     const survivingFiles: string[] = [];
-    let ignoredFolders = 0;
+    let prunedFolders = 0;
     for (const dirName of dirNames) {
       const dirPath = path.join(sessionsRoot, dirName);
       let files: string[];
@@ -946,11 +980,11 @@ export class SessionPool {
 
       // Cheap pre-filter: read ONLY the header of the first file to recover the
       // authoritative cwd. All sessions in one folder share a cwd, so one header
-      // decides the whole folder. If it matches an ignore glob, skip the folder
-      // entirely (its file bodies are never read).
+      // decides the whole folder. If the folder is not wanted in this view, skip
+      // it entirely (its file bodies are never read).
       const probeCwd = resolveSessionCwd(readSessionCwdFromHeader(path.join(dirPath, files[0])));
-      if (probeCwd && isIgnored(probeCwd)) {
-        ignoredFolders++;
+      if (probeCwd && !folderWanted(probeCwd)) {
+        prunedFolders++;
         continue;
       }
       for (const f of files) survivingFiles.push(path.join(dirPath, f));
@@ -960,24 +994,34 @@ export class SessionPool {
     for (const file of survivingFiles) {
       const info = buildDiskSessionInfo(file);
       if (!info) continue;
-      // A per-session header may still resolve to an ignored cwd even if the
-      // folder probe didn't (defensive: mixed/edge cases). Drop it too.
-      if (isIgnored(resolveSessionCwd(info.cwd))) continue;
+      // Defensive per-session re-check (mixed/edge cases the folder probe missed).
+      if (!folderWanted(resolveSessionCwd(info.cwd))) continue;
       infos.push(info);
     }
 
-    if (ignoredFolders > 0) {
-      console.log(`[wherever] /sessions: skipped ${ignoredFolders} ignored folder(s) before reading file bodies`);
+    if (prunedFolders > 0) {
+      console.log(`[wherever] /sessions (${view}): skipped ${prunedFolders} folder(s) before reading file bodies`);
     }
-    return this.buildFolders(infos);
+    return this.buildFolders(infos, view === 'readonly' ? isReadOnly : undefined);
+  }
+
+  /** True when the given (raw or resolved) cwd matches a sessions.readOnly glob. */
+  isReadOnlyCwd(cwd: string): boolean {
+    const patterns = getWhereverConfig().sessions?.readOnly;
+    if (!patterns || patterns.length === 0) return false;
+    return makeIgnoreMatcher(patterns)(resolveSessionCwd(cwd));
   }
 
   /**
    * Group flat disk-session infos into per-cwd folders, dropping stub sessions
    * with no valid creation time, and sorted newest-first. Shared by both the
-   * fast (listAll) and directory-aware (ignore-filtered) listing paths.
+   * fast (listAll) and directory-aware listing paths. When `isReadOnly` is
+   * provided, each folder is tagged `readOnly` per its cwd.
    */
-  private buildFolders(diskSessions: DiskSessionInfo[]): FolderWithSessions[] {
+  private buildFolders(
+    diskSessions: DiskSessionInfo[],
+    isReadOnly?: (cwd: string) => boolean,
+  ): FolderWithSessions[] {
     const folderMap = new Map<string, FolderSessionInfo[]>();
 
     for (const s of diskSessions) {
@@ -1014,7 +1058,12 @@ export class SessionPool {
     const folders: FolderWithSessions[] = [];
     for (const [cwdPath, sessions] of folderMap.entries()) {
       const name = path.basename(cwdPath) || cwdPath;
-      folders.push({ path: cwdPath, name, sessions: sessions.sort((a, b) => b.modified.localeCompare(a.modified)) });
+      folders.push({
+        path: cwdPath,
+        name,
+        sessions: sessions.sort((a, b) => b.modified.localeCompare(a.modified)),
+        readOnly: isReadOnly ? isReadOnly(cwdPath) : undefined,
+      });
     }
 
     return folders.sort((a, b) => {

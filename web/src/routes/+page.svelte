@@ -23,6 +23,7 @@
 	} from '$lib/wherever';
 	import {
 		fetchSessions,
+		fetchReadOnlySessions,
 		availableModels,
 		searchFolderStore,
 	} from '$lib/session-store';
@@ -30,6 +31,10 @@
 	import {url} from '$lib/core/utils/web/path';
 
 	let sidebarOpen = $state(false);
+	// Which session list the sidebar shows: the main dashboard, or the separate
+	// read-only page (sessions.readOnly folders) reached via the sidebar link.
+	// The read-only page hides the create form, delete controls, and the composer.
+	let sessionView = $state<'main' | 'readonly'>('main');
 	let showSettings = $state(false);
 	let autoConnect = $state(true);
 	let interruptedTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -392,9 +397,40 @@
 				{/if}
 			</div>
 
+			<!-- Sidebar navigation: switch between the main list and the read-only page -->
+			<div class="border-b border-brand-border/50 px-2 py-1.5">
+				{#if sessionView === 'main'}
+					<button
+						onclick={() => {
+							sessionView = 'readonly';
+							fetchReadOnlySessions();
+						}}
+						class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-brand-text-muted transition-colors hover:bg-brand-surface-3/50 hover:text-brand-text"
+						title="View read-only sessions (e.g. autonomous agent fleets)"
+					>
+						<span>👁️</span>
+						<span>Read-only sessions</span>
+						<span class="ml-auto">→</span>
+					</button>
+				{:else}
+					<button
+						onclick={() => (sessionView = 'main')}
+						class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs font-semibold text-brand-blue transition-colors hover:bg-brand-surface-3/50"
+						title="Back to your sessions"
+					>
+						<span>←</span>
+						<span>Back to sessions</span>
+					</button>
+				{/if}
+			</div>
+
 			<!-- Session Browser -->
 			<div class="flex-1 overflow-hidden">
-				<SessionBrowser />
+				{#if sessionView === 'readonly'}
+					<SessionBrowser readOnly />
+				{:else}
+					<SessionBrowser />
+				{/if}
 			</div>
 		{/if}
 	</div>
@@ -526,12 +562,12 @@
 			</div>
 		{/if}
 
-		<!-- Read-only banner -->
+	<!-- Read-only banner -->
 		{#if readOnly && !interrupted}
 			<div
 				class="border border-yellow-500/30 bg-yellow-500/10 px-4 py-2 text-center text-sm text-yellow-400"
 			>
-				Read-only: another session is active in this folder
+				Read-only: this session cannot be driven from here
 			</div>
 		{/if}
 
@@ -540,19 +576,29 @@
 
 		<!-- Input: one composer, mode-switched. Search mode when connected, a
 		     search folder is configured, and no session is active; chat mode
-		     otherwise. Always mounted so it can be focused inside a tap gesture. -->
-		<ChatInput
-			bind:this={chatInput}
-			searchMode={searchActive}
-			searchConfigured={!!searchFolder}
-			onSubmit={(q) => runSearch(q)}
-			placeholder="Search the web..."
-			submitLabel="Search"
-			disabled={searchActive
-				? !connected
-				: !connected || readOnly || !sessionInfo.sessionFile}
-			onSend={() => chatList?.forceScrollToBottom()}
-		/>
+		     otherwise. Always mounted so it can be focused inside a tap gesture.
+		     EXCEPTION: a read-only session (e.g. a sessions.readOnly fleet folder)
+		     hides the composer entirely -- it is an observe-only view. -->
+		{#if readOnly && sessionInfo.sessionFile}
+			<div
+				class="border-t border-brand-border bg-brand-surface px-4 py-3 text-center text-xs text-brand-text-muted"
+			>
+				👁️ Read-only session — observing only, no input.
+			</div>
+		{:else}
+			<ChatInput
+				bind:this={chatInput}
+				searchMode={searchActive}
+				searchConfigured={!!searchFolder}
+				onSubmit={(q) => runSearch(q)}
+				placeholder="Search the web..."
+				submitLabel="Search"
+				disabled={searchActive
+					? !connected
+					: !connected || readOnly || !sessionInfo.sessionFile}
+				onSend={() => chatList?.forceScrollToBottom()}
+			/>
+		{/if}
 	</div>
 
 	<!-- Session Conflict Dialog -->

@@ -1,8 +1,10 @@
 <script lang="ts">
 	import {
 		sessionFolders,
+		readOnlySessionFolders,
 		availableModels,
 		fetchSessions,
+		fetchReadOnlySessions,
 		fetchModels,
 		fetchConfig,
 		gitInitDefaultStore,
@@ -12,6 +14,11 @@
 		type ModelInfo,
 		type FolderWithSessions,
 	} from '$lib/session-store';
+
+	// When true, this browser shows the read-only sessions page: it sources from
+	// the read-only folder list, hides the create form, and hides all delete
+	// controls. Opening a session here is forced read-only by the server.
+	let {readOnly = false}: {readOnly?: boolean} = $props();
 	import {
 		joinSession,
 		createSession,
@@ -23,8 +30,20 @@
 		deleteSession,
 	} from '$lib/wherever';
 
-	let folders = $derived($sessionFolders.folders);
-	let loading = $derived($sessionFolders.loading);
+	let folders = $derived(
+		readOnly ? $readOnlySessionFolders.folders : $sessionFolders.folders,
+	);
+	let loading = $derived(
+		readOnly ? $readOnlySessionFolders.loading : $sessionFolders.loading,
+	);
+
+	function refresh() {
+		if (readOnly) {
+			fetchReadOnlySessions();
+		} else {
+			fetchSessions();
+		}
+	}
 	let currentSession = $derived($activeSessionInfo.sessionFile);
 	let connected = $derived($isConnected);
 	let models = $derived($availableModels.models);
@@ -39,9 +58,11 @@
 	// Auto-fetch sessions on connect and periodically
 	$effect(() => {
 		if (connected) {
-			fetchSessions();
-			fetchModels();
-			fetchConfig();
+			refresh();
+			if (!readOnly) {
+				fetchModels();
+				fetchConfig();
+			}
 		}
 	});
 
@@ -410,7 +431,7 @@
 			/>
 			<button
 				type="button"
-				onclick={() => fetchSessions()}
+				onclick={() => refresh()}
 				class="flex shrink-0 items-center justify-center rounded border border-brand-border bg-brand-surface-2 px-1.5 py-1.5 text-brand-text-muted transition-colors hover:bg-brand-surface-3 hover:text-brand-text"
 				title="Refresh session list"
 			>
@@ -420,7 +441,8 @@
 	</div>
 
 	<div class="flex-1 overflow-y-auto">
-		<!-- Collapsible Create New Session Section -->
+		<!-- Collapsible Create New Session Section (hidden in read-only mode) -->
+		{#if !readOnly}
 		<div class="border-b border-brand-border/50 bg-brand-surface/10">
 			<button
 				onclick={() => (createFormOpen = !createFormOpen)}
@@ -618,6 +640,7 @@
 				</form>
 			{/if}
 		</div>
+		{/if}
 
 		{#if loading && filteredFolders.length === 0}
 			<div class="p-4 text-center text-brand-text-muted">
@@ -661,6 +684,7 @@
 
 					{#if isFolderExpanded(folder.path)}
 						<div class="px-3 pb-2">
+							{#if !readOnly}
 							<div class="mb-1.5 flex items-center justify-between">
 								<button
 									onclick={() => openNewSessionPicker(folder.path)}
@@ -708,6 +732,7 @@
 									{/if}
 								</div>
 							</div>
+							{/if}
 
 							{#each folder.sessions as session (session.path)}
 								<div
@@ -760,7 +785,8 @@
 										{/if}
 									</a>
 
-									<!-- Delete button with confirm state -->
+									<!-- Delete button with confirm state (hidden in read-only mode) -->
+									{#if !readOnly}
 									<div class="flex-shrink-0">
 										{#if confirmingDelete === session.path}
 											<div
@@ -800,6 +826,7 @@
 											</button>
 										{/if}
 									</div>
+									{/if}
 								</div>
 							{/each}
 						</div>

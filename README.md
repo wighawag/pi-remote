@@ -258,6 +258,7 @@ The configuration file is located at `~/.wherever/config.json` on the server mac
 - **`sessions`** (object, optional):
   Controls which sessions appear in the dashboard's session list.
   - `ignore` (array of glob strings, Default: `[]`): Session working directories matching any of these globs are fully excluded from the list. Crucially, a matching folder is skipped **before** its session files are read, so a large pile of throwaway sessions (e.g. agent scratch dirs under `/tmp`) no longer slows down the session list. Globs support `*` (does not cross a path separator), `**` (crosses separators), and `?`; `~` is expanded to the home directory. A pattern ignores both the directory itself and everything nested under it (so `"/tmp"`, `"/tmp/*"`, and `"/tmp/**"` all ignore `/tmp` and everything inside it). Omitting `ignore` (or leaving it empty) changes nothing.
+  - `readOnly` (array of glob strings, Default: `[]`): Same glob syntax as `ignore`. Sessions whose working directory matches are **hidden from the main session list** (and, like `ignore`, their folders are skipped before their bodies are read on the main view, so they do not slow it down), but remain viewable on a separate **Read-only sessions** page reached via a link in the sidebar. Opening one is forced read-only: the server refuses messages and the dashboard hides the composer, so it is an observe-only view. This is intended for autonomous agent fleets (e.g. `agent-runner` working directories) that you want to watch but not drive from the dashboard.
 
 ### Rule Object Properties
 
@@ -296,7 +297,8 @@ Each rule in `remoteRepoRules` can contain:
     "model": "glm-asr-2512"
   },
   "sessions": {
-    "ignore": ["/tmp/**", "~/.agent-runner/**"]
+    "ignore": ["/tmp/**"],
+    "readOnly": ["~/.agent-runner/**"]
   }
 }
 ```

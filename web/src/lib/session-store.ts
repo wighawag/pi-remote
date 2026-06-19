@@ -16,6 +16,7 @@ export interface FolderWithSessions {
 	path: string;
 	name: string;
 	sessions: SessionInfo[];
+	readOnly?: boolean;
 }
 
 export interface ConflictInfo {
@@ -52,6 +53,16 @@ export const sessionFolders = writable<SessionStoreData>({
 
 export const availableModels = writable<ModelsStoreData>({
 	models: [],
+	loading: false,
+});
+
+// Separate store for the read-only sessions page (sessions.readOnly folders),
+// fetched on demand via /sessions?view=readonly. Kept distinct from the main
+// list so the default dashboard payload stays small.
+export const readOnlySessionFolders = writable<SessionStoreData>({
+	folders: [],
+	activeSessions: [],
+	currentSession: null,
 	loading: false,
 });
 
@@ -125,6 +136,30 @@ export function fetchSessions(): Promise<void> {
 	}, 100);
 
 	return promise;
+}
+
+// Fetch the read-only session folders (sessions.readOnly) for the separate
+// read-only page. Deliberately simple (no debounce/coalesce): it is only
+// triggered while that page is open, not on the hot dashboard path.
+export async function fetchReadOnlySessions(): Promise<void> {
+	readOnlySessionFolders.update((s) => ({...s, loading: true}));
+	try {
+		const baseUrl = getBaseUrl();
+		const token = getToken();
+		const url = `${baseUrl}/sessions?view=readonly${token ? `&token=${encodeURIComponent(token)}` : ''}`;
+		const res = await fetch(url);
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		const data = await res.json();
+		readOnlySessionFolders.set({
+			folders: data.folders || [],
+			activeSessions: (data.activeSessions || []).map((s: any) => s.sessionFile),
+			currentSession: get(readOnlySessionFolders).currentSession,
+			loading: false,
+		});
+	} catch (err) {
+		readOnlySessionFolders.update((s) => ({...s, loading: false}));
+		console.error('Failed to fetch read-only sessions:', err);
+	}
 }
 
 export async function fetchModels(): Promise<void> {

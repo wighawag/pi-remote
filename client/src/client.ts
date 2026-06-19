@@ -637,6 +637,9 @@ export class WhereverClient {
           activeModel: msg.model,
           isStreaming: msg.isStreaming ?? false,
           creatingSession: false,
+          // The server forces read-only for sessions in a configured
+          // sessions.readOnly folder (observe-only fleet view).
+          readOnly: msg.readOnly ?? false,
         }));
         break;
 

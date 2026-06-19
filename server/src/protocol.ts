@@ -36,7 +36,7 @@ export type ServerMessage =
   | { type: 'tool_update'; sessionId: string; toolName: string; delta: string }
   | { type: 'tool_end'; sessionId: string; toolName: string; isError: boolean; result?: string }
   | { type: 'cli_bash'; command: string; excludeFromContext?: boolean }
-  | { type: 'session_created'; sessionId: string; sessionFile: string; cwd: string; model: string; isStreaming?: boolean }
+  | { type: 'session_created'; sessionId: string; sessionFile: string; cwd: string; model: string; isStreaming?: boolean; readOnly?: boolean }
   | { type: 'session_destroyed'; sessionId: string; reason: string }
   | { type: 'session_error'; sessionId?: string; error: string; detail?: string }
   | { type: 'session_conflict'; sessionId: string; conflictingSession: string; conflictingCwd: string }

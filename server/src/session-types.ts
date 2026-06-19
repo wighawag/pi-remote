@@ -25,6 +25,8 @@ export interface FolderWithSessions {
   path: string;
   name: string;
   sessions: FolderSessionInfo[];
+  /** True when this folder's cwd matched a sessions.readOnly glob. */
+  readOnly?: boolean;
 }
 
 export interface SessionsResponse {

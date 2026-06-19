@@ -433,7 +433,10 @@ async function main(): Promise<void> {
     }
 
     if (pathname === '/sessions' && req.method === 'GET') {
-      const folders = await sessionPool.listSessions();
+      // ?view=readonly returns only the sessions.readOnly folders (the separate
+      // read-only page); default returns the main list (ignore + readOnly hidden).
+      const view = url.searchParams.get('view') === 'readonly' ? 'readonly' : 'default';
+      const folders = await sessionPool.listSessions(view);
       const active = sessionPool.getActiveSessions();
       sendJSON(res, 200, { folders, activeSessions: active });
       return;
@@ -1203,7 +1206,11 @@ async function handleWSMessage(
 
       pool.addClient(result.tracked.sessionFile, client.id);
       switchClientSession(client, result.tracked.sessionFile, pool, onSessionsUpdated);
-      client.readOnly = false;
+      // A session whose cwd matches a sessions.readOnly glob is forced read-only:
+      // the server refuses writes (case 'message' checks client.readOnly) and the
+      // client hides the composer. This is the observe-only fleet view.
+      const forcedReadOnly = pool.isReadOnlyCwd(result.tracked.cwd);
+      client.readOnly = forcedReadOnly;
 
       sendWS(client.ws, {
         type: 'session_created',
@@ -1212,6 +1219,7 @@ async function handleWSMessage(
         cwd: result.tracked.cwd,
         model: result.tracked.model,
         isStreaming: pool.isStreaming(result.tracked.sessionFile),
+        readOnly: forcedReadOnly,
       });
 
       const history = pool.getSessionHistoryWindow(result.tracked.sessionFile, INITIAL_HISTORY_LIMIT);
