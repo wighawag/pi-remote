@@ -931,6 +931,17 @@ async function main(): Promise<void> {
 
   const wss = new WebSocketServer({ noServer: true });
 
+  // Connection-liveness heartbeat. A half-open TCP socket (peer vanished without
+  // a clean FIN/RST: process restart, network blip, dropped upstream) stays in
+  // ESTAB and fires neither 'close' nor 'error', so the connected agent/session
+  // is never reaped and hangs forever. We send a protocol-level ping frame on a
+  // fixed interval and terminate any socket that did not answer the previous
+  // ping. terminate() fires 'close', routing through the existing cleanup
+  // (unregisterCliSession / removeClient + broadcastSessionsUpdated).
+  // See work/observations/ws-half-open-connection-hangs-agent-no-heartbeat.md.
+  const HEARTBEAT_MS = 30_000;
+  const liveSockets = new WeakSet<WebSocket>();
+
   const upgradeHandler = (req: any, socket: any, head: any) => {
     if (req.url?.startsWith('/ws')) {
       if (!authenticate(req, token)) {
@@ -960,6 +971,13 @@ async function main(): Promise<void> {
       readOnly: false,
     };
     clients.set(clientId, client);
+
+    // Liveness: assume alive on connect; any pong (reply to the heartbeat ping
+    // frame below) re-marks the socket alive for the next interval.
+    liveSockets.add(ws);
+    ws.on('pong', () => {
+      liveSockets.add(ws);
+    });
 
     sendWS(ws, { type: 'connected', clientId });
 
@@ -1023,6 +1041,21 @@ async function main(): Promise<void> {
     });
   });
 
+  const heartbeat = setInterval(() => {
+    for (const ws of wss.clients) {
+      if (!liveSockets.has(ws)) {
+        // Missed the previous ping: treat as dead and reap. 'close' fires the
+        // existing teardown so the agent's session is released, not left dangling.
+        try { ws.terminate(); } catch {}
+        continue;
+      }
+      liveSockets.delete(ws);
+      try { ws.ping(); } catch {}
+    }
+  }, HEARTBEAT_MS);
+  if (typeof heartbeat.unref === 'function') heartbeat.unref();
+  wss.on('close', () => clearInterval(heartbeat));
+
   server.listen(port, host, () => {
     const protocol = isSecureServer ? 'https' : 'http';
     const authInfo = token ? ' (token-protected)' : ' (no authentication)';
@@ -1058,6 +1091,7 @@ This encrypts all network traffic securely and enables safe, private remote acce
 
   const shutdown = async () => {
     console.log('Shutting down...');
+    clearInterval(heartbeat);
     for (const c of clients.values()) {
       c.ws.close();
     }

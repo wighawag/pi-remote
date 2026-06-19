@@ -212,6 +212,10 @@ same outcome as the manual restart, automatically and per-connection.
   calls the existing `scheduleReconnect()`. Slices B/C/D remain open.
 - Slice B: server-side heartbeat ping + reap dead sockets (server fix #1).
   Self-contained in `index.ts`; `terminate()` routes through existing teardown.
+  **DONE (2026-06-19):** implemented in `server/src/index.ts` — a `WeakSet`
+  `liveSockets` re-marked on every `pong`, a `HEARTBEAT_MS` (30s) `setInterval`
+  that `ws.ping()`s live sockets and `ws.terminate()`s ones that missed the prior
+  ping (firing the existing `close` cleanup), cleared on `wss` close + shutdown.
 - Slice C: client heartbeat keepalive + per-turn stall timeout -> recoverable
   `session_error` (client #2/#3); idempotent re-register on reconnect (client #4).
 - Slice D: observability/logging of reaps, stalls, and reconnects (server #3),
