@@ -1266,7 +1266,7 @@
 						: 'Context window size'}
 				>
 					<span class="flex-shrink-0">🧠</span>
-					<span class="tabular-nums whitespace-nowrap">{contextLabel}</span>
+					<span class="whitespace-nowrap tabular-nums">{contextLabel}</span>
 				</div>
 			{/if}
 		</div>

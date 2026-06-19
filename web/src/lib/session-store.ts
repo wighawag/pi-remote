@@ -117,7 +117,9 @@ async function doFetchSessions(): Promise<void> {
 		const data = await res.json();
 		sessionFolders.set({
 			folders: data.folders || [],
-			activeSessions: (data.activeSessions || []).map((s: any) => s.sessionFile),
+			activeSessions: (data.activeSessions || []).map(
+				(s: any) => s.sessionFile,
+			),
 			currentSession: get(sessionFolders).currentSession,
 			loading: false,
 		});
@@ -194,7 +196,9 @@ export async function fetchReadOnlySessions(): Promise<void> {
 		const data = await res.json();
 		readOnlySessionFolders.set({
 			folders: data.folders || [],
-			activeSessions: (data.activeSessions || []).map((s: any) => s.sessionFile),
+			activeSessions: (data.activeSessions || []).map(
+				(s: any) => s.sessionFile,
+			),
 			currentSession: get(readOnlySessionFolders).currentSession,
 			loading: false,
 		});

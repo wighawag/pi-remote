@@ -443,203 +443,205 @@
 	<div class="flex-1 overflow-y-auto">
 		<!-- Collapsible Create New Session Section (hidden in read-only mode) -->
 		{#if !readOnly}
-		<div class="border-b border-brand-border/50 bg-brand-surface/10">
-			<button
-				onclick={() => (createFormOpen = !createFormOpen)}
-				class="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-semibold text-brand-blue transition-colors hover:bg-brand-surface-3/30"
-			>
-				<span
-					>{createFormOpen
-						? '▼ Close Create Session'
-						: '✚ Create New Session'}</span
+			<div class="border-b border-brand-border/50 bg-brand-surface/10">
+				<button
+					onclick={() => (createFormOpen = !createFormOpen)}
+					class="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-semibold text-brand-blue transition-colors hover:bg-brand-surface-3/30"
 				>
-			</button>
+					<span
+						>{createFormOpen
+							? '▼ Close Create Session'
+							: '✚ Create New Session'}</span
+					>
+				</button>
 
-			{#if createFormOpen}
-				<form
-					onsubmit={(e) => {
-						e.preventDefault();
-						handleSidebarCreateSession();
-					}}
-					class="space-y-2.5 border-t border-brand-border/30 bg-brand-surface/30 p-3"
-				>
-					<div>
-						<label
-							class="mb-1 block text-[10px] font-bold tracking-wider text-brand-text-muted uppercase"
-							for="sidebar-folder">Folder Path</label
-						>
-						<div class="relative" bind:this={sidebarContainerEl}>
-							<input
-								bind:this={sidebarInputEl}
-								id="sidebar-folder"
-								type="text"
-								autocomplete="off"
-								spellcheck="false"
-								placeholder="e.g. ~/projects/my-new-app"
-								bind:value={sidebarCwd}
-								onfocus={() => {
-									sidebarInputFocused = true;
-									triggerSidebarCheck(sidebarCwd, true);
-								}}
-								onblur={(e) => {
-									if (
-										sidebarContainerEl &&
-										sidebarContainerEl.contains(e.relatedTarget as Node)
-									) {
-										return;
-									}
-									sidebarInputFocused = false;
-								}}
-								onkeydown={(e) => {
-									if (e.key === 'Escape') {
+				{#if createFormOpen}
+					<form
+						onsubmit={(e) => {
+							e.preventDefault();
+							handleSidebarCreateSession();
+						}}
+						class="space-y-2.5 border-t border-brand-border/30 bg-brand-surface/30 p-3"
+					>
+						<div>
+							<label
+								class="mb-1 block text-[10px] font-bold tracking-wider text-brand-text-muted uppercase"
+								for="sidebar-folder">Folder Path</label
+							>
+							<div class="relative" bind:this={sidebarContainerEl}>
+								<input
+									bind:this={sidebarInputEl}
+									id="sidebar-folder"
+									type="text"
+									autocomplete="off"
+									spellcheck="false"
+									placeholder="e.g. ~/projects/my-new-app"
+									bind:value={sidebarCwd}
+									onfocus={() => {
+										sidebarInputFocused = true;
+										triggerSidebarCheck(sidebarCwd, true);
+									}}
+									onblur={(e) => {
+										if (
+											sidebarContainerEl &&
+											sidebarContainerEl.contains(e.relatedTarget as Node)
+										) {
+											return;
+										}
 										sidebarInputFocused = false;
-									}
-								}}
-								class="w-full rounded border px-2 py-1 text-xs text-brand-text placeholder-brand-text-muted transition-all duration-200 focus:outline-none {isSidebarRemoteRepoCreation
-									? 'border-emerald-500/80 bg-emerald-500/10 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/30'
-									: 'border-brand-border bg-brand-dark/60 focus:border-brand-blue'}"
-							/>
-							{#if sidebarInputFocused && sidebarCompletions.length > 0}
-								<div
-									class="absolute right-0 left-0 z-50 mt-1 max-h-40 overflow-y-auto rounded border border-brand-border bg-brand-surface-2 py-1 shadow-xl"
+									}}
+									onkeydown={(e) => {
+										if (e.key === 'Escape') {
+											sidebarInputFocused = false;
+										}
+									}}
+									class="w-full rounded border px-2 py-1 text-xs text-brand-text placeholder-brand-text-muted transition-all duration-200 focus:outline-none {isSidebarRemoteRepoCreation
+										? 'border-emerald-500/80 bg-emerald-500/10 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/30'
+										: 'border-brand-border bg-brand-dark/60 focus:border-brand-blue'}"
+								/>
+								{#if sidebarInputFocused && sidebarCompletions.length > 0}
+									<div
+										class="absolute right-0 left-0 z-50 mt-1 max-h-40 overflow-y-auto rounded border border-brand-border bg-brand-surface-2 py-1 shadow-xl"
+									>
+										{#each sidebarCompletions as completion}
+											<button
+												type="button"
+												onclick={() => {
+													sidebarCwd = completion;
+													triggerSidebarCheck(completion, true);
+													sidebarInputEl?.focus();
+												}}
+												class="block w-full px-2.5 py-1 text-left text-xs text-brand-text transition-colors hover:bg-brand-surface-3 hover:text-brand-text"
+											>
+												{completion}
+											</button>
+										{/each}
+									</div>
+								{/if}
+							</div>
+							{#if sidebarPathStatus.exists === true}
+								<span
+									class="mt-1 block text-[10px] font-medium text-yellow-400"
 								>
-									{#each sidebarCompletions as completion}
-										<button
-											type="button"
-											onclick={() => {
-												sidebarCwd = completion;
-												triggerSidebarCheck(completion, true);
-												sidebarInputEl?.focus();
-											}}
-											class="block w-full px-2.5 py-1 text-left text-xs text-brand-text transition-colors hover:bg-brand-surface-3 hover:text-brand-text"
+									📁 Folder already exists.
+									{#if sidebarPathStatus.isGit}
+										<span class="ml-1 font-semibold text-emerald-400"
+											>(Git repo)</span
 										>
-											{completion}
-										</button>
-									{/each}
-								</div>
+									{/if}
+								</span>
 							{/if}
 						</div>
-						{#if sidebarPathStatus.exists === true}
-							<span class="mt-1 block text-[10px] font-medium text-yellow-400">
-								📁 Folder already exists.
-								{#if sidebarPathStatus.isGit}
-									<span class="ml-1 font-semibold text-emerald-400"
-										>(Git repo)</span
-									>
-								{/if}
-							</span>
-						{/if}
-					</div>
 
-					<div>
-						<label
-							class="mb-1 block text-[10px] font-bold tracking-wider text-brand-text-muted uppercase"
-							for="sidebar-model">Model</label
-						>
-						{#if models.length > 0}
-							<select
-								id="sidebar-model"
-								bind:value={sidebarModel}
-								class="w-full rounded border border-brand-border bg-brand-dark/60 px-2 py-1 text-xs text-brand-text focus:border-brand-blue focus:outline-none"
+						<div>
+							<label
+								class="mb-1 block text-[10px] font-bold tracking-wider text-brand-text-muted uppercase"
+								for="sidebar-model">Model</label
 							>
-								{#each models as model}
-									<option value={`${model.provider}:${model.modelId}`}>
-										{model.label}{model.isDefault ? ' (default)' : ''}
-									</option>
-								{/each}
-							</select>
-						{:else}
-							<input
-								id="sidebar-model"
-								type="text"
-								bind:value={sidebarModel}
-								placeholder="provider:model"
-								class="w-full rounded border border-brand-border bg-brand-dark/60 px-2 py-1 text-xs text-brand-text placeholder-brand-text-muted focus:border-brand-blue focus:outline-none"
-							/>
-						{/if}
-					</div>
-
-					{#if sidebarPathStatus.exists !== true && sidebarPathStatus.matchingRule}
-						<div class="space-y-1 py-0.5">
-							<div class="flex items-center gap-1.5">
+							{#if models.length > 0}
+								<select
+									id="sidebar-model"
+									bind:value={sidebarModel}
+									class="w-full rounded border border-brand-border bg-brand-dark/60 px-2 py-1 text-xs text-brand-text focus:border-brand-blue focus:outline-none"
+								>
+									{#each models as model}
+										<option value={`${model.provider}:${model.modelId}`}>
+											{model.label}{model.isDefault ? ' (default)' : ''}
+										</option>
+									{/each}
+								</select>
+							{:else}
 								<input
-									id="sidebar-create-remote"
+									id="sidebar-model"
+									type="text"
+									bind:value={sidebarModel}
+									placeholder="provider:model"
+									class="w-full rounded border border-brand-border bg-brand-dark/60 px-2 py-1 text-xs text-brand-text placeholder-brand-text-muted focus:border-brand-blue focus:outline-none"
+								/>
+							{/if}
+						</div>
+
+						{#if sidebarPathStatus.exists !== true && sidebarPathStatus.matchingRule}
+							<div class="space-y-1 py-0.5">
+								<div class="flex items-center gap-1.5">
+									<input
+										id="sidebar-create-remote"
+										type="checkbox"
+										bind:checked={sidebarCreateRemote}
+										class="h-3.5 w-3.5 rounded border-brand-border bg-brand-surface-2 text-brand-blue focus:ring-brand-blue focus:ring-offset-brand-surface"
+									/>
+									<label
+										for="sidebar-create-remote"
+										class="cursor-pointer text-xs text-brand-text select-none"
+									>
+										Create remote {sidebarPathStatus.matchingRule.provider} repository
+									</label>
+								</div>
+
+								{#if sidebarCreateRemote}
+									<div
+										class="flex items-center gap-3 pl-5 text-[10px] text-brand-text-muted"
+									>
+										<span>Visibility:</span>
+										<label
+											class="flex cursor-pointer items-center gap-1 transition-colors select-none hover:text-brand-text"
+										>
+											<input
+												type="radio"
+												name="sidebar-visibility"
+												value="private"
+												bind:group={sidebarRepoVisibility}
+												class="border-brand-border bg-brand-surface-2 text-brand-blue focus:ring-brand-blue"
+											/>
+											Private
+										</label>
+										<label
+											class="flex cursor-pointer items-center gap-1 transition-colors select-none hover:text-brand-text"
+										>
+											<input
+												type="radio"
+												name="sidebar-visibility"
+												value="public"
+												bind:group={sidebarRepoVisibility}
+												class="border-brand-border bg-brand-surface-2 text-brand-blue focus:ring-brand-blue"
+											/>
+											Public
+										</label>
+									</div>
+								{/if}
+							</div>
+						{/if}
+
+						{#if sidebarPathStatus.exists !== true && (!sidebarPathStatus.matchingRule || !sidebarCreateRemote)}
+							<div class="flex items-center gap-1.5 py-0.5">
+								<input
+									id="sidebar-git-init"
 									type="checkbox"
-									bind:checked={sidebarCreateRemote}
+									bind:checked={sidebarGitInit}
+									onchange={(e) => {
+										userManualSidebarGitInit = e.currentTarget.checked;
+									}}
 									class="h-3.5 w-3.5 rounded border-brand-border bg-brand-surface-2 text-brand-blue focus:ring-brand-blue focus:ring-offset-brand-surface"
 								/>
 								<label
-									for="sidebar-create-remote"
+									for="sidebar-git-init"
 									class="cursor-pointer text-xs text-brand-text select-none"
 								>
-									Create remote {sidebarPathStatus.matchingRule.provider} repository
+									Initialize Git repository
 								</label>
 							</div>
+						{/if}
 
-							{#if sidebarCreateRemote}
-								<div
-									class="flex items-center gap-3 pl-5 text-[10px] text-brand-text-muted"
-								>
-									<span>Visibility:</span>
-									<label
-										class="flex cursor-pointer items-center gap-1 transition-colors select-none hover:text-brand-text"
-									>
-										<input
-											type="radio"
-											name="sidebar-visibility"
-											value="private"
-											bind:group={sidebarRepoVisibility}
-											class="border-brand-border bg-brand-surface-2 text-brand-blue focus:ring-brand-blue"
-										/>
-										Private
-									</label>
-									<label
-										class="flex cursor-pointer items-center gap-1 transition-colors select-none hover:text-brand-text"
-									>
-										<input
-											type="radio"
-											name="sidebar-visibility"
-											value="public"
-											bind:group={sidebarRepoVisibility}
-											class="border-brand-border bg-brand-surface-2 text-brand-blue focus:ring-brand-blue"
-										/>
-										Public
-									</label>
-								</div>
-							{/if}
-						</div>
-					{/if}
-
-					{#if sidebarPathStatus.exists !== true && (!sidebarPathStatus.matchingRule || !sidebarCreateRemote)}
-						<div class="flex items-center gap-1.5 py-0.5">
-							<input
-								id="sidebar-git-init"
-								type="checkbox"
-								bind:checked={sidebarGitInit}
-								onchange={(e) => {
-									userManualSidebarGitInit = e.currentTarget.checked;
-								}}
-								class="h-3.5 w-3.5 rounded border-brand-border bg-brand-surface-2 text-brand-blue focus:ring-brand-blue focus:ring-offset-brand-surface"
-							/>
-							<label
-								for="sidebar-git-init"
-								class="cursor-pointer text-xs text-brand-text select-none"
-							>
-								Initialize Git repository
-							</label>
-						</div>
-					{/if}
-
-					<button
-						type="submit"
-						disabled={!sidebarCwd.trim()}
-						class="w-full rounded bg-gradient-to-r from-brand-cyan to-brand-blue py-1.5 text-xs font-semibold text-brand-text transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-					>
-						Create Session
-					</button>
-				</form>
-			{/if}
-		</div>
+						<button
+							type="submit"
+							disabled={!sidebarCwd.trim()}
+							class="w-full rounded bg-gradient-to-r from-brand-cyan to-brand-blue py-1.5 text-xs font-semibold text-brand-text transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+						>
+							Create Session
+						</button>
+					</form>
+				{/if}
+			</div>
 		{/if}
 
 		{#if loading && filteredFolders.length === 0}
@@ -685,53 +687,53 @@
 					{#if isFolderExpanded(folder.path)}
 						<div class="px-3 pb-2">
 							{#if !readOnly}
-							<div class="mb-1.5 flex items-center justify-between">
-								<button
-									onclick={() => openNewSessionPicker(folder.path)}
-									class="rounded px-2 py-1 text-left text-xs text-brand-blue transition-colors hover:bg-brand-surface-3/50 hover:opacity-90"
-								>
-									+ New Session Here
-								</button>
-								<div class="flex-shrink-0">
-									{#if confirmingDeleteFolder === folder.path}
-										<div
-											class="flex items-center gap-1 rounded border border-red-500/30 bg-brand-surface-2/80 px-1 py-0.5"
-										>
+								<div class="mb-1.5 flex items-center justify-between">
+									<button
+										onclick={() => openNewSessionPicker(folder.path)}
+										class="rounded px-2 py-1 text-left text-xs text-brand-blue transition-colors hover:bg-brand-surface-3/50 hover:opacity-90"
+									>
+										+ New Session Here
+									</button>
+									<div class="flex-shrink-0">
+										{#if confirmingDeleteFolder === folder.path}
+											<div
+												class="flex items-center gap-1 rounded border border-red-500/30 bg-brand-surface-2/80 px-1 py-0.5"
+											>
+												<button
+													onclick={(e) => {
+														e.stopPropagation();
+														handleDeleteAllFolderSessions(folder);
+													}}
+													class="px-1.5 text-xs font-bold text-rose-400 hover:text-rose-300 focus:outline-none"
+													title="Confirm Delete All"
+												>
+													Delete All?
+												</button>
+												<button
+													onclick={(e) => {
+														e.stopPropagation();
+														confirmingDeleteFolder = null;
+													}}
+													class="px-1.5 text-[10px] text-brand-text-muted hover:text-brand-text focus:outline-none"
+													title="Cancel"
+												>
+													✕
+												</button>
+											</div>
+										{:else}
 											<button
 												onclick={(e) => {
 													e.stopPropagation();
-													handleDeleteAllFolderSessions(folder);
+													confirmingDeleteFolder = folder.path;
 												}}
-												class="px-1.5 text-xs font-bold text-rose-400 hover:text-rose-300 focus:outline-none"
-												title="Confirm Delete All"
+												class="rounded px-2 py-1 text-xs text-brand-text-muted transition-colors hover:bg-brand-surface-3/50 hover:text-rose-400 focus:outline-none"
+												title="Delete all sessions in this folder"
 											>
-												Delete All?
+												Delete All
 											</button>
-											<button
-												onclick={(e) => {
-													e.stopPropagation();
-													confirmingDeleteFolder = null;
-												}}
-												class="px-1.5 text-[10px] text-brand-text-muted hover:text-brand-text focus:outline-none"
-												title="Cancel"
-											>
-												✕
-											</button>
-										</div>
-									{:else}
-										<button
-											onclick={(e) => {
-												e.stopPropagation();
-												confirmingDeleteFolder = folder.path;
-											}}
-											class="rounded px-2 py-1 text-xs text-brand-text-muted transition-colors hover:bg-brand-surface-3/50 hover:text-rose-400 focus:outline-none"
-											title="Delete all sessions in this folder"
-										>
-											Delete All
-										</button>
-									{/if}
+										{/if}
+									</div>
 								</div>
-							</div>
 							{/if}
 
 							{#each folder.sessions as session (session.path)}
@@ -787,45 +789,45 @@
 
 									<!-- Delete button with confirm state (hidden in read-only mode) -->
 									{#if !readOnly}
-									<div class="flex-shrink-0">
-										{#if confirmingDelete === session.path}
-											<div
-												class="flex items-center gap-1 rounded border border-red-500/30 bg-brand-surface-2/80 px-1 py-0.5"
-											>
-												<button
-													onclick={(e) => {
-														e.stopPropagation();
-														handleDeleteSession(session.path);
-													}}
-													class="px-1.5 text-xs font-bold text-rose-400 hover:text-rose-300 focus:outline-none"
-													title="Confirm Delete"
+										<div class="flex-shrink-0">
+											{#if confirmingDelete === session.path}
+												<div
+													class="flex items-center gap-1 rounded border border-red-500/30 bg-brand-surface-2/80 px-1 py-0.5"
 												>
-													❓
-												</button>
+													<button
+														onclick={(e) => {
+															e.stopPropagation();
+															handleDeleteSession(session.path);
+														}}
+														class="px-1.5 text-xs font-bold text-rose-400 hover:text-rose-300 focus:outline-none"
+														title="Confirm Delete"
+													>
+														❓
+													</button>
+													<button
+														onclick={(e) => {
+															e.stopPropagation();
+															confirmingDelete = null;
+														}}
+														class="px-1.5 text-[10px] text-brand-text-muted hover:text-brand-text focus:outline-none"
+														title="Cancel"
+													>
+														✕
+													</button>
+												</div>
+											{:else}
 												<button
 													onclick={(e) => {
 														e.stopPropagation();
-														confirmingDelete = null;
+														confirmingDelete = session.path;
 													}}
-													class="px-1.5 text-[10px] text-brand-text-muted hover:text-brand-text focus:outline-none"
-													title="Cancel"
+													class="p-1 text-xs text-brand-text-muted transition-opacity hover:text-rose-400 focus:outline-none md:opacity-0 md:group-hover:opacity-100"
+													title="Delete session"
 												>
 													✕
 												</button>
-											</div>
-										{:else}
-											<button
-												onclick={(e) => {
-													e.stopPropagation();
-													confirmingDelete = session.path;
-												}}
-												class="p-1 text-xs text-brand-text-muted transition-opacity hover:text-rose-400 focus:outline-none md:opacity-0 md:group-hover:opacity-100"
-												title="Delete session"
-											>
-												✕
-											</button>
-										{/if}
-									</div>
+											{/if}
+										</div>
 									{/if}
 								</div>
 							{/each}

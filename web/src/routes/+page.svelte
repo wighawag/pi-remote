@@ -562,7 +562,7 @@
 			</div>
 		{/if}
 
-	<!-- Read-only banner -->
+		<!-- Read-only banner -->
 		{#if readOnly && !interrupted}
 			<div
 				class="border border-yellow-500/30 bg-yellow-500/10 px-4 py-2 text-center text-sm text-yellow-400"
