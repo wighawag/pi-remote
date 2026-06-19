@@ -1,5 +1,5 @@
 <script lang="ts">
-	import {onMount} from 'svelte';
+	import {onMount, untrack} from 'svelte';
 	import {
 		sendMessage,
 		piState,
@@ -70,11 +70,76 @@
 
 	let textarea = $state<HTMLTextAreaElement>();
 
+	// Persist the in-progress draft so it is never lost when this composer is
+	// unmounted out from under the user (e.g. the parent swaps it for the
+	// "Reconnecting and syncing session..." status line during a resync, or on a
+	// transient disconnect). The draft is keyed per session so switching sessions
+	// does not bleed text between them; search mode (no session) uses a shared
+	// 'search' key. Cleared on a successful send.
+	// A draft belongs to the active session when one is open, otherwise to the
+	// (no-session) search composer. Keying on sessionId-or-search this way means:
+	// a session keeps its own draft, and the search query is preserved under one
+	// shared key so switching into a session and back to search (by closing the
+	// session or hitting the search button) restores what was typed. This holds
+	// whether or not a search folder is configured (no session == search mode).
+	const DRAFT_PREFIX = 'wherever-draft:';
+	let draftKey = $derived(
+		DRAFT_PREFIX + (sessionInfo.sessionId ?? 'search'),
+	);
+	// Tracks which key we have already hydrated so the restore effect fires only
+	// when the key actually changes (mount, session switch, search<->chat), not on
+	// every keystroke. The persist effect below removes the key whenever the
+	// textarea goes empty, so a successful send (which clears `text`) also clears
+	// the saved draft.
+	let hydratedKey = $state<string | null>(null);
+
 	onMount(() => {
 		const stored = localStorage.getItem('wherever-enter-to-send');
 		if (stored !== null) {
 			enterToSend = stored === 'true';
 		}
+	});
+
+	// Swap the textarea to the active draft key's saved draft whenever the key
+	// changes (initial mount, session switch, search<->chat). This is an
+	// unconditional swap: the previous session's draft must NOT linger in the box
+	// after switching, but going back to a session restores its own saved draft.
+	// The hydratedKey guard makes this fire ONLY on a real key change (not on
+	// every keystroke), so it never clobbers text the user is actively typing
+	// within the current session. text/queuedText reads are untracked accordingly.
+	$effect(() => {
+		const key = draftKey;
+		if (key === hydratedKey) return;
+		untrack(() => {
+			let saved: string | null = null;
+			if (typeof localStorage !== 'undefined') {
+				try {
+					saved = localStorage.getItem(key);
+				} catch {}
+			}
+			// A queued (in-flight) message takes precedence over a restored draft.
+			if (!queuedText) {
+				text = saved ?? '';
+			}
+			hydratedKey = key;
+		});
+	});
+
+	// Persist the draft on every text change. Removing the key when empty keeps
+	// storage clean (and means a successful send, which clears text, clears it).
+	// Only persists once the current key has been hydrated, so the restore above
+	// is never overwritten by a stale empty value mid-switch.
+	$effect(() => {
+		const value = text;
+		const key = draftKey;
+		if (key !== hydratedKey || typeof localStorage === 'undefined') return;
+		try {
+			if (value.trim().length > 0) {
+				localStorage.setItem(key, value);
+			} else {
+				localStorage.removeItem(key);
+			}
+		} catch {}
 	});
 
 	// Exposed so a parent can focus the textarea SYNCHRONOUSLY inside a user

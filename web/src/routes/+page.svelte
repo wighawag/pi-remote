@@ -22,6 +22,8 @@
 		joinSession,
 		isCreatingSession,
 		isResyncing,
+		isLoadingSession,
+		hasSuspendedSession,
 		runSearch,
 	} from '$lib/wherever';
 	import {
@@ -96,7 +98,16 @@
 					hiddenTimer = null;
 				}
 				if (!connected) {
-					resume();
+					// Only the resume path (a tab that was suspended) should preserve the
+					// cached store and rejoin in place. On a plain (re)connect with nothing
+					// suspended, fall back to a normal connect so the hash auto-join drives
+					// the load. Calling resume() unconditionally here races onMount's
+					// connect() and could latch the hash-join guard, hanging the spinner.
+					if (hasSuspendedSession()) {
+						resume();
+					} else {
+						connect();
+					}
 				}
 			}
 		};
@@ -109,7 +120,11 @@
 				hiddenTimer = null;
 			}
 			if (document.visibilityState !== 'hidden' && !connected) {
-				resume();
+				if (hasSuspendedSession()) {
+					resume();
+				} else {
+					connect();
+				}
 			}
 		};
 
@@ -152,6 +167,7 @@
 
 	let connected = $derived($isConnected);
 	let resyncing = $derived($isResyncing);
+	let loadingSession = $derived($isLoadingSession);
 	let interrupted = $derived($isInterrupted);
 	let sError = $derived($sessionError);
 	let readOnly = $derived($isReadOnly);
@@ -159,7 +175,6 @@
 	let appState = $derived($piState);
 	let models = $derived($availableModels.models);
 
-	let hasJoinedFromHash = $state(false);
 	let wasSessionActive = $state(false);
 	let currentSessionId = $derived(sessionInfo.sessionId);
 
@@ -178,34 +193,41 @@
 		}
 	});
 
-	// Auto-join session from hash when connected
+	// Auto-join session from hash when connected.
+	//
+	// Self-healing by design: it re-evaluates whenever we are connected with a hash
+	// but no session is active for it. An earlier guard latched per join and was
+	// reset on disconnect, but rapid connect/disconnect churn (e.g. a reconnect
+	// racing a resume) could flip `connected` within a single effect flush so the
+	// reset was never observed, leaving the guard latched and the session never
+	// loaded, which hung the "Loading session..." spinner forever. Gating purely on
+	// the live state (active session id + loading/resync flags) instead avoids that.
+	let hashJoinTimer: ReturnType<typeof setTimeout> | null = null;
 	$effect(() => {
 		if (
-			connected &&
-			typeof window !== 'undefined' &&
-			window.location.hash &&
-			!hasJoinedFromHash
+			!connected ||
+			typeof window === 'undefined' ||
+			!window.location.hash
 		) {
-			const hashId = decodeURIComponent(window.location.hash.slice(1));
-			if (hashId) {
-				hasJoinedFromHash = true;
-				// On a resume reconnect the client already rejoins the cached session
-				// in place (via session_load in onOpen), so re-joining here would be a
-				// redundant double load. Only auto-join from the hash when no session
-				// is already active for it.
-				if (currentSessionId === hashId) return;
-				setTimeout(() => {
-					if (currentSessionId === hashId) return;
-					joinSession(hashId);
-				}, 300);
-			}
+			return;
 		}
+		const hashId = decodeURIComponent(window.location.hash.slice(1));
+		if (!hashId) return;
+		// Already on (or already loading) the hash session: nothing to do. This also
+		// covers the resume path, where the client rejoins the cached session in
+		// place via session_load in onOpen, so re-joining here would double-load.
+		if (currentSessionId === hashId || loadingSession || resyncing) return;
+		if (hashJoinTimer) return; // a join is already pending
+		hashJoinTimer = setTimeout(() => {
+			hashJoinTimer = null;
+			if (currentSessionId === hashId || loadingSession || resyncing) return;
+			joinSession(hashId);
+		}, 300);
 	});
 
-	// Reset guard flag on disconnect
+	// Reset transient flags on disconnect.
 	$effect(() => {
 		if (!connected) {
-			hasJoinedFromHash = false;
 			wasSessionActive = false;
 		}
 	});
@@ -603,19 +625,22 @@
 			>
 				👁️ Read-only session, observing only, no input.
 			</div>
-		{:else if sessionInfo.sessionFile && (resyncing || !connected)}
-			<!-- Suspended/reconnecting: the cached conversation stays visible above,
-			     but the composer is replaced by a status line so no message can be
-			     sent until the socket is back and the session has resynced. -->
-			<div
-				class="flex items-center justify-center gap-2 border-t border-brand-border bg-brand-surface px-4 py-3 text-center text-sm text-brand-text-muted"
-			>
-				<span
-					class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-blue border-t-transparent"
-				></span>
-				<span>Reconnecting and syncing session...</span>
-			</div>
 		{:else}
+			<!-- Suspended/reconnecting: show a thin status banner ABOVE the composer
+			     instead of replacing it. Keeping ChatInput mounted preserves the
+			     textarea (and any in-progress draft) in the live DOM so a resync can
+			     never destroy what the user was typing; the composer is merely
+			     disabled until the socket is back and the session has resynced. -->
+			{#if sessionInfo.sessionFile && (resyncing || !connected)}
+				<div
+					class="flex items-center justify-center gap-2 border-t border-brand-border bg-brand-surface px-4 py-2 text-center text-sm text-brand-text-muted"
+				>
+					<span
+						class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-blue border-t-transparent"
+					></span>
+					<span>Reconnecting and syncing session...</span>
+				</div>
+			{/if}
 			<ChatInput
 				bind:this={chatInput}
 				searchMode={searchActive}
@@ -625,7 +650,7 @@
 				submitLabel="Search"
 				disabled={searchActive
 					? !connected
-					: !connected || readOnly || !sessionInfo.sessionFile}
+					: !connected || readOnly || !sessionInfo.sessionFile || resyncing}
 				onSend={() => chatList?.forceScrollToBottom()}
 			/>
 		{/if}

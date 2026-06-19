@@ -171,6 +171,13 @@ export function resume() {
 	client.resume();
 }
 
+// True when a session was recorded for resume (i.e. the tab was suspended with an
+// active session). Lets callers choose the resume path only when there is
+// actually something to rejoin, and otherwise do a plain connect.
+export function hasSuspendedSession(): boolean {
+	return client.hasSuspendedSession();
+}
+
 export function sendMessage(text: string) {
 	client.sendMessage(text);
 }

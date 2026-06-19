@@ -44,6 +44,15 @@ export class WhereverClient {
   public stateStore: Writable<WhereverState>;
   private reconnectTimer: any = null;
   private agentEndTimeout: any = null;
+  // Watchdog for an in-flight session_load. We set loadingSession/resyncing the
+  // moment a load is requested and clear them when message_history (or an
+  // error/conflict/disconnect) arrives. If none of those ever comes back (a lost
+  // reply, a server that answered for a different session, or any unforeseen
+  // edge), the "Loading session..." / "Reconnecting..." affordance would hang
+  // forever. This timer guarantees the load state always resolves: on expiry we
+  // clear the flags and surface a recoverable error instead of an endless spin.
+  private loadWatchdog: any = null;
+  private static readonly LOAD_WATCHDOG_MS = 20_000;
   private reconnectAttempts = 0;
   private reconnectDelay = 2000;
   private maxReconnectDelay = 15000;
@@ -171,6 +180,7 @@ export class WhereverClient {
         this.resumeCwd = undefined;
         this.resumeModel = undefined;
         this.send({type: 'session_load', sessionFile: file, cwd, model});
+        this.armLoadWatchdog();
       } else {
         this.stateStore.update(s => (s.resyncing ? {...s, resyncing: false} : s));
       }
@@ -193,6 +203,7 @@ export class WhereverClient {
     const onClose = () => {
       if (this.ws !== currentWs) return;
       this.stopLivenessWatchdog();
+      this.clearLoadWatchdog();
       this.ws = null;
       this.stateStore.update(s => ({
         ...s,
@@ -276,8 +287,20 @@ export class WhereverClient {
     if (s.connected || s.connecting) return;
     if (this.resumeSessionFile) {
       this.stateStore.update(st => ({...st, resyncing: true}));
+      // Arm here too: if the socket never opens, onOpen never runs and the
+      // resync affordance would otherwise hang. onClose also clears it, but the
+      // watchdog covers the half-open / never-opens case.
+      this.armLoadWatchdog();
     }
     this.connect(undefined, true);
+  }
+
+  // True when suspend() recorded an active session to rejoin on the next resume.
+  // Callers use this to take the resume (preserve-cache, rejoin-in-place) path
+  // only when there is actually a suspended session; otherwise a plain connect()
+  // is correct and avoids racing/latching the hash auto-join on a fresh load.
+  public hasSuspendedSession(): boolean {
+    return this.resumeSessionFile !== null;
   }
 
   // Start (or restart) the stale-socket watchdog + keepalive for the current
@@ -366,6 +389,36 @@ export class WhereverClient {
     }
   }
 
+  // Arm (or re-arm) the load watchdog. Called whenever a session_load is issued
+  // so an unresolved load can never strand the loading UI. Idempotent: a fresh
+  // load resets the deadline.
+  private armLoadWatchdog() {
+    this.clearLoadWatchdog();
+    this.loadWatchdog = setTimeout(() => {
+      this.loadWatchdog = null;
+      const s = get(this.stateStore);
+      if (!s.loadingSession && !s.resyncing) return;
+      console.warn('[wherever] session load timed out; clearing loading state');
+      this.stateStore.update(st => ({
+        ...st,
+        loadingSession: false,
+        resyncing: false,
+        sessionError:
+          st.sessionError ||
+          'Loading the session timed out. Please retry from the sidebar or reload.',
+      }));
+    }, WhereverClient.LOAD_WATCHDOG_MS);
+  }
+
+  // Clear the load watchdog. Called at every point the load resolves
+  // (message_history, session_error, session_conflict, disconnect, leave).
+  private clearLoadWatchdog() {
+    if (this.loadWatchdog) {
+      clearTimeout(this.loadWatchdog);
+      this.loadWatchdog = null;
+    }
+  }
+
   private scheduleReconnect() {
     if (this.reconnectTimer) return;
     
@@ -391,6 +444,19 @@ export class WhereverClient {
       } catch (err) {
         console.error("Error in message listener:", err);
       }
+    }
+
+    // Any message that resolves an in-flight session_load disarms the watchdog.
+    // session_created arrives just before message_history; message_history is the
+    // real completion, but an error/conflict/destroy/interrupt also resolves it.
+    switch (msg.type) {
+      case 'message_history':
+      case 'session_error':
+      case 'session_conflict':
+      case 'session_destroyed':
+      case 'session_interrupted':
+        this.clearLoadWatchdog();
+        break;
     }
 
     switch (msg.type) {
@@ -964,6 +1030,7 @@ export class WhereverClient {
       loadingSession: true,
     }));
     this.send({type: 'session_load', sessionFile, cwd, model});
+    this.armLoadWatchdog();
   }
 
   public createSession(
@@ -1008,6 +1075,7 @@ export class WhereverClient {
       resyncing: false,
       contextUsage: null,
     }));
+    this.clearLoadWatchdog();
     this.resumeSessionFile = null;
     this.resumeCwd = undefined;
     this.resumeModel = undefined;
