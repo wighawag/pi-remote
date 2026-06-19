@@ -12,7 +12,6 @@
 		sessionError,
 		isReadOnly,
 		activeSessionInfo,
-		contextUsage,
 		connect,
 		disconnect,
 		leaveSession,
@@ -153,28 +152,6 @@
 	let sessionInfo = $derived($activeSessionInfo);
 	let appState = $derived($piState);
 	let models = $derived($availableModels.models);
-	let ctxUsage = $derived($contextUsage);
-
-	// Humanize a token count like pi's CLI: 1_000_000 -> "1.0M", 128_000 -> "128K".
-	function formatTokens(n: number): string {
-		if (n >= 1_000_000) {
-			const m = n / 1_000_000;
-			return (m >= 10 ? Math.round(m).toString() : m.toFixed(1)) + 'M';
-		}
-		if (n >= 1_000) return Math.round(n / 1_000) + 'K';
-		return String(n);
-	}
-
-	// "11.3% / 1.0M" — percent of the context window used over its total size.
-	// Percent is omitted (just the window size) right after compaction when tokens
-	// are momentarily unknown.
-	let contextLabel = $derived.by(() => {
-		const u = ctxUsage;
-		if (!u || !u.contextWindow) return null;
-		const window = formatTokens(u.contextWindow);
-		if (u.percent == null) return `– / ${window}`;
-		return `${u.percent.toFixed(1)}% / ${window}`;
-	});
 
 	let hasJoinedFromHash = $state(false);
 	let wasSessionActive = $state(false);
@@ -550,19 +527,6 @@
 									title={sessionInfo.model}>{sessionInfo.model}</span
 								>
 							{/if}
-						</div>
-					{/if}
-
-					<!-- Context-window usage, e.g. "11.3% / 1.0M" -->
-					{#if contextLabel}
-						<div
-							class="flex flex-shrink-0 items-center gap-1 text-xs text-brand-text-muted"
-							title={ctxUsage?.tokens != null
-								? `${ctxUsage.tokens.toLocaleString()} context tokens of ${ctxUsage.contextWindow.toLocaleString()}`
-								: 'Context window size'}
-						>
-							<span class="flex-shrink-0">🧠</span>
-							<span class="tabular-nums whitespace-nowrap">{contextLabel}</span>
 						</div>
 					{/if}
 				</div>

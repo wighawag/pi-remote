@@ -22,6 +22,27 @@
 	import {onMount} from 'svelte';
 	import {url} from '$lib/core/utils/web/path';
 
+	// Context-window usage indicator, shown next to the Hide Thinking/Tools
+	// toggles. Humanize like the pi CLI: 1_000_000 -> "1.0M", 128_000 -> "128K".
+	function formatTokens(n: number): string {
+		if (n >= 1_000_000) {
+			const m = n / 1_000_000;
+			return (m >= 10 ? Math.round(m).toString() : m.toFixed(1)) + 'M';
+		}
+		if (n >= 1_000) return Math.round(n / 1_000) + 'K';
+		return String(n);
+	}
+
+	// "11.3% / 1.0M". Percent omitted ("–") right after compaction when tokens are
+	// momentarily unknown.
+	let contextLabel = $derived.by(() => {
+		const u = $piState.contextUsage;
+		if (!u || !u.contextWindow) return null;
+		const window = formatTokens(u.contextWindow);
+		if (u.percent == null) return `– / ${window}`;
+		return `${u.percent.toFixed(1)}% / ${window}`;
+	});
+
 	function parseUserMessage(content: string) {
 		if (!content) return {cleanContent: '', attachments: []};
 		const lines = content.split('\n');
@@ -1173,9 +1194,9 @@
 	{/if}
 
 	<div
-		class="flex items-center justify-between border-t border-brand-border p-2"
+		class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-brand-border p-2"
 	>
-		<div class="flex items-center gap-4">
+		<div class="flex flex-wrap items-center gap-x-4 gap-y-2">
 			<label
 				class="flex cursor-pointer items-center gap-1.5 text-xs text-brand-text-muted select-none hover:text-brand-text"
 			>
@@ -1204,6 +1225,19 @@
 				/>
 				Hide Tools
 			</label>
+
+			<!-- Context-window usage, e.g. "11.3% / 1.0M" -->
+			{#if contextLabel}
+				<div
+					class="flex items-center gap-1 text-xs text-brand-text-muted"
+					title={$piState.contextUsage?.tokens != null
+						? `${$piState.contextUsage.tokens.toLocaleString()} context tokens of ${$piState.contextUsage.contextWindow.toLocaleString()}`
+						: 'Context window size'}
+				>
+					<span class="flex-shrink-0">🧠</span>
+					<span class="tabular-nums whitespace-nowrap">{contextLabel}</span>
+				</div>
+			{/if}
 		</div>
 		<button
 			onclick={abort}
