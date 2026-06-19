@@ -1,8 +1,26 @@
 # Plan: Shrink and de-thrash the /sessions payload
 
-**Status:** Planned, NOT yet implemented. Written 2026-06-14.
+**Status:** IMPLEMENTED 2026-06-19 (parts A + B). Written 2026-06-14.
 **Source:** Mobile Lighthouse run against the live dashboard
 (`nono.bonobo-gentoo.ts.net:31415`), 2026-06-14.
+
+## Implementation notes (2026-06-19)
+
+- **A (server, shrink):** `listSessions()` now caps `firstMessage` to a
+  whitespace-collapsed preview (`previewText`, `FIRST_MESSAGE_PREVIEW_MAX = 160`)
+  at the single `buildFolders` choke point, so both the fast (`listAll`) and
+  directory-aware paths ship a small preview. The field name is kept
+  (`firstMessage`) but documented as a capped preview in `session-types.ts` /
+  web `session-store.ts`; both web consumers (40-char display + filter) work
+  unchanged. Measured against the real sessions dir (913 sessions): the
+  first-message portion dropped from ~4.65 MB to ~138 KB (~33x).
+- **B (web, de-thrash):** `fetchSessions()` now never runs two fetches at once,
+  collapses any requests arriving mid-flight into a single trailing re-fetch,
+  and caps the debounce (150 ms, 1000 ms max-wait) so a continuous
+  `sessions_updated` stream still resolves promptly instead of being postponed.
+- **C (ETag/pagination):** skipped — A+B are sufficient (plan said C is only if
+  A+B are not enough). Note: this complements Slices 1-2 (`sessions.ignore` /
+  `sessions.readOnly`), which already cut the session COUNT before bodies are read.
 
 ## Why this is its own plan (not already covered)
 

@@ -27,6 +27,27 @@ function isValidDate(d: Date | undefined | null): d is Date {
 }
 
 /**
+ * Max length of the first-message PREVIEW shipped in the /sessions list. The
+ * sidebar only renders a ~40-char snippet and filters on the text, so the full
+ * (often huge: pasted prompts, PRDs, specs) first message must never cross the
+ * wire for every session. This caps each entry, which is the dominant factor in
+ * the /sessions payload size.
+ */
+const FIRST_MESSAGE_PREVIEW_MAX = 160;
+
+/**
+ * Collapse whitespace and cap to a short preview. Keeps the /sessions payload
+ * tens-of-KB instead of multi-MB while preserving what the sidebar displays and
+ * filters on.
+ */
+function previewText(text: string | undefined | null): string {
+  const collapsed = (text || '').replace(/\s+/g, ' ').trim();
+  return collapsed.length > FIRST_MESSAGE_PREVIEW_MAX
+    ? collapsed.slice(0, FIRST_MESSAGE_PREVIEW_MAX) + '\u2026'
+    : collapsed;
+}
+
+/**
  * Convert a Date to an ISO string, tolerating invalid/missing dates.
  * Belt-and-suspenders guard: a single malformed session timestamp must never
  * crash listSessions(), even if a bad record slips past the upstream filter.
@@ -1049,7 +1070,9 @@ export class SessionPool {
         created: safeToISOString(s.created),
         modified: safeToISOString(s.modified),
         messageCount: s.messageCount,
-        firstMessage: s.firstMessage,
+        // Capped, whitespace-collapsed PREVIEW (not the full first message): the
+        // dominant lever on /sessions payload size.
+        firstMessage: previewText(s.firstMessage),
         isActive: !!active,
         clientCount: active ? active.clients.size : 0,
       });

@@ -16,6 +16,12 @@ export interface FolderSessionInfo {
   created: string;
   modified: string;
   messageCount: number;
+  /**
+   * A SHORT, whitespace-collapsed PREVIEW of the first user message (capped
+   * server-side), not the full text. The sidebar only shows a snippet and
+   * filters on it; shipping the full first message of every session is what
+   * bloated the /sessions payload.
+   */
   firstMessage: string;
   isActive: boolean;
   clientCount: number;

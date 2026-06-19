@@ -7,6 +7,7 @@ export interface SessionInfo {
 	created: string;
 	modified: string;
 	messageCount: number;
+	// Short, capped preview of the first user message (not the full text).
 	firstMessage: string;
 	isActive: boolean;
 	clientCount: number;
@@ -94,48 +95,89 @@ export function getBaseUrl(): string {
 
 let fetchTimeout: ReturnType<typeof setTimeout> | null = null;
 let resolveQueue: (() => void)[] = [];
+// In-flight + coalescing guards: a stream of `sessions_updated` events (one per
+// agent turn) used to pull the whole list repeatedly. We now (a) never run two
+// fetches at once, (b) collapse any requests that arrive during a fetch into a
+// single trailing re-fetch, and (c) cap the debounce reset so a continuous
+// stream still resolves promptly instead of being pushed back forever.
+let fetchInFlight = false;
+let refetchRequested = false;
+let firstQueuedAt = 0;
+const FETCH_DEBOUNCE_MS = 150;
+const FETCH_MAX_WAIT_MS = 1000;
+
+async function doFetchSessions(): Promise<void> {
+	fetchInFlight = true;
+	try {
+		const baseUrl = getBaseUrl();
+		const token = getToken();
+		const url = `${baseUrl}/sessions${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+		const res = await fetch(url);
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		const data = await res.json();
+		sessionFolders.set({
+			folders: data.folders || [],
+			activeSessions: (data.activeSessions || []).map((s: any) => s.sessionFile),
+			currentSession: get(sessionFolders).currentSession,
+			loading: false,
+		});
+	} catch (err) {
+		sessionFolders.update((s) => ({...s, loading: false}));
+		console.error('Failed to fetch sessions:', err);
+	} finally {
+		fetchInFlight = false;
+	}
+}
 
 export function fetchSessions(): Promise<void> {
-	if (fetchTimeout) {
-		clearTimeout(fetchTimeout);
-	}
 	sessionFolders.update((s) => ({...s, loading: true}));
 
 	const promise = new Promise<void>((resolve) => {
 		resolveQueue.push(resolve);
 	});
 
-	fetchTimeout = setTimeout(async () => {
-		fetchTimeout = null;
-		const resolves = [...resolveQueue];
-		resolveQueue = [];
+	// If a fetch is already running, just mark that we need one more pass when it
+	// finishes (collapsing any number of mid-flight requests into a single one).
+	if (fetchInFlight) {
+		refetchRequested = true;
+		return promise;
+	}
 
-		try {
-			const baseUrl = getBaseUrl();
-			const token = getToken();
-			const url = `${baseUrl}/sessions${token ? `?token=${encodeURIComponent(token)}` : ''}`;
-			const res = await fetch(url);
-			if (!res.ok) throw new Error(`HTTP ${res.status}`);
-			const data = await res.json();
-			sessionFolders.set({
-				folders: data.folders || [],
-				activeSessions: (data.activeSessions || []).map(
-					(s: any) => s.sessionFile,
-				),
-				currentSession: get(sessionFolders).currentSession,
-				loading: false,
-			});
-		} catch (err) {
-			sessionFolders.update((s) => ({...s, loading: false}));
-			console.error('Failed to fetch sessions:', err);
-		} finally {
-			for (const r of resolves) {
-				r();
-			}
+	const now = Date.now();
+	if (!fetchTimeout) {
+		firstQueuedAt = now;
+	} else {
+		clearTimeout(fetchTimeout);
+		// Cap the debounce: if we have already been waiting MAX_WAIT, fire now
+		// rather than letting a continuous event stream postpone the fetch forever.
+		if (now - firstQueuedAt >= FETCH_MAX_WAIT_MS) {
+			fetchTimeout = null;
+			void runQueuedFetch();
+			return promise;
 		}
-	}, 100);
+	}
+
+	fetchTimeout = setTimeout(() => {
+		fetchTimeout = null;
+		void runQueuedFetch();
+	}, FETCH_DEBOUNCE_MS);
 
 	return promise;
+}
+
+async function runQueuedFetch(): Promise<void> {
+	const resolves = [...resolveQueue];
+	resolveQueue = [];
+	try {
+		await doFetchSessions();
+		// A request that arrived mid-flight collapses into exactly one re-fetch.
+		while (refetchRequested) {
+			refetchRequested = false;
+			await doFetchSessions();
+		}
+	} finally {
+		for (const r of resolves) r();
+	}
 }
 
 // Fetch the read-only session folders (sessions.readOnly) for the separate
