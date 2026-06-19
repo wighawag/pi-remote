@@ -58,6 +58,10 @@ export class WhereverClient {
   // > the server heartbeat (when present) and any normal token-less gap, so a
   // healthy connection is never falsely reaped; short enough to self-heal fast.
   private static readonly STALE_SOCKET_MS = 60_000;
+  // While a turn is streaming, the keepalive pong should keep traffic flowing, so
+  // a shorter deadline surfaces a stalled transport (vs a merely slow model)
+  // faster. Still > one HEARTBEAT_MS so a single healthy pong keeps it fresh.
+  private static readonly TURN_STALL_MS = 45_000;
   // Send a keepalive well under STALE_SOCKET_MS so the pong refreshes liveness.
   private static readonly HEARTBEAT_MS = 25_000;
   private isInitialConnect = true;
@@ -128,6 +132,9 @@ export class WhereverClient {
 
     const onOpen = () => {
       if (this.ws !== currentWs) return;
+      if (!this.isInitialConnect) {
+        console.info('[wherever] reconnected to relay');
+      }
       this.reconnectAttempts = 0;
       this.reconnectDelay = 2000;
       this.isInitialConnect = false;
@@ -240,10 +247,24 @@ export class WhereverClient {
     const checkLiveness = () => {
       if (!this.ws) return;
       const silentFor = Date.now() - this.lastInboundAt;
-      if (silentFor < WhereverClient.STALE_SOCKET_MS) return;
+      const streaming = get(this.stateStore).isStreaming;
+      // Per-turn stall timeout: while a turn is in flight the heartbeat pong (and,
+      // normally, tokens) should keep traffic flowing, so a shorter deadline
+      // distinguishes "model is slow" (heartbeat still arriving -> not stale) from
+      // "transport is dead" (heartbeat stopped). When idle, fall back to the
+      // generic stale-socket threshold.
+      const threshold = streaming
+        ? WhereverClient.TURN_STALL_MS
+        : WhereverClient.STALE_SOCKET_MS;
+      if (silentFor < threshold) return;
       // The socket has been silent past the threshold: treat it as dead. Tearing
       // it down forcibly is what makes a half-open connection recover, since the
       // OS never produced a FIN/RST to trigger the normal close path.
+      console.warn(
+        `[wherever] relay connection stale: no inbound frame for ${silentFor}ms ` +
+        `(threshold ${threshold}ms, ${streaming ? 'mid-turn' : 'idle'}); ` +
+        `tearing down dead socket and reconnecting`,
+      );
       this.stopLivenessWatchdog();
       const deadWs = this.ws;
       this.ws = null;
@@ -260,6 +281,12 @@ export class WhereverClient {
         connecting: false,
         loadingSession: false,
         creatingSession: false,
+        // If a turn was in flight, surface it as a recoverable error so the UI
+        // shows "the transport stalled" rather than silently parking mid-stream.
+        sessionError: streaming
+          ? 'Connection to relay stalled mid-turn; reconnecting...'
+          : s.sessionError,
+        isStreaming: false,
       }));
       this.scheduleReconnect();
     };
@@ -288,6 +315,7 @@ export class WhereverClient {
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.reconnectDelay = Math.min(this.reconnectDelay * 1.5, this.maxReconnectDelay);
+      console.info(`[wherever] reconnecting to relay (attempt ${++this.reconnectAttempts})`);
       
       this.stateStore.update(s => ({
         ...s,

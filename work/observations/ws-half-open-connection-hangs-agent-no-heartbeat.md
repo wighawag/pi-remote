@@ -218,8 +218,22 @@ same outcome as the manual restart, automatically and per-connection.
   ping (firing the existing `close` cleanup), cleared on `wss` close + shutdown.
 - Slice C: client heartbeat keepalive + per-turn stall timeout -> recoverable
   `session_error` (client #2/#3); idempotent re-register on reconnect (client #4).
+  **DONE (2026-06-19):** keepalive (#2) shipped in Slice A. Per-turn stall (#3)
+  added in `client/src/client.ts` — `checkLiveness` now uses a shorter
+  `TURN_STALL_MS` (45s) deadline while `isStreaming` and surfaces a recoverable
+  `sessionError` ("Connection to relay stalled mid-turn; reconnecting...") before
+  reconnecting, distinguishing a slow model (heartbeat flowing) from a dead
+  transport. Idempotent re-register (#4) was ALREADY satisfied: the extension's
+  `stateStore.subscribe` re-sends `cli_register` on every `connected` edge
+  (`extension/src/index.ts` ~L262), which the watchdog reconnect re-triggers.
 - Slice D: observability/logging of reaps, stalls, and reconnects (server #3),
   plus dropping `| tail -40` in the `agent-runner` wrapper for live output.
+  **DONE (2026-06-19), pi-remote half only:** client logs stale-socket teardown,
+  reconnect attempts, and successful reconnect (`console.warn`/`console.info` in
+  `client/src/client.ts`); server logs each reaped dead socket with client/session
+  context (`server/src/index.ts` heartbeat loop). The `agent-runner` wrapper change
+  (`| tail -40` -> `| tee run.log | tail -40`) is intentionally LEFT to the
+  agent-runner repo and NOT done here.
 
 Note on ordering: Slice A alone removes the hard dependence on the relay being
 well designed and would have prevented today's manual restart; B/C/D harden the

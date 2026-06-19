@@ -1046,6 +1046,18 @@ async function main(): Promise<void> {
       if (!liveSockets.has(ws)) {
         // Missed the previous ping: treat as dead and reap. 'close' fires the
         // existing teardown so the agent's session is released, not left dangling.
+        // Log with whatever client/session context we can recover so a reaped
+        // (hung) agent shows up as an event rather than as silence.
+        let reaped: WSClient | undefined;
+        for (const c of clients.values()) {
+          if (c.ws === ws) { reaped = c; break; }
+        }
+        console.warn(
+          `[wherever] reaping dead WebSocket (missed heartbeat pong): ` +
+          `client=${reaped?.id ?? 'unknown'} ` +
+          `session=${reaped?.sessionId ?? 'none'} ` +
+          `${reaped?.isCliBridge ? 'cli-bridge' : 'viewer'}`,
+        );
         try { ws.terminate(); } catch {}
         continue;
       }
