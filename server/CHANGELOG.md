@@ -1,5 +1,87 @@
 # wherever-dev
 
+## 0.4.0
+
+### Minor Changes
+
+- 2b72232: Render assistant chat messages as markdown, and fix two text-selection/copy problems in the chat (most visible on mobile Firefox).
+  - **Markdown rendering**: finalized assistant messages now render GFM markdown (headings, lists, bold/italic, links, inline and fenced code, tables, blockquotes) with a dark, compact style scoped to `.markdown-body`. Parsing is done with `marked` and sanitized with `DOMPurify`. Links open in a new tab with `rel="noopener noreferrer"`.
+  - **Copy while streaming**: a finalized assistant message is now parsed once and its DOM stays stable, so a text selection inside it survives instead of being collapsed on every token. While a message is still streaming it renders as plain text (no markdown re-parse per token), and only the live, bottom message keeps mutating.
+  - **Selection spilling into the chrome**: a drag-select that started in a message bubble and reached the viewport edge could extend into the top bar / sidebar / toggle bar and copy the whole page. The app chrome is now marked non-selectable (`.app-chrome`) and message content is explicitly selectable (`.chat-selectable`), keeping a selection contained to the message.
+
+- 3a430c7: Show context-window usage in the session top bar, like the pi CLI (e.g. `11.3% / 1.0M`).
+
+  The dashboard now surfaces how much of the model's context window the active session is using, next to the model indicator. It updates live as turns complete and when the model changes.
+  - **Server-managed sessions:** the server reads usage from pi's `AgentSession.getContextUsage()` and broadcasts a new `context_usage` message after each turn / message / model switch, and includes an initial snapshot on `session_created`.
+  - **CLI-bridged sessions:** the server cannot run the agent, so the pi extension forwards its `ctx.getContextUsage()` on `agent_end` and model change; the relay caches and broadcasts it the same way.
+  - **Display:** percentage of the context window used over the humanized window size (`1.0M`, `200K`, ...), matching the pi CLI. Right after compaction (when token count is momentarily unknown) it shows `– / <window>`. The value clears when leaving a session.
+
+- 2aee118: Add a `sessions.readOnly` config option and a separate, observe-only Read-only sessions page.
+
+  Building on `sessions.ignore` (which fully hides + skips folders), `sessions.readOnly` takes the same glob syntax but treats matching folders differently: they are **hidden from the main session list** (and, like `ignore`, skipped before their file bodies are read on the main view, so they do not slow it down), yet remain viewable on a dedicated **Read-only sessions** page reached via a link in the sidebar.
+
+  ```json
+  { "sessions": { "ignore": ["/tmp/**"], "readOnly": ["~/.agent-runner/**"] } }
+  ```
+
+  This is aimed at autonomous agent fleets (e.g. `agent-runner` working directories) you want to watch but not drive:
+  - `GET /sessions?view=readonly` returns only the read-only folders, each tagged `readOnly`.
+  - The Read-only page reuses the session browser but hides the create form and all delete controls.
+  - Opening a read-only session is **forced read-only end-to-end**: the server sets the client read-only (so `message` sends are refused) and reports it in `session_created`; the dashboard then hides the composer entirely, showing an "observing only" notice.
+
+  When `sessions.readOnly` is empty or omitted, behaviour is unchanged.
+
+### Patch Changes
+
+- f3c6c43: Add a client-side stale-socket liveness watchdog so a half-open WebSocket to the relay no longer hangs the connected agent forever.
+
+  A half-open TCP connection (peer vanished without a clean FIN/RST: relay restart, network blip, dropped upstream) leaves the socket in `ESTAB` and fires neither `close` nor `error`, so the client's existing reconnect machinery was never triggered and the agent waited on the dead socket indefinitely (recoverable only by restarting the relay). `WhereverClient` now:
+  - records `lastInboundAt` on every inbound frame (any frame, including the `pong` reply, counts as proof of life);
+  - runs a periodic app-level `{type:'ping'}` keepalive so a healthy connection stays warm even during long, token-less model turns;
+  - runs a watchdog that, when the socket has been silent past a threshold (~60s, comfortably above the keepalive interval), forcibly `terminate()`s/`close()`s the dead socket and calls the existing `scheduleReconnect()`.
+
+  This reuses the existing exponential-backoff reconnect logic (the only thing missing was the trigger), so a wedged agent now self-heals in ~60s by reconnecting instead of requiring a manual relay restart. The watchdog timers are torn down on `close`/`disconnect`, and the socket is nulled before `terminate()` so the normal `close` handler does not double-fire a reconnect. Implements Slice A of `work/observations/ws-half-open-connection-hangs-agent-no-heartbeat.md`.
+
+- dff6a44: Move the context-window usage indicator (e.g. `11.3% / 1.0M`) from the top bar to the bottom toggle bar, next to the Hide Thinking / Hide Tools toggles, and let that bar wrap onto a second line on narrow screens so nothing gets squeezed off.
+- 94cb06c: Fix session selection showing the "New Session Started" empty state and not scrolling to the bottom while an existing session loads.
+  - Added a dedicated `loadingSession` state flag that is set the moment a `session_load` is requested and cleared when its `message_history` (or an error/conflict/disconnect) arrives. This distinguishes "opening an existing session" from "a brand new empty session", so the chat view now shows a "Loading session..." spinner instead of "New Session Started" during the gap between the `session_created` and `message_history` websocket messages.
+  - Scroll-to-bottom now also fires on the `loadingSession` true→false edge (when the history actually renders) using a settle loop across a couple of animation frames plus delayed retries, so freshly opened sessions reliably land at the bottom even when tall markdown/code content keeps growing for a few frames after mount.
+
+- 6c036d9: Add a server-side WebSocket heartbeat that reaps dead/half-open relay connections.
+
+  A half-open TCP socket (peer vanished without a clean FIN/RST: process restart, network blip, dropped upstream) stays in `ESTAB` and fires neither `close` nor `error`, so the relay never noticed the dead agent and its session was left dangling forever. The relay now sends a protocol-level ping frame to every connection on a fixed interval (30s) and `terminate()`s any socket that did not answer the previous ping. Because `terminate()` fires `close`, this routes through the existing teardown (`unregisterCliSession` / `removeClient` + `broadcastSessionsUpdated`), so a reaped agent's session is released rather than left hanging. The interval is cleared on `wss` close and on shutdown.
+
+  Pairs with the client-side stale-socket watchdog (Slice A): the server reaps its own view of the dead connection while the client self-heals by reconnecting. Implements Slice B of `work/observations/ws-half-open-connection-hangs-agent-no-heartbeat.md`.
+
+- 9db52f1: Add a `sessions.ignore` config option to exclude session folders from the dashboard list and speed up `/sessions`.
+
+  The session list was built by reading and JSON-parsing **every** session file on disk on every `/sessions` request (to compute each session's first-message preview). With hundreds of sessions, including large piles of throwaway agent scratch sessions (e.g. under `/tmp`), this made the list noticeably slow to load.
+
+  You can now set, in `~/.wherever/config.json`:
+
+  ```json
+  { "sessions": { "ignore": ["/tmp/**", "~/.agent-runner/**"] } }
+  ```
+
+  Any session whose resolved working directory matches one of these globs is excluded from the list. Crucially, because all sessions in one on-disk folder share a working directory, a matching folder is detected by reading only its first file's header (not its body) and is then **skipped before its file bodies are read**, so ignored sessions no longer cost anything to scan. Globs support `*` (does not cross a path separator), `**` (crosses separators), and `?`; `~` is expanded to home; and a pattern ignores both the directory itself and everything nested under it. When `sessions.ignore` is empty or omitted, behaviour is unchanged (the existing fast path is used).
+
+- e1f9601: Shrink and de-thrash the `/sessions` payload so the dashboard loads fast with many sessions.
+
+  The session list shipped the **entire, untruncated first message** of every session (often huge: pasted prompts, PRDs, specs), even though the sidebar only renders a ~40-char snippet. With hundreds of sessions this made `/sessions` multi-megabyte and slow, and it was refetched aggressively.
+  - **Server (shrink):** `listSessions()` now caps `firstMessage` to a short, whitespace-collapsed preview (160 chars) at a single choke point, so every listing path ships a small preview. The field name is unchanged (now documented as a capped preview); the sidebar's display and filtering work as before. Measured against a real ~900-session store, the first-message portion of the payload dropped roughly 33x (multi-MB to ~140 KB).
+  - **Web (de-thrash):** `fetchSessions()` no longer runs two fetches at once, collapses any requests arriving while a fetch is in flight into a single trailing re-fetch, and caps its debounce so a continuous stream of `sessions_updated` events (one per agent turn) can no longer pull the whole list repeatedly or postpone the fetch indefinitely.
+
+  This composes with the `sessions.ignore` / `sessions.readOnly` options (which cut how many sessions are scanned/listed at all): together the default session list is now small and quick to load.
+
+- 123b6a3: Add a per-turn transport-stall timeout and liveness observability to the WebSocket relay.
+
+  Builds on the stale-socket watchdog (Slice A) and server heartbeat (Slice B):
+  - **Per-turn stall timeout (client).** While a turn is streaming, the watchdog now uses a shorter deadline (`TURN_STALL_MS`, 45s) than the idle stale-socket threshold (60s). The keepalive pong should keep traffic flowing during a turn, so this distinguishes a merely slow model (heartbeat still arriving, not stale) from a dead transport (heartbeat stopped). On a mid-turn stall it surfaces a recoverable `sessionError` ("Connection to relay stalled mid-turn; reconnecting...") and clears `isStreaming` before reconnecting, instead of silently parking mid-stream.
+  - **Idempotent re-register on reconnect.** Confirmed already handled: the extension re-sends `cli_register` on every `connected` state edge, which the watchdog reconnect re-triggers, so a vanished-and-returned client re-attaches cleanly.
+  - **Observability (pi-remote half).** The client logs stale-socket teardowns, reconnect attempts, and successful reconnects; the server logs each reaped dead socket with its client/session context. A hung agent now shows up as an event rather than as silence.
+
+  Implements Slice C and the pi-remote half of Slice D of `work/observations/ws-half-open-connection-hangs-agent-no-heartbeat.md`. The `agent-runner` wrapper change in Slice D is intentionally left to the agent-runner repo.
+
 ## 0.3.0
 
 ### Minor Changes
