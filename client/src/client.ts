@@ -45,6 +45,21 @@ export class WhereverClient {
   private reconnectAttempts = 0;
   private reconnectDelay = 2000;
   private maxReconnectDelay = 15000;
+  // Liveness watchdog: a half-open TCP socket fires neither 'close' nor 'error',
+  // so the existing reconnect machinery never triggers and the agent hangs
+  // forever (see work/observations/ws-half-open-connection-hangs-agent-no-heartbeat.md).
+  // We record the time of the last inbound frame and, if the socket goes silent
+  // for longer than STALE_SOCKET_MS, proactively tear it down and reconnect.
+  // A periodic app-level {type:'ping'} keeps a healthy connection refreshed even
+  // during long, token-less model turns.
+  private livenessTimer: any = null;
+  private heartbeatTimer: any = null;
+  private lastInboundAt = 0;
+  // > the server heartbeat (when present) and any normal token-less gap, so a
+  // healthy connection is never falsely reaped; short enough to self-heal fast.
+  private static readonly STALE_SOCKET_MS = 60_000;
+  // Send a keepalive well under STALE_SOCKET_MS so the pong refreshes liveness.
+  private static readonly HEARTBEAT_MS = 25_000;
   private isInitialConnect = true;
   private listeners = new Set<(msg: any) => void>();
   private pendingUploads = new Map<string, {resolve: (val: any) => void, reject: (err: any) => void}>();
@@ -116,6 +131,7 @@ export class WhereverClient {
       this.reconnectAttempts = 0;
       this.reconnectDelay = 2000;
       this.isInitialConnect = false;
+      this.startLivenessWatchdog();
       this.stateStore.update(s => ({
         ...s,
         connected: true,
@@ -126,6 +142,9 @@ export class WhereverClient {
 
     const onMessage = (event: any) => {
       if (this.ws !== currentWs) return;
+      // Any inbound frame (including the pong reply to our keepalive) proves the
+      // socket is alive and resets the stale-socket watchdog.
+      this.lastInboundAt = Date.now();
       try {
         const rawData = typeof event.data === 'string' ? event.data : event.data.toString();
         const msg = JSON.parse(rawData);
@@ -137,6 +156,7 @@ export class WhereverClient {
 
     const onClose = () => {
       if (this.ws !== currentWs) return;
+      this.stopLivenessWatchdog();
       this.ws = null;
       this.stateStore.update(s => ({
         ...s,
@@ -175,7 +195,8 @@ export class WhereverClient {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-    
+    this.stopLivenessWatchdog();
+
     if (this.ws) {
       try {
         if (typeof this.ws.removeAllListeners === 'function') {
@@ -192,6 +213,72 @@ export class WhereverClient {
         hideThinking: !!this.config.hideThinking,
         hideTools: !!this.config.hideTools,
       });
+    }
+  }
+
+  // Start (or restart) the stale-socket watchdog + keepalive for the current
+  // socket. A half-open connection emits no 'close'/'error', so without this the
+  // existing reconnect logic would never fire and the agent would hang forever.
+  private startLivenessWatchdog() {
+    this.stopLivenessWatchdog();
+    this.lastInboundAt = Date.now();
+
+    const sendBeat = () => {
+      // Keep a healthy connection warm so the pong refreshes lastInboundAt even
+      // during long, token-less model turns.
+      try {
+        this.ping();
+      } catch {}
+    };
+    if (typeof setInterval === 'function') {
+      this.heartbeatTimer = setInterval(sendBeat, WhereverClient.HEARTBEAT_MS);
+      if (this.heartbeatTimer && typeof this.heartbeatTimer.unref === 'function') {
+        this.heartbeatTimer.unref();
+      }
+    }
+
+    const checkLiveness = () => {
+      if (!this.ws) return;
+      const silentFor = Date.now() - this.lastInboundAt;
+      if (silentFor < WhereverClient.STALE_SOCKET_MS) return;
+      // The socket has been silent past the threshold: treat it as dead. Tearing
+      // it down forcibly is what makes a half-open connection recover, since the
+      // OS never produced a FIN/RST to trigger the normal close path.
+      this.stopLivenessWatchdog();
+      const deadWs = this.ws;
+      this.ws = null;
+      try {
+        if (typeof deadWs.terminate === 'function') {
+          deadWs.terminate();
+        } else if (typeof deadWs.close === 'function') {
+          deadWs.close();
+        }
+      } catch {}
+      this.stateStore.update(s => ({
+        ...s,
+        connected: false,
+        connecting: false,
+        loadingSession: false,
+        creatingSession: false,
+      }));
+      this.scheduleReconnect();
+    };
+    if (typeof setInterval === 'function') {
+      this.livenessTimer = setInterval(checkLiveness, WhereverClient.HEARTBEAT_MS);
+      if (this.livenessTimer && typeof this.livenessTimer.unref === 'function') {
+        this.livenessTimer.unref();
+      }
+    }
+  }
+
+  private stopLivenessWatchdog() {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+    if (this.livenessTimer) {
+      clearInterval(this.livenessTimer);
+      this.livenessTimer = null;
     }
   }
 

@@ -205,6 +205,11 @@ same outcome as the manual restart, automatically and per-connection.
   "Make the client safe" #1). Highest value: makes the agent self-heal regardless
   of relay quality, and it is tiny — it reuses the existing reconnect machinery,
   the only new code is an interval + `lastInboundAt` timestamp. Do this FIRST.
+  **DONE (2026-06-19):** implemented in `client/src/client.ts` —
+  `startLivenessWatchdog()`/`stopLivenessWatchdog()`, `lastInboundAt` refreshed on
+  every inbound frame, a `{type:'ping'}` keepalive (`HEARTBEAT_MS` 25s) and a
+  staleness check (`STALE_SOCKET_MS` 60s) that `terminate()`s the dead socket and
+  calls the existing `scheduleReconnect()`. Slices B/C/D remain open.
 - Slice B: server-side heartbeat ping + reap dead sockets (server fix #1).
   Self-contained in `index.ts`; `terminate()` routes through existing teardown.
 - Slice C: client heartbeat keepalive + per-turn stall timeout -> recoverable
