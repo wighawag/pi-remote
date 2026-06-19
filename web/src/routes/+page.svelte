@@ -14,11 +14,14 @@
 		activeSessionInfo,
 		connect,
 		disconnect,
+		suspend,
+		resume,
 		leaveSession,
 		dismissSessionError,
 		changeModel,
 		joinSession,
 		isCreatingSession,
+		isResyncing,
 		runSearch,
 	} from '$lib/wherever';
 	import {
@@ -82,7 +85,9 @@
 				hiddenTimer = setTimeout(() => {
 					hiddenTimer = null;
 					if (document.visibilityState === 'hidden' && connected) {
-						disconnect();
+						// Suspend (not disconnect): keep the cached session/messages so
+						// returning resyncs in place instead of reloading from scratch.
+						suspend();
 					}
 				}, HIDE_DISCONNECT_DELAY);
 			} else {
@@ -91,20 +96,20 @@
 					hiddenTimer = null;
 				}
 				if (!connected) {
-					connect();
+					resume();
 				}
 			}
 		};
 
 		const handlePageShow = (e: PageTransitionEvent) => {
 			// On bfcache restore (e.persisted) or any return to a visible page,
-			// ensure we are connected. The client rejoins the hash session.
+			// resume the suspended connection, rejoining the cached session in place.
 			if (hiddenTimer) {
 				clearTimeout(hiddenTimer);
 				hiddenTimer = null;
 			}
 			if (document.visibilityState !== 'hidden' && !connected) {
-				connect();
+				resume();
 			}
 		};
 
@@ -146,6 +151,7 @@
 	}
 
 	let connected = $derived($isConnected);
+	let resyncing = $derived($isResyncing);
 	let interrupted = $derived($isInterrupted);
 	let sError = $derived($sessionError);
 	let readOnly = $derived($isReadOnly);
@@ -183,7 +189,13 @@
 			const hashId = decodeURIComponent(window.location.hash.slice(1));
 			if (hashId) {
 				hasJoinedFromHash = true;
+				// On a resume reconnect the client already rejoins the cached session
+				// in place (via session_load in onOpen), so re-joining here would be a
+				// redundant double load. Only auto-join from the hash when no session
+				// is already active for it.
+				if (currentSessionId === hashId) return;
 				setTimeout(() => {
+					if (currentSessionId === hashId) return;
 					joinSession(hashId);
 				}, 300);
 			}
@@ -549,15 +561,21 @@
 			</div>
 		{/if}
 
-		<!-- Session error notification -->
+		<!-- Session error notification. The message can be long, so it scrolls
+		     within a bounded, wrapping area while the close button stays pinned and
+		     never gets pushed off-screen. -->
 		{#if sError}
 			<div
-				class="flex items-center justify-between border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-rose-400"
+				class="flex items-start justify-between gap-2 border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-rose-400"
 			>
-				<span>{sError}</span>
+				<span
+					class="max-h-24 min-w-0 flex-1 overflow-y-auto break-words whitespace-pre-wrap"
+					>{sError}</span
+				>
 				<button
 					onclick={() => dismissSessionError()}
-					class="ml-2 text-rose-300 hover:text-rose-200">X</button
+					aria-label="Dismiss error"
+					class="flex-shrink-0 text-rose-300 hover:text-rose-200">X</button
 				>
 			</div>
 		{/if}
@@ -583,7 +601,19 @@
 			<div
 				class="border-t border-brand-border bg-brand-surface px-4 py-3 text-center text-xs text-brand-text-muted"
 			>
-				👁️ Read-only session — observing only, no input.
+				👁️ Read-only session, observing only, no input.
+			</div>
+		{:else if sessionInfo.sessionFile && (resyncing || !connected)}
+			<!-- Suspended/reconnecting: the cached conversation stays visible above,
+			     but the composer is replaced by a status line so no message can be
+			     sent until the socket is back and the session has resynced. -->
+			<div
+				class="flex items-center justify-center gap-2 border-t border-brand-border bg-brand-surface px-4 py-3 text-center text-sm text-brand-text-muted"
+			>
+				<span
+					class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-blue border-t-transparent"
+				></span>
+				<span>Reconnecting and syncing session...</span>
 			</div>
 		{:else}
 			<ChatInput

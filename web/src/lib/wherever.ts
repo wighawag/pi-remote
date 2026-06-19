@@ -158,6 +158,19 @@ export function disconnect() {
 	setCurrentSession(null);
 }
 
+// Suspend the connection on tab-background without dropping the cached session.
+// Keeps messages/sessionId in the store so returning resyncs in place instead of
+// reloading. Deliberately does NOT clear the current session.
+export function suspend() {
+	client.suspend();
+}
+
+// Resume after suspend(): reconnect preserving the cache and rejoin the active
+// session. The store's resyncing flag drives the UI's reconnecting affordance.
+export function resume() {
+	client.resume();
+}
+
 export function sendMessage(text: string) {
 	client.sendMessage(text);
 }
@@ -277,6 +290,7 @@ export const activeSessionInfo = derived(piState, ($s) => ({
 export const contextUsage = derived(piState, ($s) => $s.contextUsage);
 export const isCreatingSession = derived(piState, ($s) => $s.creatingSession);
 export const isLoadingSession = derived(piState, ($s) => $s.loadingSession);
+export const isResyncing = derived(piState, ($s) => $s.resyncing);
 export const hasMoreHistory = derived(piState, ($s) => $s.historyOffset > 0);
 export const isLoadingMoreHistory = derived(
 	piState,

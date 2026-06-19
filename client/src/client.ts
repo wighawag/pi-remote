@@ -16,6 +16,7 @@ const defaultState: WhereverState = {
 	connecting: false,
 	creatingSession: false,
 	loadingSession: false,
+	resyncing: false,
 	error: null,
 	session: null,
 	sessionId: null,
@@ -66,6 +67,12 @@ export class WhereverClient {
   // Send a keepalive well under STALE_SOCKET_MS so the pong refreshes liveness.
   private static readonly HEARTBEAT_MS = 25_000;
   private isInitialConnect = true;
+  // When set, the next successful (re)connection should rejoin the previously
+  // active session instead of starting blank. Used by resume() so a backgrounded
+  // tab returns to its cached conversation and resyncs history in place.
+  private resumeSessionFile: string | null = null;
+  private resumeCwd?: string;
+  private resumeModel?: string;
   private listeners = new Set<(msg: any) => void>();
   private pendingUploads = new Map<string, {resolve: (val: any) => void, reject: (err: any) => void}>();
 
@@ -81,7 +88,7 @@ export class WhereverClient {
     });
   }
 
-  public connect(newConfig?: Partial<WhereverClientConfig>) {
+  public connect(newConfig?: Partial<WhereverClientConfig>, preserveState = false) {
     if (newConfig) {
       this.config = {
         ...this.config,
@@ -91,12 +98,18 @@ export class WhereverClient {
 
     this.disconnect(false);
 
-    this.stateStore.update(s => ({
-      ...defaultState,
-      connecting: true,
-      hideThinking: !!this.config.hideThinking,
-      hideTools: !!this.config.hideTools,
-    }));
+    // preserveState keeps the cached session/messages in the store across a
+    // reconnect (resume path), so the previous conversation stays visible while
+    // we reconnect and resync. The default (fresh connect) clears to a blank
+    // store as before.
+    this.stateStore.update(s => preserveState
+      ? {...s, connecting: true, error: null}
+      : {
+          ...defaultState,
+          connecting: true,
+          hideThinking: !!this.config.hideThinking,
+          hideTools: !!this.config.hideTools,
+        });
 
     const protocol = this.config.secure ? "wss" : "ws";
     const host = this.config.host.startsWith('http')
@@ -146,6 +159,21 @@ export class WhereverClient {
         connecting: false,
         error: null
       }));
+      // Resume path: rejoin the previously-active session so its history is
+      // resynced in place. resyncing stays true until message_history (or an
+      // error/conflict) arrives, keeping the "reconnecting" affordance up and
+      // input blocked without dropping the cached messages.
+      if (this.resumeSessionFile) {
+        const file = this.resumeSessionFile;
+        const cwd = this.resumeCwd;
+        const model = this.resumeModel;
+        this.resumeSessionFile = null;
+        this.resumeCwd = undefined;
+        this.resumeModel = undefined;
+        this.send({type: 'session_load', sessionFile: file, cwd, model});
+      } else {
+        this.stateStore.update(s => (s.resyncing ? {...s, resyncing: false} : s));
+      }
     };
 
     const onMessage = (event: any) => {
@@ -222,6 +250,34 @@ export class WhereverClient {
         hideTools: !!this.config.hideTools,
       });
     }
+  }
+
+  // Suspend the connection without tearing down the cached session state. Used
+  // when the tab is backgrounded: closing the WebSocket improves bfcache
+  // eligibility, but we keep messages/sessionId so returning is a cheap resync
+  // rather than a full reload. Records the active session so resume() can rejoin
+  // it. Does NOT schedule a reconnect (disconnect(false) clears that timer).
+  public suspend() {
+    const s = get(this.stateStore);
+    if (s.activeSessionFile) {
+      this.resumeSessionFile = s.activeSessionFile;
+      this.resumeCwd = s.activeCwd ?? undefined;
+      this.resumeModel = s.activeModel ?? undefined;
+    }
+    this.disconnect(false);
+  }
+
+  // Resume after suspend(): reconnect while preserving the cached store, mark
+  // the session as resyncing, and let onOpen rejoin the recorded session. If
+  // there is no active session to rejoin, this is just a state-preserving
+  // reconnect.
+  public resume() {
+    const s = get(this.stateStore);
+    if (s.connected || s.connecting) return;
+    if (this.resumeSessionFile) {
+      this.stateStore.update(st => ({...st, resyncing: true}));
+    }
+    this.connect(undefined, true);
   }
 
   // Start (or restart) the stale-socket watchdog + keepalive for the current
@@ -679,6 +735,7 @@ export class WhereverClient {
           isStreaming: false,
           creatingSession: false,
           loadingSession: false,
+          resyncing: false,
         }));
         break;
 
@@ -692,6 +749,7 @@ export class WhereverClient {
           },
           creatingSession: false,
           loadingSession: false,
+          resyncing: false,
         }));
         break;
 
@@ -724,6 +782,7 @@ export class WhereverClient {
             historyOffset: offset,
             loadingMoreHistory: false,
             loadingSession: false,
+            resyncing: false,
           };
         });
         break;
@@ -946,8 +1005,12 @@ export class WhereverClient {
       readOnly: false,
       creatingSession: false,
       loadingSession: false,
+      resyncing: false,
       contextUsage: null,
     }));
+    this.resumeSessionFile = null;
+    this.resumeCwd = undefined;
+    this.resumeModel = undefined;
   }
 
   public resolveConflict(action: 'take_over' | 'read_only', cwd?: string) {

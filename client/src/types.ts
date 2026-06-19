@@ -26,6 +26,11 @@ export interface WhereverState {
 	// from "a brand new empty session" so the UI can show a loading state instead
 	// of the "New Session Started" empty state.
 	loadingSession: boolean;
+	// True while the connection was suspended (e.g. the tab was backgrounded) and
+	// is now reconnecting + rejoining the previously-active session. The cached
+	// messages remain visible; the UI shows a "reconnecting/syncing" affordance
+	// and blocks input until the resync completes.
+	resyncing: boolean;
 	error: string | null;
 	session: string | null;
 	sessionId: string | null;
