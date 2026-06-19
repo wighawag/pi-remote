@@ -34,6 +34,7 @@ const defaultState: WhereverState = {
 	historyTotalCount: 0,
 	historyOffset: 0,
 	loadingMoreHistory: false,
+	contextUsage: null,
 };
 
 export class WhereverClient {
@@ -640,6 +641,16 @@ export class WhereverClient {
           // The server forces read-only for sessions in a configured
           // sessions.readOnly folder (observe-only fleet view).
           readOnly: msg.readOnly ?? false,
+          // Initial context-usage snapshot for the new session (null if unknown;
+          // live updates arrive via 'context_usage').
+          contextUsage: msg.contextUsage ?? null,
+        }));
+        break;
+
+      case 'context_usage':
+        this.stateStore.update((s: WhereverState) => ({
+          ...s,
+          contextUsage: msg.contextUsage ?? null,
         }));
         break;
 
@@ -935,6 +946,7 @@ export class WhereverClient {
       readOnly: false,
       creatingSession: false,
       loadingSession: false,
+      contextUsage: null,
     }));
   }
 

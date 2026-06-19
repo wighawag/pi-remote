@@ -384,6 +384,16 @@ async function main(): Promise<void> {
         }
         break;
       }
+      case 'context_usage' as any: {
+        // Emitted by the CLI bridge for CLI sessions (server sessions use the
+        // broadcastContextUsage path below). The snapshot is already cached.
+        msg = {
+          type: 'context_usage',
+          sessionId,
+          contextUsage: (event as any).contextUsage ?? null,
+        };
+        break;
+      }
     }
 
     if (msg) {
@@ -394,8 +404,36 @@ async function main(): Promise<void> {
       }
     }
 
+    // Push an updated context-usage snapshot at points where it can change:
+    // a finished turn, a settled message, or a model switch (context window
+    // changes). Cheap and keeps the "11.3% / 1.0M" indicator live.
+    if (
+      event.type === 'agent_end' ||
+      event.type === 'message_end' ||
+      (event.type as any) === 'model_select'
+    ) {
+      broadcastContextUsage(sessionFile);
+    }
+
     if (event.type === 'message_end' || event.type === 'agent_end') {
       broadcastSessionsUpdated();
+    }
+  }
+
+  function broadcastContextUsage(sessionFile: string): void {
+    const tracked = sessionPool.getSession(sessionFile);
+    if (!tracked) return;
+    const usage = sessionPool.getContextUsage(sessionFile);
+    if (usage === undefined) return;
+    const msg: ServerMessage = {
+      type: 'context_usage',
+      sessionId: tracked.sessionId,
+      contextUsage: usage,
+    };
+    for (const c of clients.values()) {
+      if (c.sessionId === sessionFile) {
+        sendWS(c.ws, msg);
+      }
     }
   }
 
@@ -1220,6 +1258,7 @@ async function handleWSMessage(
         model: result.tracked.model,
         isStreaming: pool.isStreaming(result.tracked.sessionFile),
         readOnly: forcedReadOnly,
+        contextUsage: pool.getContextUsage(result.tracked.sessionFile) ?? null,
       });
 
       const history = pool.getSessionHistoryWindow(result.tracked.sessionFile, INITIAL_HISTORY_LIMIT);

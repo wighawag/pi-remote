@@ -48,4 +48,13 @@ export interface WhereverState {
 	historyTotalCount: number;
 	historyOffset: number;
 	loadingMoreHistory: boolean;
+	// Context-window usage for the active session (drives the "11.3% / 1.0M"
+	// indicator). null when unknown (no model, no usage yet, or just compacted).
+	contextUsage: ContextUsage | null;
+}
+
+export interface ContextUsage {
+	tokens: number | null;
+	contextWindow: number;
+	percent: number | null;
 }

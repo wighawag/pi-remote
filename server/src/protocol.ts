@@ -1,4 +1,5 @@
-import { HistoryMessage } from './session-types.js';
+import { HistoryMessage, ContextUsageInfo } from './session-types.js';
+export type { ContextUsageInfo } from './session-types.js';
 
 // Initial number of (most recent) history messages sent when a session is
 // loaded/joined. Older messages are fetched lazily via `history_load_more`.
@@ -36,7 +37,8 @@ export type ServerMessage =
   | { type: 'tool_update'; sessionId: string; toolName: string; delta: string }
   | { type: 'tool_end'; sessionId: string; toolName: string; isError: boolean; result?: string }
   | { type: 'cli_bash'; command: string; excludeFromContext?: boolean }
-  | { type: 'session_created'; sessionId: string; sessionFile: string; cwd: string; model: string; isStreaming?: boolean; readOnly?: boolean }
+  | { type: 'session_created'; sessionId: string; sessionFile: string; cwd: string; model: string; isStreaming?: boolean; readOnly?: boolean; contextUsage?: ContextUsageInfo | null }
+  | { type: 'context_usage'; sessionId: string; contextUsage: ContextUsageInfo | null }
   | { type: 'session_destroyed'; sessionId: string; reason: string }
   | { type: 'session_error'; sessionId?: string; error: string; detail?: string }
   | { type: 'session_conflict'; sessionId: string; conflictingSession: string; conflictingCwd: string }

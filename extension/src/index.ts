@@ -109,6 +109,28 @@ export default async function (pi: ExtensionAPI) {
     }
   }
 
+  // Forward the agent's current context-window usage so the web UI can show the
+  // "11.3% / 1.0M" indicator for CLI-bridged sessions (the server cannot compute
+  // it for these). Best-effort: undefined usage (no model / no turn yet) is sent
+  // as null so the client can clear a stale value.
+  function sendContextUsage() {
+    try {
+      const usage = ctxVal?.getContextUsage?.();
+      sendCliEvent({
+        type: "context_usage",
+        contextUsage: usage
+          ? {
+              tokens: usage.tokens,
+              contextWindow: usage.contextWindow,
+              percent: usage.percent,
+            }
+          : null,
+      });
+    } catch (err) {
+      // Quiet fail.
+    }
+  }
+
   function connect() {
     if (client) {
       try {
@@ -331,6 +353,8 @@ export default async function (pi: ExtensionAPI) {
       type: "agent_end",
       messages: event.messages,
     });
+    // Context usage is freshest right after a turn completes.
+    sendContextUsage();
   });
 
   pi.on("tool_execution_start", async (event: any) => {
@@ -356,5 +380,7 @@ export default async function (pi: ExtensionAPI) {
       type: "model_select",
       model: modelStr,
     });
+    // Context window can change with the model, so refresh the indicator.
+    sendContextUsage();
   });
 }

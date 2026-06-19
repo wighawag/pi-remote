@@ -388,7 +388,7 @@ import { createAgentSession, AuthStorage, ModelRegistry, DefaultResourceLoader, 
 import type { AgentSession, AgentSessionEvent } from '@earendil-works/pi-coding-agent';
 import type { Model, Api } from '@earendil-works/pi-ai';
 import type { SessionMessageEntry, SessionEntry } from '@earendil-works/pi-coding-agent';
-import type { SessionInfo, HistoryMessage, FolderWithSessions, ModelInfo, FolderSessionInfo } from './session-types.js';
+import type { SessionInfo, HistoryMessage, FolderWithSessions, ModelInfo, FolderSessionInfo, ContextUsageInfo } from './session-types.js';
 import type { WebSocket } from 'ws';
 
 export interface ServerTrackedSession {
@@ -419,6 +419,9 @@ export interface CliTrackedSession {
   lastActivity: number;
   cliWs: WebSocket;
   isStreaming: boolean;
+  // Latest context-usage snapshot reported by the CLI bridge (the server does
+  // not run the agent for CLI sessions, so it cannot compute this itself).
+  contextUsage?: ContextUsageInfo | null;
 }
 
 export type TrackedSession = ServerTrackedSession | CliTrackedSession;
@@ -1244,6 +1247,31 @@ export class SessionPool {
     return tracked.type === 'server' ? tracked.agentSession.isStreaming : tracked.isStreaming;
   }
 
+  /**
+   * Context-window usage for a session, for the "11.3% / 1.0M" UI indicator.
+   * Server sessions compute it from the live agent; CLI-bridge sessions return
+   * the latest snapshot the bridge reported (the server does not run their
+   * agent). Returns undefined when unknown (no model / no usage yet).
+   */
+  getContextUsage(sessionFileOrId: string): ContextUsageInfo | null | undefined {
+    const tracked = this.getSession(sessionFileOrId);
+    if (!tracked) return undefined;
+    if (tracked.type === 'server') {
+      const usage = tracked.agentSession.getContextUsage();
+      if (!usage) return undefined;
+      return { tokens: usage.tokens, contextWindow: usage.contextWindow, percent: usage.percent };
+    }
+    return tracked.contextUsage;
+  }
+
+  /** Record a context-usage snapshot reported by a CLI bridge for its session. */
+  setCliContextUsage(sessionFileOrId: string, usage: ContextUsageInfo | null): void {
+    const tracked = this.getSession(sessionFileOrId);
+    if (tracked && tracked.type === 'cli') {
+      tracked.contextUsage = usage;
+    }
+  }
+
   scheduleIdleCheck(sessionFileOrId: string): void {
     const tracked = this.getSession(sessionFileOrId);
     if (!tracked) return;
@@ -1374,6 +1402,11 @@ export class SessionPool {
       if (modelStr) {
         tracked.model = modelStr;
       }
+    } else if ((event.type as any) === 'context_usage') {
+      // The CLI bridge reports its agent's context usage (the server cannot
+      // compute it for CLI sessions). Cache it so getContextUsage() can serve it
+      // on join, and let it flow through onEvent for live broadcast.
+      tracked.contextUsage = (event as any).contextUsage ?? null;
     }
 
     if (this.onEvent) {

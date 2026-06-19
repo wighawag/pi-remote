@@ -274,6 +274,7 @@ export const activeSessionInfo = derived(piState, ($s) => ({
 	model: $s.activeModel,
 	sessionId: $s.sessionId,
 }));
+export const contextUsage = derived(piState, ($s) => $s.contextUsage);
 export const isCreatingSession = derived(piState, ($s) => $s.creatingSession);
 export const isLoadingSession = derived(piState, ($s) => $s.loadingSession);
 export const hasMoreHistory = derived(piState, ($s) => $s.historyOffset > 0);

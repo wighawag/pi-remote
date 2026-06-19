@@ -1,3 +1,13 @@
+/** Context-window usage snapshot surfaced in the UI (e.g. "11.3% / 1.0M"). */
+export interface ContextUsageInfo {
+  /** Estimated context tokens, or null if unknown (e.g. right after compaction). */
+  tokens: number | null;
+  /** The model's context window size in tokens. */
+  contextWindow: number;
+  /** tokens / contextWindow as a percentage, or null if tokens is unknown. */
+  percent: number | null;
+}
+
 export interface SessionInfo {
   sessionId: string;
   sessionFile: string;
