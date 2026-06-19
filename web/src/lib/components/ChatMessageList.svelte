@@ -21,6 +21,23 @@
 	import type {ChatMessage} from '$lib/wherever';
 	import {onMount} from 'svelte';
 	import {url} from '$lib/core/utils/web/path';
+	import {renderMarkdown} from '$lib/core/utils/markdown';
+
+	// Memoize rendered markdown per (message id + content length) so a finalized
+	// assistant message is parsed once and its DOM stays stable afterwards. A
+	// stable node is what lets a text selection survive (re-parsing on every
+	// keystroke would collapse the selection, the bug we are fixing). Streaming
+	// messages are NOT rendered as markdown -- they show plain text until final.
+	const markdownCache = new Map<string, string>();
+	function renderAssistant(id: string, content: string): string {
+		const key = `${id}:${content.length}`;
+		let cached = markdownCache.get(key);
+		if (cached === undefined) {
+			cached = renderMarkdown(content);
+			markdownCache.set(key, cached);
+		}
+		return cached;
+	}
 
 	// Context-window usage indicator, shown next to the Hide Thinking/Tools
 	// toggles. Humanize like the pi CLI: 1_000_000 -> "1.0M", 128_000 -> "128K".
@@ -1139,8 +1156,22 @@
 								</div>
 							{/if}
 						{:else if msg.role === 'assistant' && msg.content !== ''}
-							<pre
-								class="font-sans text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</pre>
+							{#if msg.isStreaming}
+								<!-- While streaming, render plain text. Re-parsing markdown on
+								     every token would rebuild the DOM and collapse any active
+								     selection; the finalized branch renders once and stays stable. -->
+								<pre
+									class="chat-selectable font-sans text-sm leading-relaxed whitespace-pre-wrap">{msg.content}<span
+										class="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-brand-cyan align-text-bottom"
+									></span></pre>
+							{:else}
+								<!-- eslint-disable-next-line svelte/no-at-html-tags -- output sanitized via DOMPurify in renderMarkdown -->
+								<div
+									class="chat-selectable markdown-body text-sm leading-relaxed"
+								>
+									{@html renderAssistant(msg.id, msg.content)}
+								</div>
+							{/if}
 						{:else}
 							{@const parsedUserMsg = parseUserMessage(msg.content)}
 							<div class="text-sm leading-relaxed whitespace-pre-wrap">
@@ -1194,7 +1225,7 @@
 	{/if}
 
 	<div
-		class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-brand-border p-2"
+		class="app-chrome flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-brand-border p-2"
 	>
 		<div class="flex flex-wrap items-center gap-x-4 gap-y-2">
 			<label

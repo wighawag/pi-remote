@@ -4,7 +4,9 @@
 	"version": "0.0.1",
 	"type": "module",
 	"dependencies": {
-		"@wherever-dev/client": "workspace:*"
+		"@wherever-dev/client": "workspace:*",
+		"dompurify": "^3.4.11",
+		"marked": "^15.0.12"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-static": "^3.0.10",

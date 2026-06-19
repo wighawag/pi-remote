@@ -50,3 +50,144 @@ body {
 	mask-composite: exclude;
 	pointer-events: none;
 }
+
+/*
+ * Selection containment.
+ *
+ * On mobile (notably Firefox Android), a drag that starts in a message bubble
+ * and reaches the viewport edge tends to extend the selection into the
+ * surrounding chrome (top bar, sidebar, toggles), so a copy grabs the whole
+ * page instead of the message. We make the app chrome non-selectable by
+ * default and opt message content back in via `.chat-selectable`. This keeps a
+ * selection that starts inside a message from spilling into UI text.
+ */
+.app-chrome,
+.app-chrome * {
+	-webkit-user-select: none;
+	user-select: none;
+}
+
+.chat-selectable,
+.chat-selectable * {
+	-webkit-user-select: text;
+	user-select: text;
+	/* iOS/Firefox: allow the long-press selection callout. */
+	-webkit-touch-callout: default;
+}
+
+/*
+ * Dark, compact markdown styling for finalized assistant messages. Scoped to
+ * `.markdown-body` so it does not leak into the rest of the UI. Kept minimal
+ * (no syntax-highlight engine) to avoid bundle bloat.
+ */
+.markdown-body {
+	overflow-wrap: anywhere;
+}
+.markdown-body > :first-child {
+	margin-top: 0;
+}
+.markdown-body > :last-child {
+	margin-bottom: 0;
+}
+.markdown-body p,
+.markdown-body ul,
+.markdown-body ol,
+.markdown-body blockquote,
+.markdown-body pre,
+.markdown-body table {
+	margin: 0.5em 0;
+}
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4 {
+	margin: 0.8em 0 0.4em;
+	font-weight: 700;
+	line-height: 1.25;
+}
+.markdown-body h1 {
+	font-size: 1.3em;
+}
+.markdown-body h2 {
+	font-size: 1.2em;
+}
+.markdown-body h3 {
+	font-size: 1.1em;
+}
+.markdown-body ul,
+.markdown-body ol {
+	padding-left: 1.4em;
+}
+.markdown-body ul {
+	list-style: disc;
+}
+.markdown-body ol {
+	list-style: decimal;
+}
+.markdown-body li {
+	margin: 0.2em 0;
+}
+.markdown-body li > ul,
+.markdown-body li > ol {
+	margin: 0.2em 0;
+}
+.markdown-body a {
+	color: var(--color-brand-cyan);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+.markdown-body strong {
+	font-weight: 700;
+}
+.markdown-body em {
+	font-style: italic;
+}
+.markdown-body code {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 0.85em;
+	background: var(--color-brand-surface-3);
+	padding: 0.1em 0.35em;
+	border-radius: 0.25rem;
+}
+.markdown-body pre {
+	background: var(--color-brand-dark);
+	border: 1px solid var(--color-brand-border);
+	border-radius: 0.375rem;
+	padding: 0.75em;
+	overflow-x: auto;
+}
+.markdown-body pre code {
+	background: transparent;
+	padding: 0;
+	font-size: 0.8125em;
+	line-height: 1.5;
+}
+.markdown-body blockquote {
+	border-left: 3px solid var(--color-brand-border);
+	padding-left: 0.75em;
+	color: var(--color-brand-text-muted);
+}
+.markdown-body hr {
+	border: none;
+	border-top: 1px solid var(--color-brand-border);
+	margin: 1em 0;
+}
+.markdown-body table {
+	border-collapse: collapse;
+	display: block;
+	overflow-x: auto;
+}
+.markdown-body th,
+.markdown-body td {
+	border: 1px solid var(--color-brand-border);
+	padding: 0.3em 0.6em;
+	text-align: left;
+}
+.markdown-body th {
+	background: var(--color-brand-surface-2);
+	font-weight: 700;
+}
+.markdown-body img {
+	max-width: 100%;
+	height: auto;
+}

@@ -262,7 +262,7 @@
 >
 	<!-- Sidebar -->
 	<div
-		class="{sidebarOpen
+		class="app-chrome {sidebarOpen
 			? 'translate-x-0'
 			: '-translate-x-full'} fixed z-20 flex h-full w-72 flex-col border-r border-brand-border bg-brand-surface transition-transform duration-200 md:relative md:translate-x-0"
 	>
@@ -439,7 +439,7 @@
 	<div class="flex min-w-0 flex-1 flex-col">
 		<!-- Top bar -->
 		<div
-			class="flex items-center gap-3 border-b border-brand-border bg-brand-surface p-3"
+			class="app-chrome flex items-center gap-3 border-b border-brand-border bg-brand-surface p-3"
 		>
 			<button
 				onclick={() => (sidebarOpen = !sidebarOpen)}
