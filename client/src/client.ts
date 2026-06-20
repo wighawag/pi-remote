@@ -52,7 +52,7 @@ export class WhereverClient {
   // forever. This timer guarantees the load state always resolves: on expiry we
   // clear the flags and surface a recoverable error instead of an endless spin.
   private loadWatchdog: any = null;
-  private static readonly LOAD_WATCHDOG_MS = 20_000;
+  private static readonly LOAD_WATCHDOG_MS = 12_000;
   private reconnectAttempts = 0;
   private reconnectDelay = 2000;
   private maxReconnectDelay = 15000;
@@ -1029,6 +1029,49 @@ export class WhereverClient {
       sessionError: null,
       loadingSession: true,
     }));
+    this.send({type: 'session_load', sessionFile, cwd, model});
+    this.armLoadWatchdog();
+  }
+
+  // Switch from the currently-active session (if any) straight to another one in
+  // a single, atomic step. Leaving + loading used to be done by the UI as two
+  // calls separated by a 100ms setTimeout; that gap could strand the loading
+  // state (a tap landing mid-switch, a leave whose load never fired) and leave
+  // the "Loading session..." spinner hanging with an open sidebar. Doing both
+  // here, synchronously, means there is never an in-between state and the
+  // watchdog is always (re)armed for the new load, so a superseded or lost load
+  // can never strand the UI: the latest tap always wins.
+  public switchSession(sessionFile: string, cwd?: string, model?: string) {
+    const s = get(this.stateStore);
+    // Tapping the already-active session is a no-op (don't tear it down just to
+    // reload the same history).
+    if (s.activeSessionFile === sessionFile && !s.loadingSession && !s.resyncing) {
+      return;
+    }
+    if (s.sessionId) {
+      this.send({type: 'session_leave', sessionId: s.sessionId});
+    }
+    // Reset to a clean loading state for the target session in one update so the
+    // old conversation clears immediately and the spinner reflects the new load.
+    this.stateStore.update((st: WhereverState) => ({
+      ...st,
+      messages: [],
+      session: null,
+      sessionId: null,
+      activeSessionFile: null,
+      activeCwd: null,
+      activeModel: null,
+      readOnly: false,
+      conflict: null,
+      sessionError: null,
+      creatingSession: false,
+      resyncing: false,
+      contextUsage: null,
+      loadingSession: true,
+    }));
+    this.resumeSessionFile = null;
+    this.resumeCwd = undefined;
+    this.resumeModel = undefined;
     this.send({type: 'session_load', sessionFile, cwd, model});
     this.armLoadWatchdog();
   }

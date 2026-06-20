@@ -190,6 +190,18 @@ export function joinSession(sessionFile: string, cwd?: string, model?: string) {
 	client.joinSession(sessionFile, cwd, model);
 }
 
+// Atomically leave the current session (if any) and load another one. Preferred
+// over a manual leaveSession()+joinSession() dance: it has no in-between gap that
+// could strand the "Loading session..." spinner. Always rearms the load watchdog
+// for the new target, so the latest tap wins.
+export function switchSession(
+	sessionFile: string,
+	cwd?: string,
+	model?: string,
+) {
+	client.switchSession(sessionFile, cwd, model);
+}
+
 export function createSession(
 	cwd: string,
 	model?: string,

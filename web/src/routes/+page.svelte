@@ -20,6 +20,7 @@
 		dismissSessionError,
 		changeModel,
 		joinSession,
+		switchSession,
 		isCreatingSession,
 		isResyncing,
 		isLoadingSession,
@@ -56,12 +57,10 @@
 					? decodeURIComponent(window.location.hash.slice(1))
 					: '';
 				if (hashId && hashId !== currentSessionId) {
-					if (currentSessionId) {
-						leaveSession();
-						setTimeout(() => joinSession(hashId), 100);
-					} else {
-						joinSession(hashId);
-					}
+					// Atomic switch (no leave -> setTimeout -> join gap that could strand
+					// the loading spinner). switchSession leaves the current session first
+					// when there is one and loads the target either way.
+					switchSession(hashId);
 				} else if (!hashId && currentSessionId) {
 					leaveSession();
 				}
@@ -204,11 +203,7 @@
 	// the live state (active session id + loading/resync flags) instead avoids that.
 	let hashJoinTimer: ReturnType<typeof setTimeout> | null = null;
 	$effect(() => {
-		if (
-			!connected ||
-			typeof window === 'undefined' ||
-			!window.location.hash
-		) {
+		if (!connected || typeof window === 'undefined' || !window.location.hash) {
 			return;
 		}
 		const hashId = decodeURIComponent(window.location.hash.slice(1));
@@ -232,9 +227,14 @@
 		}
 	});
 
-	// Close sidebar on mobile when a session is joined
+	// Close sidebar on mobile when a session is joined OR as soon as a load is in
+	// flight. Previously it only closed once `currentSessionId` was set, so if the
+	// load stalled (the "Loading session..." spinner hanging) the sidebar stayed
+	// open over it. Closing on the loading/resync flag too means the tap always
+	// dismisses the sidebar, and the user sees the spinner (or its eventual error)
+	// rather than a stuck open sidebar.
 	$effect(() => {
-		if (currentSessionId) {
+		if (currentSessionId || loadingSession || resyncing) {
 			sidebarOpen = false;
 		}
 	});

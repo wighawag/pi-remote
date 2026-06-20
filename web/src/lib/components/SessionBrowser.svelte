@@ -21,10 +21,13 @@
 	let {readOnly = false}: {readOnly?: boolean} = $props();
 	import {
 		joinSession,
+		switchSession,
 		createSession,
 		leaveSession,
 		activeSessionInfo,
 		isConnected,
+		isLoadingSession,
+		isResyncing,
 		sessionError,
 		dismissSessionError,
 		deleteSession,
@@ -46,6 +49,8 @@
 	}
 	let currentSession = $derived($activeSessionInfo.sessionFile);
 	let connected = $derived($isConnected);
+	let loadingSession = $derived($isLoadingSession);
+	let resyncing = $derived($isResyncing);
 	let models = $derived($availableModels.models);
 
 	let expanded = $state<Record<string, boolean>>({});
@@ -156,16 +161,14 @@
 	}
 
 	function handleSessionClick(sessionPath: string) {
-		if (currentSession === sessionPath) return;
+		// Tapping the already-active session (and not currently loading) is a no-op.
+		if (currentSession === sessionPath && !loadingSession && !resyncing) return;
 		dismissSessionError();
-		if (currentSession) {
-			leaveSession();
-			setTimeout(() => {
-				joinSession(sessionPath);
-			}, 100);
-		} else {
-			joinSession(sessionPath);
-		}
+		// One atomic switch: leave the current session (if any) and load the target.
+		// switchSession supersedes any in-flight load and rearms the load watchdog, so
+		// a stuck/hung load never blocks tapping a different session, and the latest
+		// tap always wins (no fragile leave -> setTimeout -> join gap).
+		switchSession(sessionPath);
 	}
 
 	// Collapsible Sidebar form state
