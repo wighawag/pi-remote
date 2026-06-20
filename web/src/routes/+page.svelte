@@ -25,6 +25,8 @@
 		isResyncing,
 		isLoadingSession,
 		hasSuspendedSession,
+		isFilePickerActive,
+		endFilePicker,
 		runSearch,
 	} from '$lib/wherever';
 	import {
@@ -82,6 +84,11 @@
 
 		const handleVisibility = () => {
 			if (document.visibilityState === 'hidden') {
+				// A native file picker / camera backgrounds the page. Don't schedule a
+				// suspend in that window, or a slow file selection (e.g. taking a
+				// photo) would tear down the session and make the upload fail with
+				// "No active session" on return.
+				if (isFilePickerActive()) return;
 				if (hiddenTimer) clearTimeout(hiddenTimer);
 				hiddenTimer = setTimeout(() => {
 					hiddenTimer = null;
@@ -92,6 +99,11 @@
 					}
 				}, HIDE_DISCONNECT_DELAY);
 			} else {
+				// Back in the foreground: the picker (if any) is closed. Clear the
+				// guard so a cancelled picker doesn't leave suspend disabled. The
+				// upload's own session check already ran synchronously on the file
+				// change, so the session is no longer needed to be pinned here.
+				endFilePicker();
 				if (hiddenTimer) {
 					clearTimeout(hiddenTimer);
 					hiddenTimer = null;

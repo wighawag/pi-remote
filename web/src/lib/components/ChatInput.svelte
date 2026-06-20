@@ -8,6 +8,8 @@
 		clearMessages,
 		leaveSession,
 		uploadFile,
+		beginFilePicker,
+		endFilePicker,
 	} from '$lib/wherever';
 	import {isStreaming, isReadOnly, activeSessionInfo} from '$lib/wherever';
 	import {getBaseUrl, getToken} from '$lib/session-store';
@@ -204,6 +206,9 @@
 	}
 
 	async function handleFileChange(e: Event) {
+		// The native picker is closed now that we have a change event; allow the
+		// background suspend timer to resume its normal behaviour.
+		endFilePicker();
 		const target = e.target as HTMLInputElement;
 		if (!target.files) return;
 		const files = Array.from(target.files);
@@ -478,7 +483,13 @@
 				{#if showAttach && !searchMode}
 					<button
 						type="button"
-						onclick={() => fileInput?.click()}
+						onclick={() => {
+							// Mark the picker active before it opens so the page-hidden
+							// suspend timer doesn't tear down the session while the user
+							// takes a photo / browses files.
+							beginFilePicker();
+							fileInput?.click();
+						}}
 						disabled={effectivelyDisabled}
 						class="flex h-[40px] w-full items-center justify-center rounded-lg border border-brand-border bg-brand-surface-2 text-brand-text-muted transition-colors hover:bg-brand-surface-3 hover:text-brand-text disabled:cursor-not-allowed disabled:opacity-50"
 						title="Attach file (image or document)"

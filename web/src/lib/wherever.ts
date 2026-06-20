@@ -178,6 +178,30 @@ export function hasSuspendedSession(): boolean {
 	return client.hasSuspendedSession();
 }
 
+// --- Native file-picker guard ---------------------------------------------
+// Opening the OS file picker / camera backgrounds the page, which fires
+// `visibilitychange: hidden`. If the user lingers (taking a photo, browsing
+// files), the background suspend timer would otherwise fire and tear down the
+// session, so the subsequent upload fails with "No active session". Components
+// flag the picker as active so the visibility handler skips suspending while a
+// picker is open. A timestamp guards against the flag getting stuck if the
+// change event never arrives (e.g. the user cancels the picker on some
+// platforms).
+let filePickerActiveUntil = 0;
+const FILE_PICKER_GRACE_MS = 5 * 60 * 1000;
+
+export function beginFilePicker() {
+	filePickerActiveUntil = Date.now() + FILE_PICKER_GRACE_MS;
+}
+
+export function endFilePicker() {
+	filePickerActiveUntil = 0;
+}
+
+export function isFilePickerActive(): boolean {
+	return Date.now() < filePickerActiveUntil;
+}
+
 export function sendMessage(text: string) {
 	client.sendMessage(text);
 }
