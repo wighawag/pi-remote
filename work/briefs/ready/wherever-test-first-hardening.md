@@ -1,13 +1,15 @@
 ---
 title: Wherever test-first hardening with a deterministic fake-LLM gate (TDD + Playwright, dorfl-driven)
 slug: wherever-test-first-hardening
-needsAnswers: true
 ---
 
 > Launch snapshot - records intent at creation, NOT maintained. Current truth:
-> the code + `docs/adr/` once written; remaining work: the tasks sliced from this
-> brief. Evidence backing the technical claims lives in `work/ideas/use-pi-server-side-queue-and-recover-on-reload/`
-> and `work/ideas/use-pi-server-side-queue-and-recover-on-reload.md`.
+> the code + `docs/adr/`; remaining work: the tasks sliced from this brief.
+> The durable decisions are recorded as ADRs: `docs/adr/0001-fake-llm-server-as-deterministic-test-substrate.md`
+> and `docs/adr/0002-drain-queue-on-pi-queue-state-not-isstreaming.md`.
+> Evidence backing the technical claims lives in
+> `work/ideas/use-pi-server-side-queue-and-recover-on-reload/` (spike harness +
+> tests) and `work/ideas/use-pi-server-side-queue-and-recover-on-reload.md`.
 
 ## Problem Statement
 
@@ -83,8 +85,8 @@ From the developer's perspective:
    one command.
 10. As a developer, I want the queue/UI to drain on pi's authoritative run-idle +
     empty-server-queue signal (forwarded `queue_update`), so that they stop
-    guessing "is the request over?" from `isStreaming` + a 300ms debounce. (OQ1
-    resolved: use pi's existing `queue_update`, do not invent a turn lifecycle.)
+    guessing "is the request over?" from `isStreaming` + a 300ms debounce. (Per
+    ADR 0002: use pi's existing `queue_update`, do not invent a turn lifecycle.)
 11. As a user, I want a message I queue while the agent works to be delivered
     only AFTER the current turn fully settles (never injected as a mid-turn
     `steer`), so that pi does not "stop midway" and switch to my queued message.
@@ -118,42 +120,36 @@ From the developer's perspective:
 
 ### Autonomy notes
 
-- `humanOnly`: omitted. Once the open questions below are answered, the tasks are
-  agent-buildable (deterministic gate, no human-only judgement in the fixes).
-- `needsAnswers: true`: there are real open questions (below) about scope and the
-  exact turn-lifecycle signal that must be resolved before auto-slicing, or the
-  slicer will cut wrongly-shaped tasks (e.g. fixing the queue against the wrong
-  signal).
+- `humanOnly`: omitted. The fixes are agent-buildable (deterministic gate, no
+  human-only judgement); the scope/sequencing decisions are recorded below.
+- `needsAnswers`: omitted (cleared 2026-06-21). The questions that would have
+  mis-shaped slicing are now Decisions of Record below: the turn/queue signal is
+  resolved (ADR 0002), the test substrate is resolved (ADR 0001), and v1 scope /
+  parity bar / contract-adoption / gate-tiering are decided. The remaining
+  judgement (how far to push multi-client HEAD coherence) is bounded by
+  Sequencing step 4 and may split into its own brief - it does not block the
+  foundation or the queue fix.
 
 ## Implementation Decisions
 
-- **Fake LLM is a SERVER, not a code seam.** A code-level mock can fake a reply;
-  only a fake server can fake a truncated stream, a slow step, a malformed
-  tool-call, a 500. It exercises the real SSE parser, retry logic, and event
-  broadcasting. Enabler: pi's `PI_CODING_AGENT_DIR` env + the `models.json`
-  provider schema `{ providers: { fake: { baseUrl, api: "anthropic-messages",
-  apiKey, models:[{id}] } } }`. (Confirmed against the installed pi-ai and the
-  existing `~/.pi/agent/models.json.localhost`.)
-- **No production server code change is required to point pi at the fake.** The
-  harness sets env + writes an isolated agent dir. (Proven.)
-- **Run-idle + empty-queue seam (OQ1 RESOLVED).** pi's events were traced
-  (`pi-agent-core/dist/agent-loop.js`): `agent_start`/`agent_end` wrap the WHOLE
-  loop (one user request); `turn_start`/`turn_end` fire PER STEP (assistant +
-  tool batch) and are NOT "user turn complete". `agent_end` is emitted at
-  multiple points and the loop then re-checks pi's SERVER-SIDE queue
-  (`getSteeringMessages`/`getFollowUpMessages`) to decide whether to continue -
-  which is exactly why the client's 300ms `agent_end` debounce exists and why a
-  timeout can never be correct. The authoritative "safe to drain the local queue"
-  signal is therefore: the run is idle AND pi's server-side queue is empty,
-  which pi already broadcasts via the `queue_update` event (`_emitQueueUpdate`).
-  Fix = the server FORWARDS `queue_update` (one new server message); the client
-  drains on run-idle + empty-server-queue, never on `isStreaming` or a timeout.
-  A mid-stream send should enqueue as `followUp` (runs as a new request after
-  `agent_end`), NOT `steer` (redirects the in-flight run = the "stops midway"
-  symptom). No new turn lifecycle needs to be invented.
-- **Queue source of truth = pi's server-side queue.** Align the queue fix with
-  the existing idea: render `queue_update`, recover on reconnect, unqueue drives
-  the server queue + restores text. One change closes stories 11-13.
+- **Fake LLM is a SERVER, not a code seam (ADR 0001).** Only a fake server can
+  reproduce a truncated stream / slow step / malformed tool-call / 500, and it
+  exercises the real SSE parser, retry, and event broadcasting. Enabler: pi's
+  `PI_CODING_AGENT_DIR` env + the `models.json` provider schema
+  `{ providers: { fake: { baseUrl, api: "anthropic-messages", apiKey,
+  models:[{id}] } } }`. No production server code change needed to wire it
+  (proven by the spike harness).
+- **Drain the queue on pi's run-idle + empty-queue, not `isStreaming` (ADR 0002).**
+  Traced `pi-agent-core/dist/agent-loop.js`: `agent_start`/`agent_end` wrap the
+  WHOLE loop; `turn_start`/`turn_end` fire PER STEP (not "user turn complete");
+  `agent_end` is emitted at multiple points and the loop re-checks pi's
+  server-side queue before continuing - which is why the 300ms `agent_end`
+  debounce exists and why a timeout can't be correct. The fix: server FORWARDS
+  pi's `queue_update` (handled by neither side today); the client drains only on
+  run-idle + empty-server-queue; a mid-stream send enqueues as `followUp`, not
+  `steer`. This same `queue_update` forwarding gives queue visibility/recovery on
+  reconnect and unqueue-drives-the-server-queue, so one change closes stories
+  10-13. (See `work/ideas/use-pi-server-side-queue-and-recover-on-reload.md`.)
 - **Do not rewrite the UI from scratch.** Keep the Svelte 5 components; refactor
   only where the new protocol/lifecycle requires.
 - **Gate shape:** `pnpm -r build && pnpm -r test && pnpm playwright`. Playwright
@@ -192,30 +188,60 @@ From the developer's perspective:
 
 ## Further Notes
 
-- The investigation that produced this brief lives on branch `spike/fake-llm-gate`
-  (uncommitted) and in `work/ideas/use-pi-server-side-queue-and-recover-on-reload/`. Adopting it means moving the
-  evidence tests into the packages and wiring the gate.
-- Prerequisite before dorfl can drive this: pi-remote must adopt the agent-runner
-  `work/` contract (it currently only has `work/ideas/`). That adoption is itself
-  a small setup task.
+- The investigation that produced this brief is committed on branch
+  `spike/fake-llm-gate` (docs-only) and the runnable spike artifacts live in
+  `work/ideas/use-pi-server-side-queue-and-recover-on-reload/`. Adopting them =
+  Sequencing step 1 (promote into the packages + wire the gate).
+- Decisions of Record + Sequencing (below) carry everything the slicer needs; the
+  durable rationale is in `docs/adr/0001` and `docs/adr/0002`.
 
-## Open Questions (clear `needsAnswers` once answered)
+## Decisions of Record (resolved - these set the v1 boundary)
 
-1. ~~**Turn-lifecycle signal:**~~ RESOLVED 2026-06-21 (traced
-   `pi-agent-core/dist/agent-loop.js`). pi exposes no single "user turn complete"
-   event; `agent_end` fires multiple times and the loop re-checks the server-side
-   queue. The signal to use is run-idle + empty server-side queue, which pi
-   broadcasts via `queue_update`. The fix is: server FORWARDS `queue_update` (one
-   new server message) + client drains on that. A small protocol addition, not a
-   synthesized lifecycle. (See the idea file's "RESOLVED" section.)
-2. **Scope of v1:** which surfaces are in the first pass - `web` + `server` +
-   `client` only, or also `extension` (CLI bridge) and `vscode`? The bridge has
-   its own queue/HEAD path.
-3. **Parity bar to "trust it":** is "all known bugs green + gate enforced" the
-   bar, or full feature parity with manual verification retired?
-4. **Adopt the agent-runner contract now?** Scaffold `work/{tasks,briefs,...}` +
-   register pi-remote with dorfl as the first task, or run this brief's fixes
-   manually until the substrate exists?
-5. **Playwright in the gate cost:** is `playwright install` + headless run
-   acceptable on every dorfl worktree, or should e2e be a separate, less-frequent
-   gate tier than vitest?
+The questions that shape slicing are now answered (the durable ones are ADRs).
+They are recorded here so the brief is self-contained and sliceable.
+
+1. **Turn/queue signal - RESOLVED (ADR 0002).** Drain the local queue on pi's
+   run-idle + empty-server-queue, forwarded via `queue_update`; mid-stream sends
+   enqueue as `followUp`, not `steer`. No invented turn lifecycle. (Traced in
+   `pi-agent-core/dist/agent-loop.js`; `queue_update` is currently handled by
+   neither server nor client, so this is a clean additive change.)
+2. **Test substrate - RESOLVED (ADR 0001).** Fake LLM server + isolated
+   `PI_CODING_AGENT_DIR`, no production code change to wire it.
+3. **v1 surface scope - DECIDED: `server` + `client` + `web`.** The bugs and the
+   gate live here, and `client` is shared with `vscode` so fixing the reducer
+   benefits both surfaces for free. `extension` (CLI bridge) and `vscode` are v2
+   (their own queue/HEAD paths get their own tasks once the shared seam lands).
+   Multi-client HEAD coherence (stories 14-15) is IN v1 only at the
+   render-all-messages level; full HEAD reconciliation is its own task, shared
+   with the `/fork` feature (Out of Scope).
+4. **Parity bar - DECIDED: "known bugs green + gate enforced," NOT full parity.**
+   The goal is confidence, not a rewrite. Manual verification is retired per-area
+   only once that area has gate coverage; no big-bang cutover.
+5. **Adopt the agent-runner contract - DECIDED: yes, as the FIRST task.** Scaffold
+   `work/{tasks,briefs,...}` and register pi-remote with dorfl before any fix is
+   sliced, so every subsequent fix lands behind the gate. (Until then, the
+   foundation task below can be done by hand.)
+6. **Playwright gate cost - DECIDED: two-tier gate.** `vitest` (unit + fake-LLM
+   integration) runs on EVERY task/worktree; Playwright e2e is a SEPARATE,
+   lighter-frequency tier (smoke + the genuinely UI-level bugs: prerender
+   staleness, mobile resume). `verify` runs both; a fast inner loop can run
+   vitest only. This keeps per-task cost low without losing real-browser cover.
+
+## Sequencing (dependency order for the slicer)
+
+This brief is mostly a dependency CHAIN at the start, then parallel fixes:
+
+1. **Foundation (blocks everything):** adopt the `work/` contract + register with
+   dorfl; promote the spike evidence into real `server/test/` + `client/test/`
+   suites; add `vitest` devDep + `"test"` script per package; add the Playwright
+   config (free-port-per-run) + one e2e smoke; wire `verify` = build + vitest +
+   (tiered) playwright. After this, the gate is real and green on a no-op.
+2. **Queue/stop-midway fix (depends on foundation):** forward `queue_update`
+   (server + protocol + client reducer); drain on run-idle + empty-queue; send
+   mid-stream as `followUp`; turn the RED `queue-mid-turn-steer` test green;
+   unqueue restores text (story 12). Closes stories 10-13.
+3. **Parallel known-bug fixes (each depends only on foundation):** prerender
+   staleness (16), Firefox-Android resume (17), long-session load (18),
+   render-all-messages multi-client (15). Each: RED test first, then green.
+4. **Multi-client HEAD coherence (14):** larger; shares the reconciliation seam
+   with `/fork`. May be deferred to its own brief if it grows.
