@@ -81,9 +81,10 @@ From the developer's perspective:
 9. As a developer, I want `pnpm -r test` to run all package vitest suites and a
    separate `playwright` script for the e2e gate, so that the acceptance gate is
    one command.
-10. As a developer, I want a per-turn lifecycle distinct from stream-activity, so
-    that the queue and UI stop guessing "is the turn over?" from `isStreaming` + a
-    300ms debounce.
+10. As a developer, I want the queue/UI to drain on pi's authoritative run-idle +
+    empty-server-queue signal (forwarded `queue_update`), so that they stop
+    guessing "is the request over?" from `isStreaming` + a 300ms debounce. (OQ1
+    resolved: use pi's existing `queue_update`, do not invent a turn lifecycle.)
 11. As a user, I want a message I queue while the agent works to be delivered
     only AFTER the current turn fully settles (never injected as a mid-turn
     `steer`), so that pi does not "stop midway" and switch to my queued message.
@@ -135,13 +136,21 @@ From the developer's perspective:
   existing `~/.pi/agent/models.json.localhost`.)
 - **No production server code change is required to point pi at the fake.** The
   harness sets env + writes an isolated agent dir. (Proven.)
-- **Turn-lifecycle seam.** Introduce an explicit per-turn signal (working name
-  `turn_start` / `turn_end`, distinct from stream-activity / `isStreaming`). The
-  queue drains on `turn_end`, NOT on `isStreaming` going false. This removes the
-  300ms `agent_end` debounce heuristic (a magic-number timeout that ANY slower
-  tool defeats). Whether `turn_end` is derived from pi's server-side run/queue
-  state (`queue_update` + run lifecycle) or a new server-emitted event is an open
-  question (below).
+- **Run-idle + empty-queue seam (OQ1 RESOLVED).** pi's events were traced
+  (`pi-agent-core/dist/agent-loop.js`): `agent_start`/`agent_end` wrap the WHOLE
+  loop (one user request); `turn_start`/`turn_end` fire PER STEP (assistant +
+  tool batch) and are NOT "user turn complete". `agent_end` is emitted at
+  multiple points and the loop then re-checks pi's SERVER-SIDE queue
+  (`getSteeringMessages`/`getFollowUpMessages`) to decide whether to continue -
+  which is exactly why the client's 300ms `agent_end` debounce exists and why a
+  timeout can never be correct. The authoritative "safe to drain the local queue"
+  signal is therefore: the run is idle AND pi's server-side queue is empty,
+  which pi already broadcasts via the `queue_update` event (`_emitQueueUpdate`).
+  Fix = the server FORWARDS `queue_update` (one new server message); the client
+  drains on run-idle + empty-server-queue, never on `isStreaming` or a timeout.
+  A mid-stream send should enqueue as `followUp` (runs as a new request after
+  `agent_end`), NOT `steer` (redirects the in-flight run = the "stops midway"
+  symptom). No new turn lifecycle needs to be invented.
 - **Queue source of truth = pi's server-side queue.** Align the queue fix with
   the existing idea: render `queue_update`, recover on reconnect, unqueue drives
   the server queue + restores text. One change closes stories 11-13.
@@ -192,10 +201,13 @@ From the developer's perspective:
 
 ## Open Questions (clear `needsAnswers` once answered)
 
-1. **Turn-lifecycle signal:** does pi's SDK already expose a clean "user turn
-   complete" signal (via the run lifecycle / `queue_update`), or must wherever's
-   server synthesize and emit a `turn_end`? This determines whether story 10 is a
-   client-only fix or a protocol change.
+1. ~~**Turn-lifecycle signal:**~~ RESOLVED 2026-06-21 (traced
+   `pi-agent-core/dist/agent-loop.js`). pi exposes no single "user turn complete"
+   event; `agent_end` fires multiple times and the loop re-checks the server-side
+   queue. The signal to use is run-idle + empty server-side queue, which pi
+   broadcasts via `queue_update`. The fix is: server FORWARDS `queue_update` (one
+   new server message) + client drains on that. A small protocol addition, not a
+   synthesized lifecycle. (See the idea file's "RESOLVED" section.)
 2. **Scope of v1:** which surfaces are in the first pass - `web` + `server` +
    `client` only, or also `extension` (CLI bridge) and `vscode`? The bridge has
    its own queue/HEAD path.

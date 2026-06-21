@@ -234,11 +234,44 @@ for fast steps). It is kept as EVIDENCE (not wired into the build); see
   lengthen/replace the 300ms `agent_end` debounce with a real "turn ended" event
   rather than a heuristic timeout. (A heuristic timeout cannot be correct: any
   tool slower than the timeout reproduces the bug.)
-- **Rewrite implication (for the brief):** the new protocol should expose an
-  explicit per-turn lifecycle (`turn_start` / `turn_end`) distinct from
-  stream-activity, so neither the queue nor the UI has to guess from `isStreaming`
-  + a magic-number debounce. This is a concrete, small architectural improvement,
-  not a from-scratch necessity.
+- **Rewrite implication (for the brief):** the new protocol should forward an
+  explicit run-idle / queue-state signal distinct from stream-activity, so
+  neither the queue nor the UI has to guess from `isStreaming` + a magic-number
+  debounce. This is a concrete, small architectural improvement, not a
+  from-scratch necessity.
+
+### RESOLVED: which pi signal means "user request complete, safe to drain queue" (traced in the agent loop, 2026-06-21)
+
+Traced `@earendil-works/pi-agent-core/dist/agent-loop.js`. The event semantics
+are the OPPOSITE of what the naming suggests, and this corrects the fix:
+
+- **`agent_start` / `agent_end` wrap the WHOLE agent loop** (one user request),
+  per the SDK type docs ("Fired when an agent loop starts/ends").
+- **`turn_start` / `turn_end` fire PER STEP** inside the loop (`turnIndex`
+  increments; `turn_end` carries `{message, toolResults}` for that step). So
+  `turn_end` is NOT "user turn complete" - it is "one assistant+tool step done".
+  Do NOT drain the queue on `turn_end`.
+- **`agent_end` is emitted at MULTIPLE points**: inside the outer
+  `while (true)` loop when the model stops (line ~151) AND at the final `break`
+  (line ~166). After an in-loop `agent_end`, the loop RE-CHECKS the server-side
+  queue (`getSteeringMessages()` / `getFollowUpMessages()`); if a steer/follow-up
+  is queued it CONTINUES (more events follow). THIS is why wherever's client
+  added the 300ms `agent_end` debounce - and why the debounce is unfixable as a
+  timeout: the "is there more?" answer is the server-side QUEUE, not elapsed time.
+- **Therefore the authoritative signal = `agent_end` reached with an EMPTY
+  server-side queue.** pi already knows this and broadcasts queue state via the
+  `queue_update` event (`_emitQueueUpdate` in agent-session.js). The correct fix:
+  the server forwards `queue_update`; the client drains its local queue only when
+  the run is idle AND pi's server-side queue is empty - never on `isStreaming`
+  going false, and never on a timeout. (This also subsumes the steer/follow-up
+  distinction: a mid-stream send should go to pi's queue as `followUp` so it runs
+  as a NEW request after `agent_end`, not as a `steer` that redirects the
+  in-flight one - which is the actual "stops midway" symptom.)
+
+So OQ1 in the brief is ANSWERED: wherever does NOT need to synthesize a turn
+lifecycle. It must FORWARD pi's existing `queue_update` and gate the queue on
+run-idle + empty-server-queue. This is a small protocol addition (one server
+message) + a client reducer change, not an architectural rewrite.
 
 ## Pointers
 
