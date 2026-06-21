@@ -180,6 +180,66 @@ This note is about an ACCIDENTAL fork (frozen-HEAD desync). pi-remote ALSO has a
 - **`FORK_ANALYSIS.md` §4 “Bug Analysis” Cause 2 & 3** (CLI re-init race / disconnect; `clientId`-changed re-registration during `session_created`) are the SAME failure-mode family as the frozen-HEAD desync diagnosed here — our forensics (one client sending from a 68-min-stale node) are a concrete reproduction.
 - **Distinct intent, must not be conflated:** `/fork` is an explicit user action (wanted); the desync fork is an accident (a bug). The feature must NOT ship without closing the accidental path, or unintended forks masquerade as intended ones.
 
+## THIRD, DISTINCT MECHANISM — local queue auto-fires as `steer` MID-TURN because `isStreaming` drops on a slow tool step (CONFIRMED by a failing test, 2026-06-21)
+
+The two mechanisms above are about RELOAD/RECONNECT visibility and MULTI-CLIENT
+HEAD coherence. This third one is independent: it reproduces with a SINGLE
+client, NO reload, NO second client. It is the most likely cause of the
+user-reported "pi stops midway".
+
+### The chain (all traced in the real code)
+
+1. A multi-step pi turn (assistant -> tool -> assistant) emits an INTERMEDIATE
+   `agent_end` at the assistant->tool boundary, WITHIN one user turn.
+2. The client debounces that `agent_end` by only **300ms** before flipping
+   `isStreaming` -> false (`client/src/client.ts`, `case 'agent_end'`: a
+   `setTimeout(..., 300)`; `agent_start`/`tool_start` cancel it).
+3. If the next step (`tool_start`/`agent_start`) is delayed **> 300ms** (a slow
+   tool, model latency, a brief relay stall), the debounce fires and
+   `isStreaming` goes **false MID-TURN**.
+4. The frontend queue auto-sends on that signal
+   (`web/src/lib/components/ChatInput.svelte`:
+   `$effect(() => { if (!streaming && queuedText) sendMessage(queuedText); })`).
+5. The server delivers a mid-stream message as `steer`
+   (`server/src/index.ts` `case 'message'`: `pool.isStreaming(...) ? 'steer' : undefined`
+   -> `agentSession.sendUserMessage(text, { deliverAs: 'steer' })`), INJECTING it
+   into the still-running turn and redirecting pi. To the user: pi stopped midway.
+
+### Root cause (one sentence)
+
+`isStreaming` means "a stream is momentarily active", but the queue needs
+"the user's TURN has fully settled". Those two differ exactly at tool boundaries
+and slow steps, and the queue drains on the wrong one.
+
+### Captured evidence (a RED test against the real reducer)
+
+`work/ideas/use-pi-server-side-queue-and-recover-on-reload/queue-mid-turn-steer.test.ts` drives the real
+`WhereverClient` reducer with fake timers and a scripted stream:
+`agent_start -> message_update -> agent_end -> [advance 600ms] -> tool_start`.
+It asserts `isStreaming` stays `true` across the gap (the turn is not over).
+TODAY THIS FAILS (`expected false to be true`), proving the mechanism
+deterministically. A control test with a <300ms gap passes (the debounce is fine
+for fast steps). It is kept as EVIDENCE (not wired into the build); see
+`work/ideas/use-pi-server-side-queue-and-recover-on-reload/README.md` to run it.
+
+### The fix (aligns with the server-queue work above)
+
+- **Drain the queue off a "turn settled" signal, not `isStreaming`.** The
+  authoritative signal is pi's server-side run/queue state (the `queue_update`
+  event + run lifecycle), which already distinguishes "between tool steps of one
+  turn" from "turn complete". This is the SAME shift advocated above (make the
+  server-side queue the source of truth) - so a single fix closes both.
+- **Until then (defensive):** never let the LOCAL queue auto-send while a turn is
+  in flight at the SERVER; gate the auto-send on a server-confirmed idle, or
+  lengthen/replace the 300ms `agent_end` debounce with a real "turn ended" event
+  rather than a heuristic timeout. (A heuristic timeout cannot be correct: any
+  tool slower than the timeout reproduces the bug.)
+- **Rewrite implication (for the brief):** the new protocol should expose an
+  explicit per-turn lifecycle (`turn_start` / `turn_end`) distinct from
+  stream-activity, so neither the queue nor the UI has to guess from `isStreaming`
+  + a magic-number debounce. This is a concrete, small architectural improvement,
+  not a from-scratch necessity.
+
 ## Pointers
 
 - Server queue + event: `node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js`
