@@ -13,7 +13,9 @@ node_modules/
 .vscode/*
 !.vscode/*.default
 
-notes
+# Top-level scratch only; the work/ contract (incl. work/notes/) IS tracked.
+/notes
+!work/notes/
 prompts
 /tmp
 tmp/
