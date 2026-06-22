@@ -19,7 +19,95 @@ import type {
   ExtensionAPI,
   ExtensionContext,
   SessionStartEvent,
+  SessionEntry,
+  SessionMessageEntry,
 } from "@earendil-works/pi-coding-agent";
+
+// Minimal shapes for tool-call/tool-result detection. The coding-agent package
+// does not re-export AgentMessage/ToolCall, so we narrow structurally instead of
+// importing them. Only the fields we read are described here.
+type ToolCallContent = { type: "toolCall"; id: string; name: string };
+type AssistantLikeMessage = {
+  role: "assistant";
+  content?: Array<{ type?: string; id?: string; name?: string }>;
+};
+type ToolResultLikeMessage = { role: "toolResult"; toolCallId?: string };
+
+/** A tool call that was issued by the assistant but has no matching toolResult. */
+interface DanglingToolCall {
+  id: string;
+  name: string;
+}
+
+/**
+ * Walk the ACTIVE branch (leaf -> root, like buildSessionContext) of the loaded
+ * session and return tool calls from the last assistant turn(s) that have no
+ * matching toolResult. A non-empty result means the transcript was persisted
+ * mid-tool-call: typically another process (the web frontend / standalone
+ * server) is still running that tool, or the run was interrupted. pi cannot
+ * auto-continue from a trailing unsatisfied tool call (the agent loop requires
+ * the last context message to be a user/toolResult), so on resume the CLI sits
+ * idle as if the turn were done. Detecting this lets us surface it instead.
+ */
+function findDanglingToolCalls(ctx: ExtensionContext): DanglingToolCall[] {
+  let entries: SessionEntry[];
+  try {
+    entries = ctx.sessionManager.getEntries();
+  } catch {
+    return [];
+  }
+  if (!entries || entries.length === 0) return [];
+
+  // Index by id and walk the active branch from the leaf to the root, mirroring
+  // buildSessionContext() so we only consider messages actually in context.
+  const byId = new Map<string, SessionEntry>();
+  for (const e of entries) byId.set(e.id, e);
+
+  let leafId: string | null | undefined;
+  try {
+    leafId = ctx.sessionManager.getLeafId();
+  } catch {
+    leafId = undefined;
+  }
+
+  let leaf: SessionEntry | undefined;
+  if (leafId === null) return []; // navigated before first entry: no context
+  if (leafId) leaf = byId.get(leafId);
+  if (!leaf) leaf = entries[entries.length - 1];
+  if (!leaf) return [];
+
+  const path: SessionEntry[] = [];
+  let current: SessionEntry | undefined = leaf;
+  while (current) {
+    path.unshift(current);
+    current = current.parentId ? byId.get(current.parentId) : undefined;
+  }
+
+  // Collect satisfied tool-call ids (those with a matching toolResult) and the
+  // tool calls issued, both restricted to the active branch.
+  const satisfied = new Set<string>();
+  const issued: DanglingToolCall[] = [];
+  for (const entry of path) {
+    if (entry.type !== "message") continue;
+    const message = (entry as SessionMessageEntry).message as unknown;
+    const role = (message as { role?: string })?.role;
+    if (role === "toolResult") {
+      const tcId = (message as ToolResultLikeMessage).toolCallId;
+      if (tcId) satisfied.add(tcId);
+    } else if (role === "assistant") {
+      const content = (message as AssistantLikeMessage).content;
+      if (!Array.isArray(content)) continue;
+      for (const part of content) {
+        if (part && part.type === "toolCall" && typeof part.id === "string") {
+          const tc = part as ToolCallContent;
+          issued.push({ id: tc.id, name: tc.name || "tool" });
+        }
+      }
+    }
+  }
+
+  return issued.filter((tc) => !satisfied.has(tc.id));
+}
 
 export default async function (pi: ExtensionAPI) {
   // Register flags to specify Standalone Server settings
@@ -298,6 +386,17 @@ export default async function (pi: ExtensionAPI) {
     client.connect();
   }
 
+  // Clear the "resumed mid-tool-call" warning widget, if shown. Safe to call
+  // unconditionally; it is a no-op when nothing was set.
+  function clearResumeToolWarning() {
+    if (!ctxVal) return;
+    try {
+      ctxVal.ui.setWidget("wherever-resume-warning", undefined);
+    } catch (err) {
+      // Quiet fail if context is stale or disposed.
+    }
+  }
+
   pi.on("session_start", async (event: SessionStartEvent, ctx: ExtensionContext) => {
     const isBridgeEnabled = pi.getFlag("remote-bridge") !== false;
     if (!isBridgeEnabled) return;
@@ -305,6 +404,48 @@ export default async function (pi: ExtensionAPI) {
     ctxVal = ctx;
     sessionFile = ctx.sessionManager.getSessionFile() || "";
     if (!sessionFile) return;
+
+    // On resume/reload, the loaded transcript may end mid-tool-call (the matching
+    // toolResult was never persisted). This happens when another process (the web
+    // frontend / standalone server) is still running that tool, or the previous
+    // run was interrupted. pi cannot auto-continue from a trailing unsatisfied
+    // tool call, so the CLI would silently sit idle as if the turn were done.
+    // Surface it so the user understands why nothing is happening, rather than
+    // mistaking it for a completed turn awaiting input.
+    if (event.reason === "resume" || event.reason === "reload" || event.reason === "startup") {
+      try {
+        const dangling = findDanglingToolCalls(ctx);
+        if (dangling.length > 0) {
+          const names = dangling.map((d) => d.name).join(", ");
+          const detail =
+            dangling.length === 1
+              ? `the "${names}" tool call`
+              : `${dangling.length} tool calls (${names})`;
+          ctx.ui.notify(
+            `[Wherever] This session was resumed mid-run: ${detail} has no result yet. ` +
+              `If it is still running in the web frontend, its result will not appear here; ` +
+              `send a message to take over and continue, or wait/abort.`,
+            "warning",
+          );
+          ctx.ui.setWidget("wherever-resume-warning", (_tui, theme) => {
+            const line = theme.fg(
+              "warning",
+              `⏳ [Wherever] Resumed mid-run: ${detail} has no result yet (may be running in another client).`,
+            );
+            return {
+              render: () => [line],
+              invalidate: () => {},
+            };
+          });
+        } else {
+          clearResumeToolWarning();
+        }
+      } catch (err) {
+        // Detection is best-effort; never block session start on it.
+      }
+    } else {
+      clearResumeToolWarning();
+    }
 
     connect();
   });
@@ -324,12 +465,16 @@ export default async function (pi: ExtensionAPI) {
     if (oldCtx) {
       try {
         oldCtx.ui.setWidget("wherever-status", undefined); // Clear widget
+        oldCtx.ui.setWidget("wherever-resume-warning", undefined); // Clear resume warning
       } catch (err) {}
     }
   });
 
   // Subscribe and forward Agent Events to the Standalone Server
   pi.on("agent_start", async () => {
+    // The agent is running again (the user took over / continued the session), so
+    // the "resumed mid-tool-call" warning is no longer relevant.
+    clearResumeToolWarning();
     sendCliEvent({ type: "agent_start" });
   });
 
