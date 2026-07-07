@@ -1,5 +1,15 @@
 # wherever-vscode
 
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [cf11972]
+- Updated dependencies [605693a]
+- Updated dependencies [f9080e1]
+- Updated dependencies [caabb92]
+  - @wherever-dev/client@0.2.2
+
 ## 0.2.0
 
 ### Minor Changes
