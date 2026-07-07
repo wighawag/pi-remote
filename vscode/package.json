@@ -1,5 +1,6 @@
 {
   "name": "wherever-vscode",
+  "private": true,
   "displayName": "Wherever Companion",
   "description": "IDE Sidebar Chat Companion for Wherever standalone server",
   "version": "0.2.1",

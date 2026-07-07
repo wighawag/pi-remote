@@ -2,6 +2,11 @@
   "name": "@wherever-dev/client",
   "version": "0.2.2",
   "description": "Framework-agnostic isomorphic TypeScript client for Wherever standalone server",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wighawag/wherever.git",
+    "directory": "client"
+  },
   "publishConfig": {
     "access": "public"
   },
