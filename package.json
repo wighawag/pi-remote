@@ -18,8 +18,9 @@
   "scripts": {
     "prepare": "set-defaults .vscode",
     "preinstall": "npx only-allow pnpm",
-    "prepublishOnly": "pnpm format:check && pnpm build",
+    "prepublishOnly": "pnpm format:check && pnpm build:all",
     "release": "pnpm prepublishOnly && git push --all && pnpm changeset publish && git push --tags",
+    "release:ci": "pnpm prepublishOnly && pnpm changeset publish",
     "---------------------- FORMATING ----------------------": "",
     "format": "pnpm run -r format",
     "format:check": "pnpm run -r format:check",
@@ -32,6 +33,7 @@
     "server:build": "ldenv pnpm --filter ./server build",
     "---------------------- DEPLOY ----------------------": "",
     "build": "node scripts/build.js",
+    "build:all": "pnpm --filter ./client build && pnpm build && pnpm --filter ./vscode build",
     "serve": "pnpm run --filter ./web serve",
     "---------------------- RUN FULL LOCAL SETUP ----------------------": "",
     "stop": "zellij kill-session $npm_package_name",

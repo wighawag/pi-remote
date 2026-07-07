@@ -61,10 +61,10 @@
 		searchMode
 			? disabled || !connected || !searchConfigured
 			: disabled ||
-				!connected ||
-				readOnly ||
-				!sessionInfo.sessionId ||
-				!!queuedText,
+					!connected ||
+					readOnly ||
+					!sessionInfo.sessionId ||
+					!!queuedText,
 	);
 
 	let isAnyUploading = $derived(attachments.some((a) => a.uploading));
@@ -89,9 +89,7 @@
 	// session or hitting the search button) restores what was typed. This holds
 	// whether or not a search folder is configured (no session == search mode).
 	const DRAFT_PREFIX = 'wherever-draft:';
-	let draftKey = $derived(
-		DRAFT_PREFIX + (sessionInfo.sessionId ?? 'search'),
-	);
+	let draftKey = $derived(DRAFT_PREFIX + (sessionInfo.sessionId ?? 'search'));
 	// Tracks which key we have already hydrated so the restore effect fires only
 	// when the key actually changes (mount, session switch, search<->chat), not on
 	// every keystroke. The persist effect below removes the key whenever the

@@ -1,0 +1,77 @@
+name: release
+
+# Changesets release flow (the "approve" flow):
+#   1. Land PRs that include a changeset (`.changeset/*.md`) on main.
+#   2. This workflow opens/updates a "Version Packages" PR that bumps versions
+#      and updates changelogs from the pending changesets.
+#   3. Approving + merging that PR (which removes the changesets) makes this
+#      workflow run `release:ci`, which builds every package and then runs
+#      `changeset publish`, publishing the changed packages to npm.
+#
+# Published packages (each sets `publishConfig.access: public` in its own
+# package.json): `wherever-dev` (server), `@wherever-dev/client`,
+# `@wherever-dev/pi` (extension). `web` and `site` are `private` and never
+# publish. `wherever-vscode` is not private; it only publishes if a changeset
+# bumps it (none do today).
+#
+# Auth is npm Trusted Publishing (OIDC): NO NPM_TOKEN secret. npm trusts this
+# repo + workflow (release.yml) once you register it as a trusted publisher in
+# each package's npmjs.com settings. The OIDC handshake needs `id-token: write`,
+# Node >= 22, and a recent pnpm; publishes are stamped with provenance.
+# NOTE: npm ties a trusted publisher to an existing package, so trusted
+# publishing can only be registered after a package's first publish. All three
+# packages are already on npm, so this tokenless OIDC flow works once each
+# package registers this repo + workflow as a trusted publisher.
+on:
+  push:
+    branches: [main]
+
+# Serialize release runs on main, but NEVER cancel an in-progress one:
+# `changeset publish` may be mid-publish, and cancelling it would drop the
+# release. `changeset publish` is idempotent (it skips versions already on npm),
+# so letting each queued run finish is always safe, and the run for the latest
+# `main` state always publishes the current version. Without
+# `cancel-in-progress: false` a fast feature-push + Version-PR-merge could cancel
+# the publish run and leave the bumped version unpublished.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write # npm provenance
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24 # >= 22 required for npm OIDC trusted publishing
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Create Release PR or Publish
+        uses: changesets/action@v1
+        with:
+          # release:ci builds every package + format-checks, then runs
+          # `changeset publish` (the action itself handles git commits/tags, so
+          # no git push here). No NPM_TOKEN: npm detects the OIDC environment and
+          # authenticates via the registered trusted publisher.
+          publish: pnpm release:ci
+          version: pnpm changeset version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
