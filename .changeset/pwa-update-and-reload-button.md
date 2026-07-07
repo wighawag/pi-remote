@@ -1,6 +1,5 @@
 ---
-"@wherever-dev/web": patch
-"@wherever-dev/site": patch
+"wherever-dev": patch
 ---
 
 Make installed PWAs pick up new versions, and add a Reload button to the connection settings panel.
