@@ -36,6 +36,7 @@
 		searchFolderStore,
 	} from '$lib/session-store';
 	import {onMount} from 'svelte';
+	import {version} from '$app/environment';
 	import {url} from '$lib/core/utils/web/path';
 
 	let sidebarOpen = $state(false);
@@ -405,6 +406,12 @@
 						class="text-sm {connected ? 'text-emerald-400' : 'text-rose-400'}"
 					>
 						{connected ? 'Connected' : 'Disconnected'}
+					</span>
+					<span
+						class="ml-auto font-mono text-xs text-brand-text-muted"
+						title="App build version"
+					>
+						v{version}
 					</span>
 				</div>
 				{#if sessionInfo.sessionFile}
