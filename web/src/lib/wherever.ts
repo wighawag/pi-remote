@@ -202,8 +202,8 @@ export function isFilePickerActive(): boolean {
 	return Date.now() < filePickerActiveUntil;
 }
 
-export function sendMessage(text: string) {
-	client.sendMessage(text);
+export function sendMessage(text: string): boolean {
+	return client.sendMessage(text);
 }
 
 export function abort() {

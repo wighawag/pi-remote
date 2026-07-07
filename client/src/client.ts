@@ -242,6 +242,13 @@ export class WhereverClient {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    // A pending agent_end clear timer belongs to the socket we are tearing down.
+    // Leaving it armed lets it fire against a freshly (re)connected session's
+    // state, so cancel it here.
+    if (this.agentEndTimeout) {
+      clearTimeout(this.agentEndTimeout);
+      this.agentEndTimeout = null;
+    }
     this.stopLivenessWatchdog();
 
     if (this.ws) {
@@ -274,6 +281,14 @@ export class WhereverClient {
       this.resumeSessionFile = s.activeSessionFile;
       this.resumeCwd = s.activeCwd ?? undefined;
       this.resumeModel = s.activeModel ?? undefined;
+    }
+    // The socket producing the live stream is going away. If we carry a stale
+    // isStreaming:true across the suspend/resume gap, the composer will wrongly
+    // queue the next message as if the agent were still busy (and the queue
+    // never drains because no agent_end ever arrives on the dead socket). The
+    // authoritative value is re-established by session_created on rejoin.
+    if (s.isStreaming) {
+      this.stateStore.update(st => ({...st, isStreaming: false}));
     }
     this.disconnect(false);
   }
@@ -988,18 +1003,62 @@ export class WhereverClient {
     });
   }
 
-  public send(msg: any) {
+  // Returns true only when the frame was actually handed to an OPEN socket.
+  // A non-OPEN (null / CONNECTING / CLOSING / half-open) socket silently
+  // dropping the frame is what made messages vanish: they rendered locally but
+  // never reached the server, so they were gone after a reload. Callers that
+  // carry user intent (sendMessage) must check this and surface the failure.
+  public send(msg: any): boolean {
     if (this.ws && this.ws.readyState === 1 /* OPEN */) {
-      this.ws.send(JSON.stringify(msg));
+      try {
+        this.ws.send(JSON.stringify(msg));
+        return true;
+      } catch {
+        return false;
+      }
     }
+    return false;
   }
 
-  public sendMessage(text: string) {
+  // Returns true only if the message actually went out over an OPEN socket.
+  // Callers MUST use the return value to decide whether to clear the input:
+  // clearing on a false return is what loses the user's text on a dropped send.
+  public sendMessage(text: string): boolean {
     const s = get(this.stateStore);
-    if (!s.sessionId) return;
+    if (!s.sessionId) return false;
 
-    this.stateStore.update((s: WhereverState) => ({...s, sessionError: null}));
-    
+    // Guard against sending on a dead / half-open socket. getIsConnected()
+    // checks the real readyState (not the store's connected flag, which can lag
+    // a half-open socket the liveness watchdog has not reaped yet). Sending here
+    // would be silently dropped, the message would appear locally, then vanish
+    // on reload. Surface a recoverable error and make sure we are reconnecting
+    // instead of optimistically rendering a message that never left.
+    if (!this.getIsConnected()) {
+      this.stateStore.update((st: WhereverState) => ({
+        ...st,
+        sessionError:
+          'Not connected to the relay; your message was not sent. Reconnecting, then please resend.',
+      }));
+      if (!this.ws && !this.reconnectTimer) {
+        this.scheduleReconnect();
+      }
+      return false;
+    }
+
+    // Send first; only commit the optimistic local echo + clear the error once
+    // the frame is confirmed handed to an OPEN socket. This way a send that
+    // fails (a narrow race between the readyState check and send) leaves no
+    // phantom local message and keeps the input intact for the caller to retry.
+    const ok = this.send({type: 'message', message: text, sessionId: s.sessionId});
+    if (!ok) {
+      this.stateStore.update((st: WhereverState) => ({
+        ...st,
+        sessionError:
+          'Message failed to send (connection dropped). Please resend once reconnected.',
+      }));
+      return false;
+    }
+
     const message: ChatMessage = {
       id: this.generateId(),
       role: 'user',
@@ -1008,12 +1067,12 @@ export class WhereverClient {
       isStreaming: false,
       sessionId: s.sessionId,
     };
-    this.stateStore.update((s: WhereverState) => ({
-      ...s,
-      messages: [...s.messages, message],
+    this.stateStore.update((st: WhereverState) => ({
+      ...st,
+      sessionError: null,
+      messages: [...st.messages, message],
     }));
-
-    this.send({type: 'message', message: text, sessionId: s.sessionId});
+    return true;
   }
 
   public abort() {

@@ -60,7 +60,11 @@
 	let effectivelyDisabled = $derived(
 		searchMode
 			? disabled || !connected || !searchConfigured
-			: disabled || readOnly || !sessionInfo.sessionId || !!queuedText,
+			: disabled ||
+				!connected ||
+				readOnly ||
+				!sessionInfo.sessionId ||
+				!!queuedText,
 	);
 
 	let isAnyUploading = $derived(attachments.some((a) => a.uploading));
@@ -179,14 +183,20 @@
 		}
 	});
 
-	// Auto-send queued message when agent stops streaming
+	// Auto-send the queued message once the agent stops streaming. Gate on a live
+	// connection too: draining into a dead socket would silently drop it. While
+	// disconnected the queued text stays put (and is restorable) until we are back.
 	$effect(() => {
-		if (!streaming && queuedText) {
-			sendMessage(queuedText);
-			text = '';
-			queuedText = null;
-			queuedTextBackup = null;
-			onSend?.();
+		if (!streaming && queuedText && connected) {
+			// Only drop the queued text if it actually sent; a failed drain (socket
+			// died in the race) keeps it queued/restorable rather than losing it.
+			const sent = sendMessage(queuedText);
+			if (sent) {
+				text = '';
+				queuedText = null;
+				queuedTextBackup = null;
+				onSend?.();
+			}
 		}
 	});
 
@@ -317,15 +327,27 @@
 			}
 		}
 
-		if (streaming) {
+		// Only queue when the agent is genuinely busy on a LIVE connection. If we
+		// queue while disconnected/resyncing (isStreaming can be stale-true across a
+		// suspend/resume), the queue never drains: no agent_end arrives to flip
+		// streaming false, so the message sits queued forever and is lost on reload.
+		// When not connected, fall through to sendMessage(), which surfaces a clear
+		// "not connected" error instead of silently swallowing the message.
+		if (streaming && connected) {
 			queuedText = messageToSend;
 			queuedTextBackup = messageToSend;
 			attachments = [];
 		} else {
-			sendMessage(messageToSend);
-			text = '';
-			attachments = [];
-			onSend?.();
+			// Only clear the composer if the message actually went out. On a dropped
+			// send (not connected / socket died) sendMessage() returns false and
+			// surfaces an error; keep the text so the user can retry once reconnected
+			// instead of silently losing what they typed.
+			const sent = sendMessage(messageToSend);
+			if (sent) {
+				text = '';
+				attachments = [];
+				onSend?.();
+			}
 		}
 	}
 
@@ -466,13 +488,17 @@
 					rows={1}
 					placeholder={searchMode
 						? (placeholder ?? 'Search the web...')
-						: streaming
-							? 'Agent is working (type next message...)'
-							: readOnly
-								? 'Read-only mode'
-								: !sessionInfo.sessionId
-									? 'Select a session first...'
-									: 'Type a message...'}
+						: !connected
+							? appState.connecting
+								? 'Reconnecting to remote server...'
+								: 'Disconnected - cannot send'
+							: streaming
+								? 'Agent is working (type next message...)'
+								: readOnly
+									? 'Read-only mode'
+									: !sessionInfo.sessionId
+										? 'Select a session first...'
+										: 'Type a message...'}
 					class="h-full max-h-48 min-h-[120px] w-full resize-none overflow-y-auto rounded-lg border border-brand-border bg-brand-surface-2 px-4 py-3 leading-relaxed placeholder-brand-text-muted focus:border-brand-blue focus:outline-none disabled:opacity-50 {queuedText
 						? 'text-brand-text-muted italic'
 						: 'text-brand-text'}"
