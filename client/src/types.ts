@@ -31,6 +31,13 @@ export interface WhereverState {
 	// messages remain visible; the UI shows a "reconnecting/syncing" affordance
 	// and blocks input until the resync completes.
 	resyncing: boolean;
+	// True after a `pending` session_created (history painted from a cheap read)
+	// until session_ready arrives (the live agent finished building). The
+	// conversation is READABLE during this window, but SENDING must be blocked:
+	// reading only needs the transcript, sending needs the live agent. Distinct
+	// from loadingSession/resyncing, which gate the whole view; agentPending gates
+	// only the composer so opening a cold session to read is instant.
+	agentPending: boolean;
 	error: string | null;
 	session: string | null;
 	sessionId: string | null;

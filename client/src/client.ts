@@ -17,6 +17,7 @@ const defaultState: WhereverState = {
 	creatingSession: false,
 	loadingSession: false,
 	resyncing: false,
+	agentPending: false,
 	error: null,
 	session: null,
 	sessionId: null,
@@ -906,10 +907,33 @@ export class WhereverClient {
           // The server forces read-only for sessions in a configured
           // sessions.readOnly folder (observe-only fleet view).
           readOnly: msg.readOnly ?? false,
+          // pending -> the history is painted now but the live agent is still
+          // building; keep the composer disabled (agentPending) until
+          // session_ready. A non-pending create (new session, warm reload) is
+          // immediately sendable.
+          agentPending: msg.pending === true,
           // Initial context-usage snapshot for the new session (null if unknown;
           // live updates arrive via 'context_usage').
           contextUsage: msg.contextUsage ?? null,
         }));
+        break;
+
+      case 'session_ready':
+        // The live agent finished building for a previously-pending load. Enable
+        // the composer and refresh the now-authoritative model/streaming/usage.
+        this.stateStore.update((s: WhereverState) => {
+          // Ignore a stale ready for a session we already switched away from.
+          if (msg.sessionFile && s.activeSessionFile && msg.sessionFile !== s.activeSessionFile) {
+            return s;
+          }
+          return {
+            ...s,
+            agentPending: false,
+            activeModel: msg.model ?? s.activeModel,
+            isStreaming: msg.isStreaming ?? s.isStreaming,
+            contextUsage: msg.contextUsage ?? s.contextUsage,
+          };
+        });
         break;
 
       case 'context_usage':
@@ -931,6 +955,7 @@ export class WhereverClient {
               activeCwd: null,
               activeModel: null,
               loadingSession: false,
+              agentPending: false,
             };
           }
           return s;
@@ -945,6 +970,10 @@ export class WhereverClient {
           creatingSession: false,
           loadingSession: false,
           resyncing: false,
+          // A failed (cold) agent build clears pending: the session stays
+          // readable, but sending remains blocked (no live agent) and the error
+          // is surfaced. This is the degrade-to-read-only path.
+          agentPending: false,
         }));
         break;
 
@@ -959,6 +988,7 @@ export class WhereverClient {
           creatingSession: false,
           loadingSession: false,
           resyncing: false,
+          agentPending: false,
         }));
         break;
 
@@ -975,6 +1005,7 @@ export class WhereverClient {
           activeModel: null,
           creatingSession: false,
           loadingSession: false,
+          agentPending: false,
         }));
         break;
 
@@ -1155,6 +1186,20 @@ export class WhereverClient {
     const s = get(this.stateStore);
     if (!s.sessionId) return false;
 
+    // The session's transcript is loaded but its live agent is still building
+    // (cold, fast-first load). Reading is fine; sending is not possible yet, and
+    // a message sent now would have no agent to receive it. Surface a clear,
+    // recoverable hint and keep the text (the composer is disabled anyway, but a
+    // programmatic caller could still reach here).
+    if (s.agentPending) {
+      this.stateStore.update((st: WhereverState) => ({
+        ...st,
+        sessionError:
+          st.sessionError ?? 'Preparing the session agent; please wait a moment, then resend.',
+      }));
+      return false;
+    }
+
     // Guard against sending on a dead / half-open socket. getIsConnected()
     // checks the real readyState (not the store's connected flag, which can lag
     // a half-open socket the liveness watchdog has not reaped yet). Sending here
@@ -1215,6 +1260,7 @@ export class WhereverClient {
       conflict: null,
       sessionError: null,
       loadingSession: true,
+      agentPending: false,
     }));
     this.send({type: 'session_load', sessionFile, cwd, model});
     this.armLoadWatchdog();
@@ -1253,6 +1299,7 @@ export class WhereverClient {
       sessionError: null,
       creatingSession: false,
       resyncing: false,
+      agentPending: false,
       contextUsage: null,
       loadingSession: true,
     }));
@@ -1320,6 +1367,7 @@ export class WhereverClient {
       creatingSession: false,
       loadingSession: false,
       resyncing: false,
+      agentPending: false,
       contextUsage: null,
     }));
     this.clearLoadWatchdog();

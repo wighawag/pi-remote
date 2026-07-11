@@ -37,7 +37,13 @@ export type ServerMessage =
   | { type: 'tool_update'; sessionId: string; toolName: string; delta: string }
   | { type: 'tool_end'; sessionId: string; toolName: string; isError: boolean; result?: string }
   | { type: 'cli_bash'; command: string; excludeFromContext?: boolean }
-  | { type: 'session_created'; sessionId: string; sessionFile: string; cwd: string; model: string; isStreaming?: boolean; readOnly?: boolean; contextUsage?: ContextUsageInfo | null }
+  | { type: 'session_created'; sessionId: string; sessionFile: string; cwd: string; model: string; isStreaming?: boolean; readOnly?: boolean; contextUsage?: ContextUsageInfo | null; pending?: boolean }
+  // Sent after a `pending` session_created once the live agent has finished
+  // building (createAgentSession). Until it arrives, the UI can render the
+  // conversation (from message_history) but must keep the composer disabled:
+  // reading is instant, sending needs the live agent. May carry a refreshed
+  // model/isStreaming/contextUsage now that the real agent exists.
+  | { type: 'session_ready'; sessionId: string; sessionFile: string; model?: string; isStreaming?: boolean; contextUsage?: ContextUsageInfo | null }
   | { type: 'context_usage'; sessionId: string; contextUsage: ContextUsageInfo | null }
   | { type: 'session_destroyed'; sessionId: string; reason: string }
   | { type: 'session_error'; sessionId?: string; error: string; detail?: string }

@@ -341,6 +341,9 @@ export const contextUsage = derived(piState, ($s) => $s.contextUsage);
 export const isCreatingSession = derived(piState, ($s) => $s.creatingSession);
 export const isLoadingSession = derived(piState, ($s) => $s.loadingSession);
 export const isResyncing = derived(piState, ($s) => $s.resyncing);
+// True after a fast-first (cold) session load: the conversation is readable but
+// the live agent is still building, so sending must stay blocked until ready.
+export const isAgentPending = derived(piState, ($s) => $s.agentPending);
 export const hasMoreHistory = derived(piState, ($s) => $s.historyOffset > 0);
 export const isLoadingMoreHistory = derived(
 	piState,

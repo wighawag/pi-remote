@@ -495,6 +495,101 @@ export class SessionPool {
     return this.modelRegistry.find(provider, modelId);
   }
 
+  /**
+   * Resolve a session identifier (short ID/name OR an absolute .jsonl path) to a
+   * canonical absolute session file path, without building an agent.
+   */
+  private async resolveSessionFile(sessionFile: string): Promise<{ resolvedFile?: string; error?: string }> {
+    let resolvedFile = sessionFile;
+    if (!sessionFile.includes('/') && !sessionFile.includes('\\') && !sessionFile.endsWith('.json') && !sessionFile.endsWith('.jsonl')) {
+      const active = Array.from(this.sessions.values()).find(s => s.sessionId === sessionFile);
+      if (active) {
+        resolvedFile = active.sessionFile;
+      } else {
+        const diskSessions = await SessionManager.listAll();
+        const found = diskSessions.find(s => s.id === sessionFile || s.name === sessionFile);
+        if (found) {
+          resolvedFile = found.path;
+        } else {
+          return { error: `Session with ID "${sessionFile}" not found` };
+        }
+      }
+    }
+    return { resolvedFile: normalizeSessionFile(resolvedFile) };
+  }
+
+  /**
+   * CHEAP read of a session's metadata + history WITHOUT building a live agent.
+   * Opening a session for VIEWING only needs the header (id/cwd/model) and the
+   * transcript (a file read); instantiating the agent (createAgentSession ->
+   * extension/MCP load) is seconds and only needed to SEND. Splitting the two
+   * lets the UI paint the conversation immediately and build the agent lazily
+   * (see docs/plan-speed-up-long-session-load.md). Reads from a resident session
+   * when present so a warm session stays a warm read.
+   */
+  async readSessionMeta(
+    sessionFile: string,
+    limit: number,
+    modelStr?: string,
+  ): Promise<
+    | {
+        sessionFile: string;
+        sessionId: string;
+        cwd: string;
+        model: string;
+        history: { messages: HistoryMessage[]; totalCount: number; offset: number };
+        readOnly: boolean;
+        resident: boolean;
+      }
+    | { error: string }
+  > {
+    const resolved = await this.resolveSessionFile(sessionFile);
+    if (resolved.error || !resolved.resolvedFile) {
+      return { error: resolved.error ?? 'Could not resolve session' };
+    }
+    const resolvedFile = resolved.resolvedFile;
+
+    const residentTracked = this.sessions.get(resolvedFile);
+    if (residentTracked) {
+      return {
+        sessionFile: resolvedFile,
+        sessionId: residentTracked.sessionId,
+        cwd: residentTracked.cwd,
+        model: residentTracked.model,
+        history: this.getSessionHistoryWindow(resolvedFile, limit),
+        readOnly: this.isReadOnlyCwd(residentTracked.cwd),
+        resident: true,
+      };
+    }
+
+    try {
+      const sessionManager = SessionManager.open(resolvedFile);
+      const header = sessionManager.getHeader();
+      if (!header) {
+        return { error: 'Session file has no header' };
+      }
+      const sessionId = sessionManager.getSessionId();
+      const cwd = normalizePath(header.cwd || process.cwd());
+
+      let model = '';
+      if (modelStr) {
+        model = modelStr;
+      } else {
+        const entries = sessionManager.getEntries();
+        const modelChange = [...entries].reverse().find((e: SessionEntry) => e.type === 'model_change');
+        if (modelChange && 'provider' in modelChange && 'modelId' in modelChange) {
+          model = `${(modelChange as any).provider}:${(modelChange as any).modelId}`;
+        }
+      }
+
+      const all = this.mapEntriesToHistory(sessionManager.getEntries(), sessionId);
+      const history = this.windowHistory(all, limit);
+      return { sessionFile: resolvedFile, sessionId, cwd, model, history, readOnly: this.isReadOnlyCwd(cwd), resident: false };
+    } catch (err) {
+      return { error: (err as Error).message };
+    }
+  }
+
   async loadSession(sessionFile: string, cwd?: string, modelStr?: string): Promise<{ tracked: TrackedSession; error?: string }> {
     let resolvedFile = sessionFile;
 
@@ -860,7 +955,17 @@ export class SessionPool {
     if (!tracked) return [];
 
     const sessionManager = SessionManager.open(tracked.sessionFile);
-    const entries = sessionManager.getEntries();
+    return this.mapEntriesToHistory(sessionManager.getEntries());
+  }
+
+  /**
+   * Map raw pi session entries to the UI-facing HistoryMessage[]. Shared by the
+   * resident path (getSessionHistory) and the cheap cold-read path
+   * (readSessionMeta), so both produce identical history regardless of whether a
+   * live agent exists. The `sessionId` parameter is accepted for parity/future
+   * use; message shape does not depend on it today.
+   */
+  private mapEntriesToHistory(entries: SessionEntry[], _sessionId?: string): HistoryMessage[] {
     const messages: HistoryMessage[] = [];
 
     for (const entry of entries) {
@@ -937,6 +1042,30 @@ export class SessionPool {
   }
 
   /**
+   * Pure windowing math over an already-mapped HistoryMessage[]. Returns the
+   * last `limit` messages (or the window ending at `beforeOffset`) plus the
+   * total count and the offset of the first returned message. Shared by the
+   * resident and cold-read paths.
+   */
+  private windowHistory(
+    all: HistoryMessage[],
+    limit: number,
+    beforeOffset?: number,
+  ): { messages: HistoryMessage[]; totalCount: number; offset: number } {
+    const totalCount = all.length;
+    if (limit <= 0 || totalCount === 0) {
+      const end = beforeOffset ?? totalCount;
+      return { messages: [], totalCount, offset: Math.max(0, Math.min(end, totalCount)) };
+    }
+    const end =
+      beforeOffset === undefined
+        ? totalCount
+        : Math.max(0, Math.min(beforeOffset, totalCount));
+    const start = Math.max(0, end - limit);
+    return { messages: all.slice(start, end), totalCount, offset: start };
+  }
+
+  /**
    * Tail-first windowed history. Returns the last `limit` messages (the most
    * recent), along with the total count and the offset of the first returned
    * message, so the client can lazily request older history.
@@ -949,24 +1078,7 @@ export class SessionPool {
     limit: number,
     beforeOffset?: number,
   ): { messages: HistoryMessage[]; totalCount: number; offset: number } {
-    const all = this.getSessionHistory(sessionFileOrId);
-    const totalCount = all.length;
-
-    if (limit <= 0 || totalCount === 0) {
-      const end = beforeOffset ?? totalCount;
-      return { messages: [], totalCount, offset: Math.max(0, Math.min(end, totalCount)) };
-    }
-
-    const end =
-      beforeOffset === undefined
-        ? totalCount
-        : Math.max(0, Math.min(beforeOffset, totalCount));
-    const start = Math.max(0, end - limit);
-    return {
-      messages: all.slice(start, end),
-      totalCount,
-      offset: start,
-    };
+    return this.windowHistory(this.getSessionHistory(sessionFileOrId), limit, beforeOffset);
   }
 
   /**

@@ -24,6 +24,7 @@
 		isCreatingSession,
 		isResyncing,
 		isLoadingSession,
+		isAgentPending,
 		hasSuspendedSession,
 		isFilePickerActive,
 		endFilePicker,
@@ -182,6 +183,7 @@
 
 	let connected = $derived($isConnected);
 	let resyncing = $derived($isResyncing);
+	let agentPending = $derived($isAgentPending);
 	let loadingSession = $derived($isLoadingSession);
 	let interrupted = $derived($isInterrupted);
 	let sError = $derived($sessionError);
@@ -662,6 +664,18 @@
 					></span>
 					<span>Reconnecting and syncing session...</span>
 				</div>
+			{:else if sessionInfo.sessionFile && agentPending}
+				<!-- Fast-first load: the conversation is already readable above, but the
+				     live agent is still building (cold session). Block only the
+				     composer, with a distinct hint, so reading/scrolling stay instant. -->
+				<div
+					class="flex items-center justify-center gap-2 border-t border-brand-border bg-brand-surface px-4 py-2 text-center text-sm text-brand-text-muted"
+				>
+					<span
+						class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-blue border-t-transparent"
+					></span>
+					<span>Preparing the session agent...</span>
+				</div>
 			{/if}
 			<ChatInput
 				bind:this={chatInput}
@@ -672,7 +686,7 @@
 				submitLabel="Search"
 				disabled={searchActive
 					? !connected
-					: !connected || readOnly || !sessionInfo.sessionFile || resyncing}
+					: !connected || readOnly || !sessionInfo.sessionFile || resyncing || agentPending}
 				onSend={() => chatList?.forceScrollToBottom()}
 			/>
 		{/if}

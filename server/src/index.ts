@@ -97,7 +97,12 @@ function parseArgs(): { port: number; host: string; token?: string; idleTimeout:
   let port = parseInt(process.env.PI_REMOTE_PORT || '31415', 10);
   let host = process.env.PI_REMOTE_HOST || '127.0.0.1';
   let token = process.env.PI_REMOTE_TOKEN || undefined;
-  let idleTimeout = parseInt(process.env.PI_IDLE_TIMEOUT || '300000', 10);
+  // Idle eviction window. Longer than the old 5 min so a dip-in/dip-out mobile
+  // user returns to a still-WARM session (no agent rebuild) most of the time.
+  // With fast-first load a cold return is no longer slow to READ, but a warm
+  // session also avoids the async agent build entirely. Override via
+  // PI_IDLE_TIMEOUT (ms). See docs/plan-speed-up-long-session-load.md.
+  let idleTimeout = parseInt(process.env.PI_IDLE_TIMEOUT || '1200000', 10);
   let sslKey = process.env.PI_REMOTE_SSL_KEY || undefined;
   let sslCert = process.env.PI_REMOTE_SSL_CERT || undefined;
   let noSsl = process.env.PI_REMOTE_NO_SSL === 'true' || process.env.PI_REMOTE_HTTP === 'true';
@@ -1225,50 +1230,100 @@ async function handleWSMessage(
       break;
 
     case 'session_load': {
-      const result = await pool.loadSession(msg.sessionFile, msg.cwd, msg.model);
-      if (result.error) {
-        sendWS(client.ws, { type: 'session_error', error: result.error });
+      // FAST-FIRST session load (docs/plan-speed-up-long-session-load.md):
+      // 1. Cheap read of header + history (no agent build). Paint the
+      //    conversation immediately so opening a session to READ is instant even
+      //    for a cold, idle-evicted session with huge files.
+      // 2. Build the live agent (createAgentSession -> extension/MCP load, the
+      //    seconds-long part) ASYNC, then signal session_ready so the composer
+      //    enables. Sending needs the live agent; reading does not.
+      const meta = await pool.readSessionMeta(msg.sessionFile, INITIAL_HISTORY_LIMIT, msg.model);
+      if ('error' in meta) {
+        sendWS(client.ws, { type: 'session_error', error: meta.error });
         return;
       }
 
-      const conflict = pool.detectConflict(result.tracked.sessionFile, result.tracked.cwd);
+      // Conflict detection is cheap (in-memory pool scan) and must happen before
+      // we claim the session for this client.
+      const conflict = pool.detectConflict(meta.sessionFile, meta.cwd);
       if (conflict.conflict && conflict.otherSessionId) {
         sendWS(client.ws, {
           type: 'session_conflict',
-          sessionId: result.tracked.sessionId,
+          sessionId: meta.sessionId,
           conflictingSession: conflict.otherSessionId!,
           conflictingCwd: conflict.otherCwd!,
         });
         return;
       }
 
-      pool.addClient(result.tracked.sessionFile, client.id);
-      switchClientSession(client, result.tracked.sessionFile, pool, onSessionsUpdated);
-      // A session whose cwd matches a sessions.readOnly glob is forced read-only:
-      // the server refuses writes (case 'message' checks client.readOnly) and the
-      // client hides the composer. This is the observe-only fleet view.
-      const forcedReadOnly = pool.isReadOnlyCwd(result.tracked.cwd);
+      // A session whose cwd matches a sessions.readOnly glob is forced read-only.
+      const forcedReadOnly = meta.readOnly;
       client.readOnly = forcedReadOnly;
 
+      // Paint immediately. `pending` is true when the live agent is not resident
+      // yet, so the client keeps the composer disabled (with a "preparing
+      // agent..." hint) until session_ready, while reading/scrolling work now.
       sendWS(client.ws, {
         type: 'session_created',
-        sessionId: result.tracked.sessionId,
-        sessionFile: result.tracked.sessionFile,
-        cwd: result.tracked.cwd,
-        model: result.tracked.model,
-        isStreaming: pool.isStreaming(result.tracked.sessionFile),
+        sessionId: meta.sessionId,
+        sessionFile: meta.sessionFile,
+        cwd: meta.cwd,
+        model: meta.model,
+        isStreaming: meta.resident ? pool.isStreaming(meta.sessionFile) : false,
         readOnly: forcedReadOnly,
-        contextUsage: pool.getContextUsage(result.tracked.sessionFile) ?? null,
+        contextUsage: meta.resident ? (pool.getContextUsage(meta.sessionFile) ?? null) : null,
+        pending: !meta.resident,
       });
-
-      const history = pool.getSessionHistoryWindow(result.tracked.sessionFile, INITIAL_HISTORY_LIMIT);
       sendWS(client.ws, {
         type: 'message_history',
-        sessionId: result.tracked.sessionId,
-        messages: history.messages,
-        totalCount: history.totalCount,
-        offset: history.offset,
+        sessionId: meta.sessionId,
+        messages: meta.history.messages,
+        totalCount: meta.history.totalCount,
+        offset: meta.history.offset,
       });
+
+      // Already resident (warm): attach immediately, no async build needed.
+      if (meta.resident) {
+        pool.addClient(meta.sessionFile, client.id);
+        switchClientSession(client, meta.sessionFile, pool, onSessionsUpdated);
+        client.readOnly = forcedReadOnly;
+        sendWS(client.ws, {
+          type: 'session_ready',
+          sessionId: meta.sessionId,
+          sessionFile: meta.sessionFile,
+          model: meta.model,
+          isStreaming: pool.isStreaming(meta.sessionFile),
+          contextUsage: pool.getContextUsage(meta.sessionFile) ?? null,
+        });
+        break;
+      }
+
+      // Cold: build the live agent in the background, then attach + signal ready.
+      // Errors degrade to a session_error (the conversation stays readable).
+      void (async () => {
+        const result = await pool.loadSession(msg.sessionFile, msg.cwd, msg.model);
+        if (result.error) {
+          sendWS(client.ws, { type: 'session_error', sessionId: meta.sessionId, error: result.error });
+          return;
+        }
+        // The socket may have gone away while the agent was building.
+        if (client.ws.readyState !== client.ws.OPEN) {
+          // Nobody to attach; let idle eviction reclaim the freshly built session.
+          pool.scheduleIdleCheck(result.tracked.sessionFile);
+          return;
+        }
+        pool.addClient(result.tracked.sessionFile, client.id);
+        switchClientSession(client, result.tracked.sessionFile, pool, onSessionsUpdated);
+        client.readOnly = pool.isReadOnlyCwd(result.tracked.cwd);
+        sendWS(client.ws, {
+          type: 'session_ready',
+          sessionId: result.tracked.sessionId,
+          sessionFile: result.tracked.sessionFile,
+          model: result.tracked.model,
+          isStreaming: pool.isStreaming(result.tracked.sessionFile),
+          contextUsage: pool.getContextUsage(result.tracked.sessionFile) ?? null,
+        });
+      })();
       break;
     }
 
