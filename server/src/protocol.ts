@@ -19,7 +19,7 @@ export type ClientMessage =
   | { type: 'session_resolve_conflict'; action: 'take_over' | 'read_only'; sessionId: string; cwd?: string }
   | { type: 'model_change'; model: string }
   | { type: 'file_upload'; uploadId: string; sessionId: string; filename: string; data: string }
-  | { type: 'cli_register'; sessionFile: string; cwd: string; model?: string }
+  | { type: 'cli_register'; sessionFile: string; cwd: string; model?: string; isStreaming?: boolean }
   | { type: 'cli_event'; sessionFile: string; event: any }
   | { type: 'cli_message'; message: string; streamingBehavior?: 'steer' | 'followUp' }
   | { type: 'cli_abort' }

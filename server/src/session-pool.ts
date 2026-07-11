@@ -1456,7 +1456,7 @@ export class SessionPool {
     this.sessions.delete(tracked.sessionFile);
   }
 
-  async registerCliSession(rawSessionFile: string, cwd: string, modelStr: string, cliWs: WebSocket): Promise<{ tracked: TrackedSession; error?: string }> {
+  async registerCliSession(rawSessionFile: string, cwd: string, modelStr: string, cliWs: WebSocket, isStreaming = false): Promise<{ tracked: TrackedSession; error?: string }> {
     // Canonicalize the CLI-reported path so it keys the same entry the server
     // would compute itself (see normalizeSessionFile). Without this, a CLI on a
     // different pi version can register a second, parallel session for the same
@@ -1506,8 +1506,18 @@ export class SessionPool {
       createdAt: existing?.createdAt || Date.now(),
       lastActivity: Date.now(),
       cliWs,
-      isStreaming: false,
+      // Honor the CLI's CURRENT streaming state at register time. The CLI only
+      // forwards agent_start/agent_end going forward, so a turn already in flight
+      // when the bridge (re)connects would otherwise be invisible: a viewer
+      // joining a mid-tool-call CLI session would see Abort disabled + an enabled
+      // composer while the CLI is still working. isStreaming carries that state.
+      isStreaming,
     };
+    // A session registered mid-turn is not idle; keep it from being idle-reaped.
+    if (isStreaming) {
+      tracked.isIdle = false;
+      this.cancelIdleCheck(sessionFile);
+    }
 
     this.sessions.set(sessionFile, tracked);
     return { tracked };

@@ -1184,7 +1184,7 @@ async function handleWSMessage(
     case 'cli_register': {
       client.isCliBridge = true;
       client.sessionId = msg.sessionFile;
-      const result = await pool.registerCliSession(msg.sessionFile, msg.cwd, msg.model || '', client.ws);
+      const result = await pool.registerCliSession(msg.sessionFile, msg.cwd, msg.model || '', client.ws, msg.isStreaming === true);
       if (result.error) {
         sendWS(client.ws, { type: 'session_error', error: result.error });
       } else {

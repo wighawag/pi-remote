@@ -372,11 +372,24 @@ export default async function (pi: ExtensionAPI) {
     client.stateStore.subscribe((s) => {
       if (s.connected && !wasConnected) {
         wasConnected = true;
+        // Report the agent's CURRENT streaming state at register time. pi only
+        // emits agent_start/agent_end going forward, so a turn already in flight
+        // when the bridge (re)connects (server restart, reconnect mid-tool-call)
+        // would otherwise be invisible to the web frontend: a viewer joining the
+        // session would see Abort disabled + an enabled composer while the CLI is
+        // still working. isIdle() is false during a live turn.
+        let streaming = false;
+        try {
+          streaming = ctxVal?.isIdle ? !ctxVal.isIdle() : false;
+        } catch (err) {
+          // Best-effort; a stale context just reports not-streaming.
+        }
         client?.send({
           type: "cli_register",
           sessionFile,
           cwd: ctxVal?.cwd,
           model: ctxVal?.model ? `${ctxVal.model.provider}:${ctxVal.model.id}` : "",
+          isStreaming: streaming,
         });
       } else if (!s.connected) {
         wasConnected = false;
