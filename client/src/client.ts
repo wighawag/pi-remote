@@ -1095,7 +1095,11 @@ export class WhereverClient {
     applyStreamingTail: boolean,
   ): ChatMessage[] {
     const mapped: ChatMessage[] = [];
-    const pendingCalls: Record<string, string[]> = {};
+    // Each pending tool_call carries its args AND its start timestamp (the ts of
+    // the toolCall entry). When the matching tool_result arrives, startedAt =
+    // the call ts and endedAt = the result ts, so a tool reconstructed from
+    // loaded history shows the same "Took N.Ns" as a live-streamed one.
+    const pendingCalls: Record<string, {args: string; startedAt: number}[]> = {};
 
     for (const m of rawMessages) {
       if (m.role === 'tool_call') {
@@ -1103,13 +1107,14 @@ export class WhereverClient {
         if (!pendingCalls[tName]) {
           pendingCalls[tName] = [];
         }
-        pendingCalls[tName].push(m.content || '');
+        pendingCalls[tName].push({args: m.content || '', startedAt: m.timestamp});
       } else if (m.role === 'tool_result') {
         const tName = m.toolName || 'unknown';
-        const tArgs =
+        const call =
           pendingCalls[tName] && pendingCalls[tName].length > 0
             ? pendingCalls[tName].shift()!
-            : '';
+            : undefined;
+        const tArgs = call?.args ?? '';
         mapped.push({
           id: this.generateId(),
           role: 'tool',
@@ -1123,6 +1128,15 @@ export class WhereverClient {
           toolOutput: m.content,
           isError: m.isError,
           sessionId,
+          // Duration from the matched call. Only when both timestamps are
+          // finite and coherent (end >= start); otherwise leave unset so the UI
+          // simply shows no duration rather than a bogus one.
+          ...(call &&
+          Number.isFinite(call.startedAt) &&
+          Number.isFinite(m.timestamp) &&
+          m.timestamp >= call.startedAt
+            ? {startedAt: call.startedAt, endedAt: m.timestamp}
+            : {}),
         });
       } else {
         mapped.push({
@@ -1137,21 +1151,26 @@ export class WhereverClient {
       }
     }
 
-    for (const [tName, argsList] of Object.entries(pendingCalls)) {
-      for (const args of argsList) {
+    for (const [tName, calls] of Object.entries(pendingCalls)) {
+      for (const call of calls) {
         mapped.push({
           id: this.generateId(),
           role: 'tool',
-          content: args ? `$ ${tName} ${args}` : `$ ${tName}`,
+          content: call.args ? `$ ${tName} ${call.args}` : `$ ${tName}`,
           timestamp:
             mapped.length > 0
               ? mapped[mapped.length - 1].timestamp + 1
               : Date.now(),
           isStreaming: applyStreamingTail,
           toolName: tName,
-          toolArgs: args,
+          toolArgs: call.args,
           toolOutput: '',
           sessionId,
+          // An unmatched call (no result yet). Keep its start so a still-running
+          // tool in the streaming tail can tick "Elapsed"; leave endedAt unset.
+          ...(Number.isFinite(call.startedAt)
+            ? {startedAt: call.startedAt}
+            : {}),
         });
       }
     }
