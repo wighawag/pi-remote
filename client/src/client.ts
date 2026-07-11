@@ -53,6 +53,18 @@ export class WhereverClient {
   // clear the flags and surface a recoverable error instead of an endless spin.
   private loadWatchdog: any = null;
   private static readonly LOAD_WATCHDOG_MS = 12_000;
+  // Watchdog for an in-flight session_new. Symmetrical to loadWatchdog: creating
+  // a session sets creatingSession=true and shows a BLOCKING full-screen overlay,
+  // and the only things that clear it are session_created/session_error/
+  // session_conflict/session_interrupted (or a socket close). If none of those
+  // ever arrives (a slow git init / remote-repo creation, an error thrown before
+  // the reply is sent, or a half-open socket the liveness watchdog has not yet
+  // reaped), the overlay spins forever and the only recovery is a reload. This
+  // timer guarantees creatingSession always resolves. It is longer than the load
+  // watchdog because creating can legitimately take a while (git init + creating
+  // a remote GitHub repo over the network).
+  private createWatchdog: any = null;
+  private static readonly CREATE_WATCHDOG_MS = 25_000;
   private reconnectAttempts = 0;
   private reconnectDelay = 2000;
   private maxReconnectDelay = 15000;
@@ -172,14 +184,39 @@ export class WhereverClient {
       // resynced in place. resyncing stays true until message_history (or an
       // error/conflict) arrives, keeping the "reconnecting" affordance up and
       // input blocked without dropping the cached messages.
-      if (this.resumeSessionFile) {
-        const file = this.resumeSessionFile;
-        const cwd = this.resumeCwd;
-        const model = this.resumeModel;
-        this.resumeSessionFile = null;
-        this.resumeCwd = undefined;
-        this.resumeModel = undefined;
-        this.send({type: 'session_load', sessionFile: file, cwd, model});
+      //
+      // Re-attachment is REQUIRED on every reconnect that still holds a session,
+      // not just the suspend/resume path. The server is stateless per socket:
+      // each new connection starts attached to NO session (the old socket's
+      // close removed this client from the pool). If we do not re-issue
+      // session_load here, the relay is connected but the session stream is
+      // dead, so the UI shows a frozen conversation (a stale tool call as the
+      // last message, Abort disabled) while the agent keeps running headless.
+      // Two sources for what to rejoin:
+      //   1. resumeSessionFile  -> explicit suspend()/resume() (tab background).
+      //   2. the store's activeSessionFile -> an UNSOLICITED drop (network
+      //      blip, tab switch, laptop sleep, half-open reap) where suspend()
+      //      never ran. This is the case that used to silently freeze.
+      const cached = get(this.stateStore);
+      const rejoinFile = this.resumeSessionFile ?? cached.activeSessionFile;
+      const rejoinCwd =
+        this.resumeSessionFile != null
+          ? this.resumeCwd
+          : (cached.activeCwd ?? undefined);
+      const rejoinModel =
+        this.resumeSessionFile != null
+          ? this.resumeModel
+          : (cached.activeModel ?? undefined);
+      this.resumeSessionFile = null;
+      this.resumeCwd = undefined;
+      this.resumeModel = undefined;
+      if (rejoinFile) {
+        // Keep the cached conversation on screen but mark it resyncing so the
+        // "Reconnecting and syncing session..." banner shows and sending is
+        // blocked until fresh history lands. resyncing is cleared by
+        // message_history (or an error/conflict) via the reducer.
+        this.stateStore.update(s => (s.resyncing ? s : {...s, resyncing: true}));
+        this.send({type: 'session_load', sessionFile: rejoinFile, cwd: rejoinCwd, model: rejoinModel});
         this.armLoadWatchdog();
       } else {
         this.stateStore.update(s => (s.resyncing ? {...s, resyncing: false} : s));
@@ -212,6 +249,12 @@ export class WhereverClient {
         // Never leave a session-load spinner stuck if the socket drops mid-load.
         loadingSession: false,
         creatingSession: false,
+        // If we still hold an active session, the drop is an unsolicited one on a
+        // live conversation: mark it resyncing NOW (during the reconnect backoff)
+        // so the user immediately sees "Reconnecting..." instead of a frozen view
+        // with a stale tool call and a disabled Abort. onOpen re-attaches and the
+        // reducer clears resyncing when fresh history lands.
+        resyncing: s.activeSessionFile ? true : s.resyncing,
       }));
       this.scheduleReconnect();
     };
@@ -250,6 +293,11 @@ export class WhereverClient {
       this.agentEndTimeout = null;
     }
     this.stopLivenessWatchdog();
+    // The load/create affordances belong to the socket we are tearing down. If
+    // left armed they would later fire against a fresh (re)connected session's
+    // state, so cancel them here.
+    this.clearLoadWatchdog();
+    this.clearCreateWatchdog();
 
     if (this.ws) {
       try {
@@ -267,6 +315,22 @@ export class WhereverClient {
         hideThinking: !!this.config.hideThinking,
         hideTools: !!this.config.hideTools,
       });
+    } else {
+      // Preserve-cache teardown (suspend / resume's pre-connect close). The
+      // socket is gone, so the store MUST reflect disconnected: leaving a stale
+      // connected:true made resume() early-return (its `if (connected) return`
+      // guard), so the real reconnect fell through to a plain connect() that did
+      // NOT preserve the session, which is what flashed the search / new-session
+      // empty-state on tab return. Clearing connected here (without wiping the
+      // cached session/messages) lets resume() actually rejoin in place, and
+      // never leaves the blocking load/create overlays up on a dead socket.
+      this.stateStore.update(s => ({
+        ...s,
+        connected: false,
+        connecting: false,
+        loadingSession: false,
+        creatingSession: false,
+      }));
     }
   }
 
@@ -300,7 +364,11 @@ export class WhereverClient {
   public resume() {
     const s = get(this.stateStore);
     if (s.connected || s.connecting) return;
-    if (this.resumeSessionFile) {
+    // Rejoin whatever session we still hold: an explicit suspend() record OR the
+    // cached active session from an unsolicited drop. In BOTH cases onOpen
+    // re-issues session_load, so mark resyncing here to show the affordance and
+    // block sending until fresh history lands.
+    if (this.resumeSessionFile || s.activeSessionFile) {
       this.stateStore.update(st => ({...st, resyncing: true}));
       // Arm here too: if the socket never opens, onOpen never runs and the
       // resync affordance would otherwise hang. onClose also clears it, but the
@@ -316,6 +384,14 @@ export class WhereverClient {
   // is correct and avoids racing/latching the hash auto-join on a fresh load.
   public hasSuspendedSession(): boolean {
     return this.resumeSessionFile !== null;
+  }
+
+  // True when the store still holds an active session to rejoin in place -- from
+  // an explicit suspend() OR an unsolicited drop that left activeSessionFile set.
+  // Callers use this to prefer the preserve-cache resume() path over a fresh,
+  // session-wiping connect() when returning to a still-live conversation.
+  public hasActiveSession(): boolean {
+    return this.resumeSessionFile !== null || get(this.stateStore).activeSessionFile !== null;
   }
 
   // Start (or restart) the stale-socket watchdog + keepalive for the current
@@ -434,6 +510,37 @@ export class WhereverClient {
     }
   }
 
+  // Arm (or re-arm) the create watchdog. Called when session_new is issued so an
+  // unanswered create can never strand the blocking "Creating session..."
+  // overlay. On expiry we clear creatingSession and surface a recoverable error
+  // instead of an endless spin that only a reload escapes.
+  private armCreateWatchdog() {
+    this.clearCreateWatchdog();
+    this.createWatchdog = setTimeout(() => {
+      this.createWatchdog = null;
+      const s = get(this.stateStore);
+      if (!s.creatingSession) return;
+      console.warn('[wherever] session create timed out; clearing creating state');
+      this.stateStore.update(st => ({
+        ...st,
+        creatingSession: false,
+        sessionError:
+          st.sessionError ||
+          'Creating the session timed out. It may still be starting on the server; check the sidebar or reload.',
+      }));
+    }, WhereverClient.CREATE_WATCHDOG_MS);
+  }
+
+  // Clear the create watchdog. Called at every point a create resolves
+  // (session_created, session_error, session_conflict, session_interrupted,
+  // disconnect, leave).
+  private clearCreateWatchdog() {
+    if (this.createWatchdog) {
+      clearTimeout(this.createWatchdog);
+      this.createWatchdog = null;
+    }
+  }
+
   private scheduleReconnect() {
     if (this.reconnectTimer) return;
     
@@ -441,14 +548,23 @@ export class WhereverClient {
       this.reconnectTimer = null;
       this.reconnectDelay = Math.min(this.reconnectDelay * 1.5, this.maxReconnectDelay);
       console.info(`[wherever] reconnecting to relay (attempt ${++this.reconnectAttempts})`);
-      
+
+      // If we still hold an active session, PRESERVE the cached store across the
+      // reconnect. A default connect() resets to a blank store, which wiped
+      // activeSessionFile BEFORE onOpen could re-attach to it -- that is what
+      // silently detached the frontend from a still-running session (frozen
+      // conversation, no re-follow, not even a "connecting"/"loading" hint).
+      // Preserving the store keeps the conversation on screen and lets onOpen
+      // re-issue session_load from activeSessionFile.
+      const preserve = !!get(this.stateStore).activeSessionFile;
+
       this.stateStore.update(s => ({
         ...s,
         connecting: true,
         error: 'Reconnecting...',
       }));
-      
-      this.connect();
+
+      this.connect(undefined, preserve);
     }, this.reconnectDelay);
   }
 
@@ -471,6 +587,18 @@ export class WhereverClient {
       case 'session_destroyed':
       case 'session_interrupted':
         this.clearLoadWatchdog();
+        break;
+    }
+
+    // Any message that resolves an in-flight session_new disarms the create
+    // watchdog. session_created is the success path; error/conflict/interrupt end
+    // it too.
+    switch (msg.type) {
+      case 'session_created':
+      case 'session_error':
+      case 'session_conflict':
+      case 'session_interrupted':
+        this.clearCreateWatchdog();
         break;
     }
 
@@ -1131,6 +1259,9 @@ export class WhereverClient {
     this.resumeSessionFile = null;
     this.resumeCwd = undefined;
     this.resumeModel = undefined;
+    // Switching supersedes any in-flight create; disarm its watchdog so it can't
+    // later fire against the newly loaded session.
+    this.clearCreateWatchdog();
     this.send({type: 'session_load', sessionFile, cwd, model});
     this.armLoadWatchdog();
   }
@@ -1157,11 +1288,25 @@ export class WhereverClient {
       createRemote,
       repoVisibility,
     });
+    // Never let the blocking "Creating session..." overlay hang if the reply is
+    // lost. Symmetrical with armLoadWatchdog for session_load.
+    this.armCreateWatchdog();
   }
 
   public leaveSession() {
     const s = get(this.stateStore);
-    if (!s.sessionId) return;
+    // Leaving abandons any in-flight create too, so disarm its watchdog even when
+    // there is no sessionId yet (a create that has not resolved).
+    this.clearCreateWatchdog();
+    if (!s.sessionId) {
+      if (s.creatingSession) {
+        this.stateStore.update((st: WhereverState) => ({
+          ...st,
+          creatingSession: false,
+        }));
+      }
+      return;
+    }
     this.send({type: 'session_leave', sessionId: s.sessionId});
     this.stateStore.update((s: WhereverState) => ({
       ...s,

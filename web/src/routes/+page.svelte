@@ -28,6 +28,7 @@
 		isFilePickerActive,
 		endFilePicker,
 		runSearch,
+		hasActiveSession,
 	} from '$lib/wherever';
 	import {
 		fetchSessions,
@@ -110,12 +111,14 @@
 					hiddenTimer = null;
 				}
 				if (!connected) {
-					// Only the resume path (a tab that was suspended) should preserve the
-					// cached store and rejoin in place. On a plain (re)connect with nothing
-					// suspended, fall back to a normal connect so the hash auto-join drives
-					// the load. Calling resume() unconditionally here races onMount's
-					// connect() and could latch the hash-join guard, hanging the spinner.
-					if (hasSuspendedSession()) {
+					// Prefer the preserve-cache resume() path whenever we still hold an
+					// active session -- from an explicit suspend OR an unsolicited drop that
+					// happened while hidden (before the 8s suspend). resume() rejoins in
+					// place and keeps the conversation visible; a plain connect() would wipe
+					// the session and re-show the search / new-session empty-state. Only a
+					// truly empty client (no session at all) falls back to connect(), where
+					// the hash auto-join drives the load.
+					if (hasActiveSession()) {
 						resume();
 					} else {
 						connect();
@@ -132,7 +135,7 @@
 				hiddenTimer = null;
 			}
 			if (document.visibilityState !== 'hidden' && !connected) {
-				if (hasSuspendedSession()) {
+				if (hasActiveSession()) {
 					resume();
 				} else {
 					connect();

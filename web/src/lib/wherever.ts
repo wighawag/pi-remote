@@ -178,6 +178,13 @@ export function hasSuspendedSession(): boolean {
 	return client.hasSuspendedSession();
 }
 
+// True when the client still holds an active session to rejoin in place (from an
+// explicit suspend OR an unsolicited drop). Lets the page prefer the
+// preserve-cache resume() path over a session-wiping fresh connect() on return.
+export function hasActiveSession(): boolean {
+	return client.hasActiveSession();
+}
+
 // --- Native file-picker guard ---------------------------------------------
 // Opening the OS file picker / camera backgrounds the page, which fires
 // `visibilitychange: hidden`. If the user lingers (taking a photo, browsing

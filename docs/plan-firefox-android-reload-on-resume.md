@@ -1,8 +1,41 @@
 # Plan: Mitigate Firefox Android reload-on-resume (slow, annoying)
 
-**Status:** Planned, NOT implemented. Written 2026-06-14.
+**Status:** Partially implemented. Written 2026-06-14.
 **Issue:** On Firefox for Android, locking the screen and returning to the app
 reloads the page, which is slow and annoying.
+
+**Update 2026-07-11 (Option A + D landed):** Resume now rejoins the cached
+session IN PLACE instead of flashing the new-session / search empty-state or the
+"Not connected" panel over the conversation. Two defects were fixed in
+`client/src/client.ts`: (1) `suspend()` left a stale `connected: true` in the
+store, so `resume()` early-returned as a no-op and the reconnect fell through to
+a session-dropping plain `connect()`; `disconnect(false)` now reflects the
+disconnected state without wiping the cached session. (2) The blocking "Creating
+session..." overlay could hang forever (no watchdog); a create watchdog now
+mirrors the load watchdog. `web/src/lib/components/ChatMessageList.svelte` keeps
+the cached conversation visible during a reconnect (the parent's "Reconnecting
+and syncing session..." banner covers the composer only).
+
+Critically, this also fixed the SILENT-DETACH variant: an UNSOLICITED socket drop
+(tab switch, network blip, laptop sleep, half-open reap) used to reconnect the
+relay WITHOUT re-issuing `session_load` AND while wiping the cached session (the
+auto-reconnect `connect()` defaulted to a blank store), so the frontend froze on
+a stale tool call with Abort disabled and no "connecting"/"loading" hint while the
+agent kept running headless. `scheduleReconnect()` now preserves the store when a
+session is active, `onOpen` re-attaches from `activeSessionFile` on ANY reconnect
+(not only the suspend path), and the page's visibility/pageshow handlers prefer
+the preserve-cache `resume()` whenever `hasActiveSession()` (via the new client
+helper) rather than a session-wiping fresh `connect()`. The server is stateless
+per socket (each connection starts attached to no session; the old socket's close
+removes the client from the pool), so client-side re-attachment is mandatory.
+This is the accidental frozen-HEAD/"does not follow on" desync described in
+`work/ideas/use-pi-server-side-queue-and-recover-on-reload.md`.
+
+Covered by
+`client/test/{creating-session-watchdog,resume-keeps-session,reconnect-rejoins-session}.test.ts`.
+Option B (WS suspend/resume for bfcache eligibility) is already in place; a real
+full reload made cheap (Option A history-paint) still benefits from the
+long-session load plan.
 
 ## Background / what's actually happening
 

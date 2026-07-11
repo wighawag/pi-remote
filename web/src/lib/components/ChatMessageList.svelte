@@ -11,6 +11,7 @@
 		hasMoreHistory,
 		isLoadingMoreHistory,
 		isLoadingSession,
+		isResyncing,
 	} from '$lib/wherever';
 	import {
 		availableModels,
@@ -234,6 +235,15 @@
 
 	let sessionInfo = $derived($activeSessionInfo);
 	let loadingSession = $derived($isLoadingSession);
+	let resyncing = $derived($isResyncing);
+
+	// True when we hold a cached session (its file + messages) that is merely
+	// reconnecting/resyncing, not loading fresh. In this state the conversation
+	// must stay on screen (with the parent's "Reconnecting..." banner over the
+	// composer) instead of being replaced by the big "Not connected" panel or the
+	// new-session / search empty-state. This is the core of "block only where it
+	// matters (this session)": a dropped socket blocks sending, not reading.
+	let hasCachedSession = $derived(!!sessionInfo.sessionFile);
 
 	let shouldAutoScroll = $state(true);
 	let forceScroll = $state(false);
@@ -601,7 +611,7 @@
 </script>
 
 <div class="flex flex-1 flex-col overflow-hidden bg-brand-dark">
-	{#if appState.connecting}
+	{#if appState.connecting && !hasCachedSession}
 		<div
 			class="flex flex-1 flex-col items-center justify-center bg-brand-dark p-6 text-brand-text-muted"
 		>
@@ -617,7 +627,7 @@
 				</p>
 			</div>
 		</div>
-	{:else if !appState.connected}
+	{:else if !appState.connected && !hasCachedSession}
 		<div
 			class="flex flex-1 flex-col items-center justify-center bg-brand-dark p-6 text-brand-text-muted"
 		>
@@ -647,7 +657,12 @@
 				</button>
 			</div>
 		</div>
-	{:else if loadingSession || (!sessionInfo.sessionFile && typeof window !== 'undefined' && window.location.hash)}
+	{:else if !hasCachedSession && (loadingSession || (typeof window !== 'undefined' && window.location.hash))}
+		<!-- Genuine fresh load of a session we do NOT yet hold. A resync of a
+		     cached session does NOT reach here (it keeps hasCachedSession true and
+		     falls through to the messages view with the parent's reconnect banner),
+		     so returning to the app never flashes this full-screen spinner over an
+		     already-loaded conversation. -->
 		<div
 			class="flex flex-1 flex-col items-center justify-center bg-brand-dark p-6 text-brand-text-muted"
 		>
