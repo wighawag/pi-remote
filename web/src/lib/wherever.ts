@@ -213,6 +213,17 @@ export function sendMessage(text: string): boolean {
 	return client.sendMessage(text);
 }
 
+// Retry a user message whose delivery could not be confirmed (delivery:
+// 'failed'). Returns false if it could not be handed to a live socket.
+export function resendMessage(messageId: string): boolean {
+	return client.resendMessage(messageId);
+}
+
+// Drop an undelivered user message the user chooses not to resend.
+export function discardMessage(messageId: string): void {
+	client.discardMessage(messageId);
+}
+
 export function abort() {
 	client.abort();
 }

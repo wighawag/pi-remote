@@ -17,6 +17,18 @@ export interface ChatMessage {
 	// tool is running this is undefined and the UI ticks a live "Elapsed N.Ns";
 	// once set the UI freezes it as "Took N.Ns" (mirrors the pi CLI).
 	endedAt?: number;
+	// Delivery state for an OUTBOUND user message. A frame handed to a socket that
+	// reports OPEN can still never reach the server (a half-open TCP connection:
+	// send() buffers locally, no throw, but the bytes never land). So an optimistic
+	// echo is NOT proof of delivery. `delivery` tracks that:
+	//   'sending'   -> handed to the socket, awaiting the server's echo.
+	//   'failed'    -> no echo within the confirmation window; delivery is
+	//                  uncertain, so the UI surfaces a retry affordance rather than
+	//                  a normal-looking sent message.
+	// Undefined = confirmed/delivered (or a message that never needed tracking,
+	// e.g. one loaded from server history). Confirmed on the server's user echo
+	// (message_end role:user) or when it reappears in loaded history.
+	delivery?: 'sending' | 'failed';
 }
 
 export interface ConflictInfo {

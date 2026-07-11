@@ -97,6 +97,13 @@ export class WhereverClient {
   private resumeModel?: string;
   private listeners = new Set<(msg: any) => void>();
   private pendingUploads = new Map<string, {resolve: (val: any) => void, reject: (err: any) => void}>();
+  // Per-message confirmation watchdogs. A user message committed optimistically
+  // is only proven delivered when the server echoes it back; if no echo lands
+  // within CONFIRM_MS the watchdog flips it to delivery:'failed' so the UI can
+  // offer a retry instead of pretending it was sent (the half-open-socket loss).
+  private confirmTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private static readonly CONFIRM_MS = 12_000;
+  private static readonly PENDING_PREFIX = 'wherever-pending:';
 
   constructor(config: WhereverClientConfig) {
     this.config = {
@@ -311,6 +318,12 @@ export class WhereverClient {
     }
 
     if (resetState) {
+      // Full teardown wipes the store, so no unconfirmed message survives in it;
+      // clear their watchdogs to avoid firing against a fresh store. The
+      // persisted-pending localStorage entries intentionally REMAIN so a later
+      // load can still recover them.
+      for (const t of this.confirmTimers.values()) clearTimeout(t);
+      this.confirmTimers.clear();
       this.stateStore.set({
         ...defaultState,
         hideThinking: !!this.config.hideThinking,
@@ -723,6 +736,19 @@ export class WhereverClient {
                 : m,
             );
           } else if (msg.content) {
+            // The server echoes the user's own message back once pi has appended
+            // it: that is the delivery CONFIRMATION for an optimistic (unconfirmed)
+            // echo. Confirm the matching pending message (flip delivery off, clear
+            // its watchdog, update the persisted-pending store) instead of adding
+            // a duplicate. If there was no pending match (e.g. another client sent
+            // it), fall back to the existing content-dedupe.
+            if (msg.role === 'user') {
+              const confirmedPending = this.confirmDeliveredByContent(msg.content);
+              if (confirmedPending) {
+                // Re-read: confirmDeliveredByContent already updated the store.
+                return get(this.stateStore);
+              }
+            }
             const lastUserMessage = [...newMessages]
               .reverse()
               .find((m) => m.role === 'user');
@@ -1038,15 +1064,43 @@ export class WhereverClient {
         }));
         break;
 
-      case 'message_history':
+      case 'message_history': {
+        // The server transcript is authoritative for what was actually persisted.
+        // Reconcile it against any unconfirmed outbound messages: keep the ones
+        // that ARE in history (delivered), and re-surface the ones that are NOT
+        // as recoverable 'failed' items so a message a half-open socket swallowed
+        // is never silently lost across a reload/resync.
+        const sessionIdForPending = msg.sessionId as string;
+        // Carry-over from the CURRENT store (this-tab sends still in flight) plus
+        // anything a PREVIOUS tab persisted before a reload.
+        const inFlight = get(this.stateStore).messages.filter(
+          (m) => m.role === 'user' && m.delivery !== undefined,
+        );
+        const persisted = this.loadPersistedPending(sessionIdForPending);
+        const candidates = [...persisted, ...inFlight];
         this.stateStore.update((s: WhereverState) => {
           const mapped = this.mapHistory(msg.messages, msg.sessionId, s.isStreaming);
           const totalCount =
             typeof msg.totalCount === 'number' ? msg.totalCount : mapped.length;
           const offset = typeof msg.offset === 'number' ? msg.offset : 0;
+          const historyContents = new Set(
+            mapped.filter((m) => m.role === 'user').map((m) => m.content),
+          );
+          // Unconfirmed candidates whose content is NOT in the loaded history are
+          // undelivered. De-dupe by content so two identical undelivered sends do
+          // not multiply. Everything else the server persisted is already in
+          // `mapped` (confirmed).
+          const seen = new Set<string>();
+          const undelivered: ChatMessage[] = [];
+          for (const c of candidates) {
+            if (historyContents.has(c.content)) continue;
+            if (seen.has(c.content)) continue;
+            seen.add(c.content);
+            undelivered.push({...c, sessionId: sessionIdForPending, delivery: 'failed'});
+          }
           return {
             ...s,
-            messages: mapped,
+            messages: [...mapped, ...undelivered],
             historyTotalCount: totalCount,
             historyOffset: offset,
             loadingMoreHistory: false,
@@ -1054,7 +1108,12 @@ export class WhereverClient {
             resyncing: false,
           };
         });
+        // Clear watchdogs for anything now confirmed, and rewrite the persisted
+        // store to exactly the still-undelivered set.
+        for (const c of candidates) this.clearConfirm(c.id);
+        this.persistPending(sessionIdForPending);
         break;
+      }
 
       case 'message_history_prepend':
         this.stateStore.update((s: WhereverState) => {
@@ -1280,6 +1339,11 @@ export class WhereverClient {
       return false;
     }
 
+    // The frame was handed to an OPEN socket, but that is NOT proof of delivery:
+    // a half-open TCP connection accepts send() (buffers locally, no throw) yet
+    // the bytes never reach the server. So commit the echo as delivery:'sending'
+    // (unconfirmed) and arm a watchdog + persist it, so it is recoverable on
+    // reload and flips to 'failed' if the server never echoes it back.
     const message: ChatMessage = {
       id: this.generateId(),
       role: 'user',
@@ -1287,13 +1351,187 @@ export class WhereverClient {
       timestamp: Date.now(),
       isStreaming: false,
       sessionId: s.sessionId,
+      delivery: 'sending',
     };
     this.stateStore.update((st: WhereverState) => ({
       ...st,
       sessionError: null,
       messages: [...st.messages, message],
     }));
+    this.armConfirm(message.id);
+    this.persistPending(s.sessionId);
     return true;
+  }
+
+  // ==========================================================================
+  // Outbound-message delivery confirmation + recovery.
+  //
+  // An optimistic user echo is unconfirmed until the server echoes it back. This
+  // machinery makes an unconfirmed message survive a reload and surface a retry
+  // affordance instead of being silently lost when a half-open socket swallowed
+  // the frame.
+  // ==========================================================================
+
+  private pendingKey(sessionId: string): string {
+    return WhereverClient.PENDING_PREFIX + sessionId;
+  }
+
+  // Persist the current session's still-unconfirmed (delivery-tagged) user
+  // messages so a reload can recover them. Cleared to empty when none remain.
+  private persistPending(sessionId: string | null): void {
+    if (!sessionId || typeof localStorage === 'undefined') return;
+    const pending = get(this.stateStore).messages.filter(
+      (m) => m.role === 'user' && m.delivery !== undefined,
+    );
+    try {
+      if (pending.length === 0) {
+        localStorage.removeItem(this.pendingKey(sessionId));
+      } else {
+        localStorage.setItem(
+          this.pendingKey(sessionId),
+          JSON.stringify(
+            pending.map((m) => ({
+              id: m.id,
+              content: m.content,
+              timestamp: m.timestamp,
+              // Persist as 'failed': a reload cannot know if it ever landed, so
+              // it must be presented as needs-attention, never as delivered.
+              delivery: 'failed' as const,
+            })),
+          ),
+        );
+      }
+    } catch {}
+  }
+
+  // Load persisted unconfirmed messages for a session (used on load/resync to
+  // re-surface anything a previous tab left in limbo).
+  private loadPersistedPending(sessionId: string): ChatMessage[] {
+    if (typeof localStorage === 'undefined') return [];
+    try {
+      const raw = localStorage.getItem(this.pendingKey(sessionId));
+      if (!raw) return [];
+      const arr = JSON.parse(raw);
+      if (!Array.isArray(arr)) return [];
+      return arr
+        .filter((m) => m && typeof m.content === 'string')
+        .map((m) => ({
+          id: typeof m.id === 'string' ? m.id : this.generateId(),
+          role: 'user' as const,
+          content: m.content,
+          timestamp: typeof m.timestamp === 'number' ? m.timestamp : Date.now(),
+          isStreaming: false,
+          sessionId,
+          delivery: 'failed' as const,
+        }));
+    } catch {
+      return [];
+    }
+  }
+
+  private armConfirm(messageId: string): void {
+    this.clearConfirm(messageId);
+    if (typeof setTimeout !== 'function') return;
+    const timer = setTimeout(() => {
+      this.confirmTimers.delete(messageId);
+      // Still unconfirmed after the window: mark it failed so the UI offers a
+      // retry. Delivery is genuinely uncertain (a half-open socket may have
+      // eaten it), so we do NOT auto-resend: that risks a duplicate. The user
+      // decides.
+      let sessionId: string | null = null;
+      this.stateStore.update((st: WhereverState) => {
+        const m = st.messages.find((x) => x.id === messageId);
+        if (!m || m.delivery !== 'sending') return st;
+        sessionId = st.sessionId;
+        return {
+          ...st,
+          messages: st.messages.map((x) =>
+            x.id === messageId ? {...x, delivery: 'failed'} : x,
+          ),
+        };
+      });
+      if (sessionId) this.persistPending(sessionId);
+    }, WhereverClient.CONFIRM_MS);
+    if (timer && typeof (timer as any).unref === 'function') {
+      (timer as any).unref();
+    }
+    this.confirmTimers.set(messageId, timer);
+  }
+
+  private clearConfirm(messageId: string): void {
+    const t = this.confirmTimers.get(messageId);
+    if (t) {
+      clearTimeout(t);
+      this.confirmTimers.delete(messageId);
+    }
+  }
+
+  // Mark the oldest still-unconfirmed user message with this content as
+  // delivered (the server echoed it back). Content-matched because the server
+  // echo carries no client message id. Returns true if one was confirmed.
+  private confirmDeliveredByContent(content: string): boolean {
+    let confirmedId: string | null = null;
+    let sessionId: string | null = null;
+    this.stateStore.update((st: WhereverState) => {
+      const target = st.messages.find(
+        (m) => m.role === 'user' && m.delivery !== undefined && m.content === content,
+      );
+      if (!target) return st;
+      confirmedId = target.id;
+      sessionId = st.sessionId;
+      return {
+        ...st,
+        messages: st.messages.map((m) =>
+          m.id === target.id ? {...m, delivery: undefined} : m,
+        ),
+      };
+    });
+    if (confirmedId) {
+      this.clearConfirm(confirmedId);
+      this.persistPending(sessionId);
+      return true;
+    }
+    return false;
+  }
+
+  // Retry a failed (or sending) outbound message: re-send its frame and re-arm
+  // confirmation. Returns false if it could not be handed to an OPEN socket (the
+  // message stays failed/recoverable).
+  public resendMessage(messageId: string): boolean {
+    const s = get(this.stateStore);
+    const m = s.messages.find((x) => x.id === messageId && x.role === 'user');
+    if (!m || !s.sessionId) return false;
+    if (!this.getIsConnected()) {
+      if (!this.ws && !this.reconnectTimer) this.scheduleReconnect();
+      return false;
+    }
+    const ok = this.send({type: 'message', message: m.content, sessionId: s.sessionId});
+    if (!ok) return false;
+    this.stateStore.update((st: WhereverState) => ({
+      ...st,
+      sessionError: null,
+      messages: st.messages.map((x) =>
+        x.id === messageId ? {...x, delivery: 'sending', timestamp: Date.now()} : x,
+      ),
+    }));
+    this.armConfirm(messageId);
+    this.persistPending(s.sessionId);
+    return true;
+  }
+
+  // Drop a failed outbound message the user chooses not to resend. Removes it
+  // from the transcript and from the persisted-pending store.
+  public discardMessage(messageId: string): void {
+    let sessionId: string | null = null;
+    this.clearConfirm(messageId);
+    this.stateStore.update((st: WhereverState) => {
+      sessionId = st.sessionId;
+      return {
+        ...st,
+        messages: st.messages.filter((m) => m.id !== messageId),
+      };
+    });
+    if (sessionId) this.persistPending(sessionId);
   }
 
   public abort() {

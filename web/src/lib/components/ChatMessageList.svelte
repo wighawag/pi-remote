@@ -12,6 +12,8 @@
 		isLoadingMoreHistory,
 		isLoadingSession,
 		isResyncing,
+		resendMessage,
+		discardMessage,
 	} from '$lib/wherever';
 	import {
 		availableModels,
@@ -1272,14 +1274,45 @@
 						{/if}
 						{#if msg.role !== 'thinking' && msg.role !== 'tool'}
 							<div
-								class="mt-1 text-xs opacity-50 {msg.role === 'user'
-									? 'text-brand-text-muted'
+								class="mt-1 flex items-center gap-1.5 text-xs opacity-50 {msg.role ===
+								'user'
+									? 'justify-end text-brand-text-muted'
 									: msg.role === 'assistant'
 										? 'text-brand-purple'
 										: 'text-brand-text-muted'}"
 							>
+								{#if msg.role === 'user' && msg.delivery === 'sending'}
+									<span title="Sending, awaiting confirmation">Sending...</span>
+									<span>·</span>
+								{/if}
 								{formatTime(msg.timestamp)}
 							</div>
+							{#if msg.role === 'user' && msg.delivery === 'failed'}
+								<!-- Delivery could NOT be confirmed (a half-open socket may have
+								     swallowed the frame). Never silently drop it: offer retry /
+								     discard so the user's text is recoverable. -->
+								<div
+									class="mt-1.5 flex flex-wrap items-center justify-end gap-2 text-xs"
+								>
+									<span class="font-medium text-amber-400"
+										>⚠️ Not delivered</span
+									>
+									<button
+										type="button"
+										onclick={() => resendMessage(msg.id)}
+										class="rounded bg-brand-blue/80 px-2 py-0.5 font-medium text-brand-text transition-colors hover:bg-brand-blue"
+									>
+										Retry
+									</button>
+									<button
+										type="button"
+										onclick={() => discardMessage(msg.id)}
+										class="rounded bg-brand-surface-3 px-2 py-0.5 font-medium text-brand-text-muted transition-colors hover:text-brand-text"
+									>
+										Discard
+									</button>
+								</div>
+							{/if}
 						{/if}
 					</div>
 				</div>
