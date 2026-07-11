@@ -686,7 +686,11 @@
 				submitLabel="Search"
 				disabled={searchActive
 					? !connected
-					: !connected || readOnly || !sessionInfo.sessionFile || resyncing || agentPending}
+					: !connected ||
+						readOnly ||
+						!sessionInfo.sessionFile ||
+						resyncing ||
+						agentPending}
 				onSend={() => chatList?.forceScrollToBottom()}
 			/>
 		{/if}
