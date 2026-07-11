@@ -525,6 +525,34 @@
 	});
 	let streaming = $derived($isStreaming);
 
+	// A live "now" that ticks ~every 100ms ONLY while a tool call is running, so
+	// the "Elapsed N.Ns" duration counts up in real time (mirrors the pi CLI's
+	// bash tool). The interval is torn down as soon as no tool is streaming, so an
+	// idle session does no per-frame work. A finished tool freezes its duration
+	// from startedAt..endedAt and does not depend on this ticker.
+	let now = $state(Date.now());
+	let anyToolRunning = $derived(
+		msgList.some((m) => m.role === 'tool' && m.isStreaming),
+	);
+	$effect(() => {
+		if (!anyToolRunning) return;
+		now = Date.now();
+		const id = setInterval(() => (now = Date.now()), 100);
+		return () => clearInterval(id);
+	});
+
+	// Format a tool call's run duration the way the pi CLI does: "N.Ns" (one
+	// decimal). While running, count from startedAt to the live `now`; once ended,
+	// freeze at endedAt. Returns null when we have no start time (e.g. a tool
+	// reconstructed from loaded history, which carries no timing).
+	function toolDuration(msg: ChatMessage): string | null {
+		if (msg.startedAt === undefined) return null;
+		const end = msg.endedAt ?? (msg.isStreaming ? now : undefined);
+		if (end === undefined) return null;
+		const ms = Math.max(0, end - msg.startedAt);
+		return `${(ms / 1000).toFixed(1)}s`;
+	}
+
 	$effect.pre(() => {
 		// React to msgList length and content changes of the last message in msgList
 		const lastMsg = msgList[msgList.length - 1];
@@ -1067,6 +1095,12 @@
 											>{msg.toolName || 'agent'}</span
 										>...</span
 									>
+									{#if toolDuration(msg)}
+										<span
+											class="font-mono text-xs text-brand-text-muted tabular-nums"
+											>{toolDuration(msg)}</span
+										>
+									{/if}
 								</div>
 							{:else}
 								{@const parsed = parseToolMessage(msg)}
@@ -1113,6 +1147,20 @@
 													title={parsed.smartTitleArgs}
 												>
 													{parsed.smartTitleArgs}
+												</span>
+											{/if}
+
+											{#if toolDuration(msg)}
+												<span
+													class="shrink-0 font-mono text-xs tabular-nums {msg.isStreaming
+														? 'text-amber-400'
+														: 'text-brand-text-muted'}"
+													title={msg.isStreaming
+														? 'Elapsed time'
+														: 'Time taken'}
+												>
+													{msg.isStreaming ? 'Elapsed' : 'Took'}
+													{toolDuration(msg)}
 												</span>
 											{/if}
 										</div>

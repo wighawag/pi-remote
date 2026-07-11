@@ -9,6 +9,14 @@ export interface ChatMessage {
 	toolArgs?: string;
 	toolOutput?: string;
 	isError?: boolean;
+	// Wall-clock start of a tool call (ms epoch), set when the tool_start frame
+	// arrives. `timestamp` also carries this, but startedAt is kept explicit so
+	// the elapsed/took duration is unambiguous and survives content rewrites.
+	startedAt?: number;
+	// Wall-clock end of a tool call (ms epoch), set when tool_end arrives. While a
+	// tool is running this is undefined and the UI ticks a live "Elapsed N.Ns";
+	// once set the UI freezes it as "Took N.Ns" (mirrors the pi CLI).
+	endedAt?: number;
 }
 
 export interface ConflictInfo {

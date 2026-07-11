@@ -755,11 +755,24 @@ export class WhereverClient {
           this.agentEndTimeout = null;
         }
         this.agentEndTimeout = setTimeout(() => {
+          const now = Date.now();
           this.stateStore.update((s: WhereverState) => ({
             ...s,
             isStreaming: false,
             messages: s.messages.map((m: ChatMessage) =>
-              m.isStreaming ? {...m, isStreaming: false} : m,
+              m.isStreaming
+                ? {
+                    ...m,
+                    isStreaming: false,
+                    // Freeze a still-running tool's duration if it never got a
+                    // tool_end (turn ended between steps), so "Elapsed" stops
+                    // ticking and shows the final "Took".
+                    endedAt:
+                      m.role === 'tool' && m.endedAt === undefined
+                        ? now
+                        : m.endedAt,
+                  }
+                : m,
             ),
           }));
           this.agentEndTimeout = null;
@@ -783,17 +796,19 @@ export class WhereverClient {
               ? {...m, isStreaming: false}
               : m,
           );
+          const startedAt = Date.now();
           const newMsg: ChatMessage = {
             id: this.generateId(),
             role: 'tool',
             content: toolArgs
               ? `$ ${msg.toolName} ${toolArgs}`
               : `$ ${msg.toolName}`,
-            timestamp: Date.now(),
+            timestamp: startedAt,
             isStreaming: true,
             toolName: msg.toolName,
             toolArgs: toolArgs,
             toolOutput: '',
+            startedAt,
           };
           return {
             ...s,
@@ -844,6 +859,7 @@ export class WhereverClient {
                 m.toolName === msg.toolName &&
                 !m.content.startsWith('Tool error:'),
             );
+          const endedAt = Date.now();
           if (toolMsg) {
             const errorPrefix = msg.isError ? 'Error: ' : '';
             return {
@@ -856,6 +872,7 @@ export class WhereverClient {
                       isStreaming: false,
                       isError: msg.isError,
                       toolOutput: result,
+                      endedAt,
                     }
                   : m,
               ),
@@ -868,12 +885,13 @@ export class WhereverClient {
               id: this.generateId(),
               role: 'tool',
               content,
-              timestamp: Date.now(),
+              timestamp: endedAt,
               isStreaming: false,
               toolName: msg.toolName,
               toolArgs: '',
               toolOutput: result,
               isError: msg.isError,
+              endedAt,
             };
             return {
               ...s,
@@ -884,15 +902,26 @@ export class WhereverClient {
         break;
       }
 
-      case 'aborted':
+      case 'aborted': {
+        const abortedAt = Date.now();
         this.stateStore.update((s: WhereverState) => ({
           ...s,
           isStreaming: false,
           messages: s.messages.map((m: ChatMessage) =>
-            m.isStreaming ? {...m, isStreaming: false} : m,
+            m.isStreaming
+              ? {
+                  ...m,
+                  isStreaming: false,
+                  endedAt:
+                    m.role === 'tool' && m.endedAt === undefined
+                      ? abortedAt
+                      : m.endedAt,
+                }
+              : m,
           ),
         }));
         break;
+      }
 
       case 'session_created':
         this.stateStore.update((s: WhereverState) => ({
