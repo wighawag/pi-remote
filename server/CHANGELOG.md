@@ -1,5 +1,19 @@
 # wherever-dev
 
+## 0.5.1
+
+### Patch Changes
+
+- e15f5fa: Fix Abort being disabled (and the composer enabled) when joining a pi CLI session that is mid-tool-call.
+
+  When a session is being driven by the pi CLI and you opened it in the web frontend while a long tool call was in flight, Abort showed disabled and the composer looked ready, even though the CLI was still waiting for the tool to finish. Root cause: the CLI bridge only forwarded `agent_start`/`agent_end` as they happened and registered the session with a hardcoded `isStreaming: false`, so a turn already in progress when the bridge (re)connected was invisible to the server. Now the extension reports the agent's current streaming state (`!ctx.isIdle()`) in the `cli_register` handshake, and the server honors it (and keeps the mid-turn session from being idle-reaped), so a viewer joining a running CLI session correctly sees it as streaming.
+
+- 2701c07: Fix the composer showing the web-search input while a session is still loading.
+
+  The bottom composer decided it was in "search mode" purely from `!sessionFile`, ignoring the loading/resyncing/hash state. So during a session open (spinner showing "Loading session..." in the message area) the composer would render the search text box and "Search" button, an inconsistent, confusing state. Search mode is now derived from a single shared `isSearchActive` helper that also treats a session that is loading, resyncing, or targeted by the URL hash as "not the search state", so the composer and the message area always agree.
+
+  Also adds a `vitest` unit-test tier to the `web` package covering the view-mode logic.
+
 ## 0.5.0
 
 ### Minor Changes
