@@ -1,6 +1,8 @@
 # Drain the local message queue on pi's run-idle + empty-server-queue, not on `isStreaming`
 
-**Status:** accepted
+**Status:** superseded by [0003](0003-steer-by-default-on-explicit-submit-no-local-auto-drain-queue.md)
+
+> Superseded 2026-07-11. This ADR proposed making mid-stream sends `followUp` and draining the local queue only on run-idle + empty server queue. ADR 0003 takes the opposite, pi-aligned direction: an EXPLICIT user submit steers immediately and there is NO local auto-drain queue at all. This is not a contradiction: the "stops midway" defect was UNINTENTIONAL, auto-fired steering driven by guessing from `isStreaming` (the flaky 300ms `agent_end` debounce), and ADR 0003 removes that auto-fire mechanism entirely. Follow-up survives only as pi's explicit, opt-in Alt+Enter, never the default. See ADR 0003's "Reconciliation" section. The original analysis below is retained for the record.
 
 The "pi stops midway" bug is caused by the frontend draining its local message
 queue when `isStreaming` goes false, then delivering the queued message as a

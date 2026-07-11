@@ -13,6 +13,7 @@
 	} from '$lib/wherever';
 	import {isStreaming, isReadOnly, activeSessionInfo} from '$lib/wherever';
 	import {getBaseUrl, getToken} from '$lib/session-store';
+	import {decideComposeSend} from '$lib/core/compose-send';
 	import SpeechButton from './speech/SpeechButton.svelte';
 
 	let {
@@ -39,8 +40,6 @@
 
 	let text = $state('');
 	let enterToSend = $state(true);
-	let queuedText = $state<string | null>(null);
-	let queuedTextBackup = $state<string | null>(null);
 	let isCollapsed = $state(false);
 
 	let fileInput = $state<HTMLInputElement>();
@@ -57,14 +56,13 @@
 	// In search mode the composer must work with no active session: it requires
 	// only a live connection and a configured search folder. In chat mode it
 	// stays gated on an active session as before.
+	// Note: streaming does NOT disable the composer. A mid-stream submit steers
+	// the agent immediately (pi's default), so the box stays live while the agent
+	// works and the primary button reads "Steer".
 	let effectivelyDisabled = $derived(
 		searchMode
 			? disabled || !connected || !searchConfigured
-			: disabled ||
-					!connected ||
-					readOnly ||
-					!sessionInfo.sessionId ||
-					!!queuedText,
+			: disabled || !connected || readOnly || !sessionInfo.sessionId,
 	);
 
 	let isAnyUploading = $derived(attachments.some((a) => a.uploading));
@@ -110,7 +108,7 @@
 	// after switching, but going back to a session restores its own saved draft.
 	// The hydratedKey guard makes this fire ONLY on a real key change (not on
 	// every keystroke), so it never clobbers text the user is actively typing
-	// within the current session. text/queuedText reads are untracked accordingly.
+	// within the current session. The text read is untracked accordingly.
 	$effect(() => {
 		const key = draftKey;
 		if (key === hydratedKey) return;
@@ -121,10 +119,7 @@
 					saved = localStorage.getItem(key);
 				} catch {}
 			}
-			// A queued (in-flight) message takes precedence over a restored draft.
-			if (!queuedText) {
-				text = saved ?? '';
-			}
+			text = saved ?? '';
 			hydratedKey = key;
 		});
 	});
@@ -173,45 +168,6 @@
 			textarea.focus();
 		}
 	});
-
-	// Show queued text in the textarea so user can see it
-	$effect(() => {
-		if (queuedText) {
-			text = queuedText;
-		}
-	});
-
-	// Auto-send the queued message once the agent stops streaming. Gate on a live
-	// connection too: draining into a dead socket would silently drop it. While
-	// disconnected the queued text stays put (and is restorable) until we are back.
-	$effect(() => {
-		if (!streaming && queuedText && connected) {
-			// Only drop the queued text if it actually sent; a failed drain (socket
-			// died in the race) keeps it queued/restorable rather than losing it.
-			const sent = sendMessage(queuedText);
-			if (sent) {
-				text = '';
-				queuedText = null;
-				queuedTextBackup = null;
-				onSend?.();
-			}
-		}
-	});
-
-	function handleUnqueue() {
-		// Restore the queued message into the editable input so the user can
-		// edit or resend it, instead of discarding it.
-		const restore = queuedTextBackup ?? queuedText ?? '';
-		queuedText = null;
-		queuedTextBackup = null;
-		text = restore;
-		setTimeout(() => {
-			textarea?.focus();
-			if (textarea) {
-				textarea.selectionStart = textarea.selectionEnd = text.length;
-			}
-		}, 0);
-	}
 
 	async function handleFileChange(e: Event) {
 		// The native picker is closed now that we have a change event; allow the
@@ -309,43 +265,57 @@
 				if (sessionInfo.cwd) {
 					createSession(sessionInfo.cwd, sessionInfo.model || undefined);
 					text = '';
-					queuedText = null;
 					return;
 				}
 			} else if (lower === '/clear') {
 				clearMessages();
 				text = '';
-				queuedText = null;
 				return;
 			} else if (lower === '/leave' || lower === '/exit') {
 				leaveSession();
 				text = '';
-				queuedText = null;
 				return;
 			}
 		}
 
-		// Only queue when the agent is genuinely busy on a LIVE connection. If we
-		// queue while disconnected/resyncing (isStreaming can be stale-true across a
-		// suspend/resume), the queue never drains: no agent_end arrives to flip
-		// streaming false, so the message sits queued forever and is lost on reload.
-		// When not connected, fall through to sendMessage(), which surfaces a clear
-		// "not connected" error instead of silently swallowing the message.
-		if (streaming && connected) {
-			queuedText = messageToSend;
-			queuedTextBackup = messageToSend;
-			attachments = [];
-		} else {
-			// Only clear the composer if the message actually went out. On a dropped
-			// send (not connected / socket died) sendMessage() returns false and
-			// surfaces an error; keep the text so the user can retry once reconnected
-			// instead of silently losing what they typed.
-			const sent = sendMessage(messageToSend);
-			if (sent) {
-				text = '';
-				attachments = [];
-				onSend?.();
+		// pi's default: an explicit submit sends NOW. When the agent is streaming,
+		// the server turns this mid-stream `message` into a STEER (injected at the
+		// next tool/step boundary, before the next LLM call) rather than parking it
+		// in a local queue that waits for the whole turn to resolve. The decision
+		// helper is a pure, unit-tested function so this behaviour is gated in tests.
+		const decision = decideComposeSend({
+			streaming,
+			connected,
+			agentPending: appState.agentPending,
+			readOnly,
+			hasSession: !!sessionInfo.sessionId,
+		});
+		if (decision.action !== 'send') {
+			// A genuine block (no session / read-only / disconnected / agent still
+			// building). Keep the user's text intact; the composer's disabled/status
+			// affordances already explain the state, and sendMessage() would surface a
+			// recoverable error anyway. Never silently swallow the message.
+			if (
+				decision.reason === 'disconnected' ||
+				decision.reason === 'agent-pending'
+			) {
+				// Route through sendMessage so it sets the clear, recoverable session
+				// error ("Not connected..." / "Preparing the session agent..."). It
+				// returns false and leaves the text so the user can retry.
+				sendMessage(messageToSend);
 			}
+			return;
+		}
+
+		// Only clear the composer if the message actually went out. On a dropped
+		// send (socket died in the race) sendMessage() returns false and surfaces an
+		// error; keep the text so the user can retry once reconnected instead of
+		// silently losing what they typed.
+		const sent = sendMessage(messageToSend);
+		if (sent) {
+			text = '';
+			attachments = [];
+			onSend?.();
 		}
 	}
 
@@ -403,10 +373,8 @@
 					<span>
 						{#if searchMode}
 							{placeholder ?? 'Search the web...'}
-						{:else if queuedText}
-							Message is queued...
 						{:else if streaming}
-							Agent is working (click to type next)...
+							Agent is working, tap to Steer...
 						{:else if readOnly}
 							Read-only mode
 						{:else if !sessionInfo.sessionId}
@@ -491,15 +459,13 @@
 								? 'Reconnecting to remote server...'
 								: 'Disconnected - cannot send'
 							: streaming
-								? 'Agent is working (type next message...)'
+								? 'Agent is working, Steer to interrupt...'
 								: readOnly
 									? 'Read-only mode'
 									: !sessionInfo.sessionId
 										? 'Select a session first...'
 										: 'Type a message...'}
-					class="h-full max-h-48 min-h-[120px] w-full resize-none overflow-y-auto rounded-lg border border-brand-border bg-brand-surface-2 px-4 py-3 leading-relaxed placeholder-brand-text-muted focus:border-brand-blue focus:outline-none disabled:opacity-50 {queuedText
-						? 'text-brand-text-muted italic'
-						: 'text-brand-text'}"
+					class="h-full max-h-48 min-h-[120px] w-full resize-none overflow-y-auto rounded-lg border border-brand-border bg-brand-surface-2 px-4 py-3 leading-relaxed text-brand-text placeholder-brand-text-muted focus:border-brand-blue focus:outline-none disabled:opacity-50"
 				></textarea>
 			</div>
 
@@ -535,29 +501,22 @@
 						onSend={handleSend}
 					/>
 				</div>
-				{#if queuedText}
-					<button
-						type="button"
-						onclick={handleUnqueue}
-						class="flex h-[40px] w-full items-center justify-center rounded-lg bg-amber-500 text-xs font-medium text-brand-text transition-colors hover:bg-amber-600"
-					>
-						Unqueue
-					</button>
-				{:else}
-					<button
-						type="submit"
-						disabled={!canSend}
-						class="flex h-[40px] w-full items-center justify-center rounded-lg bg-gradient-to-r from-brand-cyan to-brand-blue text-xs font-medium text-brand-text transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:bg-brand-surface-3 disabled:from-brand-surface-3 disabled:to-brand-surface-3 disabled:opacity-50"
-					>
-						{#if searchMode}
-							{submitLabel ?? 'Search'}
-						{:else if streaming}
-							Queue
-						{:else}
-							Send
-						{/if}
-					</button>
-				{/if}
+				<button
+					type="submit"
+					disabled={!canSend}
+					title={!searchMode && streaming
+						? 'Steer the agent now (injected at the next step, before the next model call)'
+						: undefined}
+					class="flex h-[40px] w-full items-center justify-center rounded-lg bg-gradient-to-r from-brand-cyan to-brand-blue text-xs font-medium text-brand-text transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:bg-brand-surface-3 disabled:from-brand-surface-3 disabled:to-brand-surface-3 disabled:opacity-50"
+				>
+					{#if searchMode}
+						{submitLabel ?? 'Search'}
+					{:else if streaming}
+						Steer
+					{:else}
+						Send
+					{/if}
+				</button>
 			</div>
 		</form>
 

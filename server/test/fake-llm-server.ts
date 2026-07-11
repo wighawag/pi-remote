@@ -20,7 +20,11 @@ export type FakeBehavior =
   // Stream `text`, flush `cutAfter` characters, then DESTROY the socket
   // mid-stream (no content_block_stop / message_stop). Reproduces a truncated
   // upstream response -- the "pi stops midway" class of bug.
-  | { kind: 'cut-midway'; text: string; cutAfter: number };
+  | { kind: 'cut-midway'; text: string; cutAfter: number }
+  // Stream `text` one char every `charDelayMs` ms (default slow), so a test has
+  // a wide, deterministic window to submit a second message MID-TURN and observe
+  // how the server delivers it (steer vs followUp). Finishes normally.
+  | { kind: 'slow-reply'; text: string; charDelayMs?: number };
 
 export interface FakeLlmServer {
   server: Server;
@@ -56,6 +60,7 @@ export async function startFakeLlmServer(
 
       const behavior = next;
       const text = behavior.text;
+      const charDelayMs = behavior.kind === 'slow-reply' ? (behavior.charDelayMs ?? 40) : 2;
 
       sse(res, 'message_start', {
         type: 'message_start',
@@ -103,7 +108,7 @@ export async function startFakeLlmServer(
         });
         sse(res, 'message_stop', { type: 'message_stop' });
         res.end();
-      }, 2);
+      }, charDelayMs);
     });
   });
 
