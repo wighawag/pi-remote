@@ -24,8 +24,8 @@
     "public"
   ],
   "dependencies": {
-    "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": "^0.75.3",
+    "@earendil-works/pi-ai": "^0.80.3",
+    "@earendil-works/pi-coding-agent": "^0.80.3",
     "ws": "^8.18.0"
   },
   "devDependencies": {

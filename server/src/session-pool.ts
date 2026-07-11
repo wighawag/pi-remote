@@ -21,6 +21,32 @@ export function normalizePath(p: string): string {
   return normalized;
 }
 
+/**
+ * Canonicalize a session .jsonl path so it can be used as a stable map key.
+ *
+ * The pool keys its in-memory `sessions` map by the session FILE PATH. That key
+ * is produced by two independent producers that must agree on the exact string:
+ *   1. the server itself (createNewSession/loadSession, via pi's SessionManager), and
+ *   2. the CLI bridge extension, which reports `ctx.sessionManager.getSessionFile()`
+ *      from whatever pi version the user's `pi` binary runs.
+ *
+ * pi >=0.80 canonicalizes the cwd before encoding the session directory name
+ * (resolvePath: strips trailing slash, resolves `.`/`..`), whereas <0.80 encoded
+ * the raw cwd. If the server SDK and the CLI are on different sides of that
+ * change, the same logical session yields two different path strings, the map
+ * keys don't collide, and the browser + CLI end up as two parallel sessions.
+ *
+ * Running everything through path.resolve() here makes both producers converge
+ * on one key regardless of trailing slashes, `.`/`..` segments, or a future
+ * version skew, without depending on symlink resolution (which could diverge if
+ * only one side follows links). This is belt-and-suspenders on top of aligning
+ * the SDK version.
+ */
+export function normalizeSessionFile(sessionFile: string): string {
+  if (!sessionFile) return sessionFile;
+  return path.resolve(sessionFile);
+}
+
 /** True only for a real Date with a finite (valid) time value. */
 function isValidDate(d: Date | undefined | null): d is Date {
   return d instanceof Date && Number.isFinite(d.getTime());
@@ -490,6 +516,10 @@ export class SessionPool {
       }
     }
 
+    // Canonicalize the resolved path so the map key matches the one the CLI
+    // bridge reports for the same session (see normalizeSessionFile).
+    resolvedFile = normalizeSessionFile(resolvedFile);
+
     // Continue with the resolved absolute path
     if (this.sessions.has(resolvedFile)) {
       return { tracked: this.sessions.get(resolvedFile)! };
@@ -738,7 +768,7 @@ export class SessionPool {
           resourceLoader,
         });
 
-        const sessionFile = agentSession.sessionFile || '';
+        const sessionFile = normalizeSessionFile(agentSession.sessionFile || '');
         const modelLabel = agentSession.model ? `${agentSession.model.provider}:${agentSession.model.id}` : '';
 
         const tracked: TrackedSession = {
@@ -788,6 +818,14 @@ export class SessionPool {
   getSession(sessionFileOrId: string): TrackedSession | null {
     if (this.sessions.has(sessionFileOrId)) {
       return this.sessions.get(sessionFileOrId)!;
+    }
+    // The caller may pass a session FILE PATH that differs only cosmetically
+    // from the stored key (trailing slash, ./.. segments, or a version-skewed
+    // encoding). Canonicalize and retry before falling back to an id scan, so a
+    // CLI-reported path still resolves to the server-tracked session.
+    const canonical = normalizeSessionFile(sessionFileOrId);
+    if (canonical !== sessionFileOrId && this.sessions.has(canonical)) {
+      return this.sessions.get(canonical)!;
     }
     for (const s of this.sessions.values()) {
       if (s.sessionId === sessionFileOrId) return s;
@@ -1065,7 +1103,7 @@ export class SessionPool {
       if (!folderMap.has(cwd)) {
         folderMap.set(cwd, []);
       }
-      const active = this.sessions.get(s.path);
+      const active = this.getSession(s.path);
       folderMap.get(cwd)!.push({
         path: s.path,
         id: s.id,
@@ -1306,7 +1344,12 @@ export class SessionPool {
     this.sessions.delete(tracked.sessionFile);
   }
 
-  async registerCliSession(sessionFile: string, cwd: string, modelStr: string, cliWs: WebSocket): Promise<{ tracked: TrackedSession; error?: string }> {
+  async registerCliSession(rawSessionFile: string, cwd: string, modelStr: string, cliWs: WebSocket): Promise<{ tracked: TrackedSession; error?: string }> {
+    // Canonicalize the CLI-reported path so it keys the same entry the server
+    // would compute itself (see normalizeSessionFile). Without this, a CLI on a
+    // different pi version can register a second, parallel session for the same
+    // work under a cosmetically different path string.
+    const sessionFile = normalizeSessionFile(rawSessionFile);
     const existing = this.sessions.get(sessionFile);
     let clients = new Set<string>();
     if (existing) {
@@ -1358,7 +1401,8 @@ export class SessionPool {
     return { tracked };
   }
 
-  async unregisterCliSession(sessionFile: string): Promise<void> {
+  async unregisterCliSession(rawSessionFile: string): Promise<void> {
+    const sessionFile = normalizeSessionFile(rawSessionFile);
     const tracked = this.sessions.get(sessionFile);
     if (!tracked || tracked.type !== 'cli') return;
 
@@ -1383,7 +1427,8 @@ export class SessionPool {
     }
   }
 
-  handleCliEvent(sessionFile: string, event: AgentSessionEvent): void {
+  handleCliEvent(rawSessionFile: string, event: AgentSessionEvent): void {
+    const sessionFile = normalizeSessionFile(rawSessionFile);
     const tracked = this.sessions.get(sessionFile);
     if (!tracked || tracked.type !== 'cli') return;
 
