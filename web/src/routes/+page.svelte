@@ -40,6 +40,7 @@
 	import {onMount} from 'svelte';
 	import {version} from '$app/environment';
 	import {url} from '$lib/core/utils/web/path';
+	import {isSearchActive} from '$lib/core/view-mode';
 
 	let sidebarOpen = $state(false);
 	// Which session list the sidebar shows: the main dashboard, or the separate
@@ -265,8 +266,20 @@
 	// session is active. Keeping it mounted (not conditionally rendered) means it
 	// exists at tap time so we can focus it synchronously inside a user gesture.
 	let chatInput: {focusInput: () => void} | undefined = $state();
+	// The composer's search mode must mirror the message area's empty-state so the
+	// two never disagree (the bug: a "Loading session..." spinner with an enabled
+	// search box). isSearchActive treats a session that is loading/resyncing, or a
+	// hash pointing at a session we are about to open, as NOT the search state even
+	// though sessionFile is briefly still null.
 	let searchActive = $derived(
-		connected && !!searchFolder && !sessionInfo.sessionFile,
+		isSearchActive({
+			connected,
+			searchConfigured: !!searchFolder,
+			hasSession: !!sessionInfo.sessionFile,
+			loading: loadingSession,
+			resyncing,
+			hasSessionHash: typeof window !== 'undefined' && !!window.location.hash,
+		}),
 	);
 
 	// On page load with no session, focus the search composer so it is ready to
