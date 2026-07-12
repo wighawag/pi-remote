@@ -57,14 +57,13 @@
 		{
 			number: '01',
 			title: 'Install the Server',
-			description:
-				'Install the wherever-dev server package globally or locally in your project.',
+			description: 'Install the wherever-dev server package globally.',
 			code: 'npm install -g wherever-dev',
 		},
 		{
 			number: '02',
 			title: 'Start the Server',
-			description: 'Launch the server with your preferred token and port.',
+			description: 'Run one command to launch the server.',
 			code: 'wherever start',
 		},
 		{
