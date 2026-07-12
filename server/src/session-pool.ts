@@ -1029,7 +1029,8 @@ export class SessionPool {
                 const toolName = tc.name || tc.toolName || 'unknown';
                 const rawArgs = tc.arguments || tc.args;
                 const args = rawArgs ? JSON.stringify(rawArgs) : '';
-                messages.push({ role: 'tool_call', content: args, timestamp: ts, toolName });
+                const toolCallId = typeof tc.id === 'string' ? tc.id : undefined;
+                messages.push({ role: 'tool_call', content: args, timestamp: ts, toolName, ...(toolCallId ? { toolCallId } : {}) });
               }
             }
           } else if (typeof content === 'string' && content) {
@@ -1055,7 +1056,8 @@ export class SessionPool {
           } else if (typeof resultMsg.content === 'string') {
             resultText = resultMsg.content;
           }
-          messages.push({ role: 'tool_result', content: resultText, timestamp: ts, toolName, isError: !!resultMsg.isError, ...(resultImages.length > 0 ? { images: resultImages } : {}) });
+          const toolCallId = typeof resultMsg.toolCallId === 'string' ? resultMsg.toolCallId : undefined;
+          messages.push({ role: 'tool_result', content: resultText, timestamp: ts, toolName, isError: !!resultMsg.isError, ...(toolCallId ? { toolCallId } : {}), ...(resultImages.length > 0 ? { images: resultImages } : {}) });
         } else if (msg.role === 'bashExecution') {
           const bashMsg = msg as any;
           messages.push({

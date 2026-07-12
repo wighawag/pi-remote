@@ -67,6 +67,13 @@ export interface HistoryMessage {
   timestamp: number;
   toolName?: string;
   isError?: boolean;
+  /**
+   * The tool-call id. Set on `tool_call` (the id the assistant issued) and on
+   * `tool_result` (the toolCallId it satisfies). Lets the client pair a result
+   * to its exact call, instead of the ambiguous tool-name FIFO fallback, so
+   * interleaved same-named calls (some dangling) map correctly.
+   */
+  toolCallId?: string;
   /** Image attachments extracted from a tool_result (base64), if any. */
   images?: ToolImage[];
 }

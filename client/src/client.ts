@@ -1237,7 +1237,23 @@ export class WhereverClient {
     // running bash, later superseded by a new user turn) would all pile up as a
     // "series of aborted tool calls" AFTER the latest reply, even though the CLI
     // shows them inline where they happened.
+    //
+    // Matching is by tool-call id when present (the server forwards it on both
+    // tool_call and tool_result), which pairs a result to its EXACT call even
+    // when same-named calls interleave with some left dangling. When the id is
+    // absent (older sessions, or the synthesized bashExecution pair) we fall
+    // back to oldest-open-first per tool name.
     const openCalls: Record<string, number[]> = {};
+    const openById: Record<string, number> = {};
+
+    // Drop a resolved call's index from the name-FIFO list so an id match and a
+    // later name-fallback can never both consume the same call.
+    const removeFromNameQueue = (tName: string, idx: number) => {
+      const q = openCalls[tName];
+      if (!q) return;
+      const at = q.indexOf(idx);
+      if (at !== -1) q.splice(at, 1);
+    };
 
     for (const m of rawMessages) {
       if (m.role === 'tool_call') {
@@ -1262,14 +1278,29 @@ export class WhereverClient {
         });
         if (!openCalls[tName]) openCalls[tName] = [];
         openCalls[tName].push(idx);
+        if (typeof m.toolCallId === 'string' && m.toolCallId) {
+          openById[m.toolCallId] = idx;
+        }
       } else if (m.role === 'tool_result') {
         const tName = m.toolName || 'unknown';
-        // Fill the OLDEST still-open call of this name (FIFO), mirroring how
-        // parallel same-named calls resolve in order.
-        const callIdx =
-          openCalls[tName] && openCalls[tName].length > 0
-            ? openCalls[tName].shift()!
-            : undefined;
+        // Prefer an exact id match; else fill the OLDEST still-open call of this
+        // name (FIFO), mirroring how parallel same-named calls resolve in order.
+        let callIdx: number | undefined;
+        if (
+          typeof m.toolCallId === 'string' &&
+          m.toolCallId &&
+          openById[m.toolCallId] !== undefined
+        ) {
+          callIdx = openById[m.toolCallId];
+          delete openById[m.toolCallId];
+          removeFromNameQueue(tName, callIdx);
+        } else if (openCalls[tName] && openCalls[tName].length > 0) {
+          callIdx = openCalls[tName].shift()!;
+          // Keep openById consistent if this call had also registered an id.
+          for (const [id, i] of Object.entries(openById)) {
+            if (i === callIdx) delete openById[id];
+          }
+        }
         const isError = m.isError && !this.isAbortedToolResult(m.content);
         const interrupted = !!m.isError && this.isAbortedToolResult(m.content);
         if (callIdx !== undefined) {

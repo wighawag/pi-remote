@@ -196,6 +196,66 @@ describe('interrupted (result-less) tool call from loaded history', () => {
 		expect(tools[1].isStreaming).toBe(true);
 	});
 
+	it('pairs a tool_result to its exact call by id, leaving the correct earlier same-named call dangling', () => {
+		// Two bash calls issued back-to-back; only the SECOND gets a result. With
+		// tool-call ids the result must resolve call #2 (by id), leaving call #1
+		// dangling/interrupted. Name-FIFO alone would wrongly resolve call #1 and
+		// leave call #2 dangling.
+		ws.last().receive({
+			type: 'session_created',
+			sessionId: 'sid-1',
+			sessionFile: '/tmp/project/session.jsonl',
+			cwd: '/tmp/project',
+			model: 'fake:model',
+			isStreaming: false,
+		});
+		ws.last().receive({
+			type: 'message_history',
+			sessionId: 'sid-1',
+			messages: [
+				{
+					role: 'tool_call',
+					content: '{"command":"sleep 300"}',
+					timestamp: 1_000,
+					toolName: 'bash',
+					toolCallId: 'call-A',
+				},
+				{
+					role: 'tool_call',
+					content: '{"command":"echo hi"}',
+					timestamp: 1_100,
+					toolName: 'bash',
+					toolCallId: 'call-B',
+				},
+				{
+					role: 'tool_result',
+					content: 'hi',
+					timestamp: 1_200,
+					toolName: 'bash',
+					toolCallId: 'call-B',
+					isError: false,
+				},
+			],
+			totalCount: 3,
+			offset: 0,
+		});
+
+		const tools = state().messages.filter((m) => m.role === 'tool');
+		expect(tools).toHaveLength(2);
+		// Call A (sleep 300) is the dangling/interrupted one.
+		const callA = tools.find((t) => t.toolArgs?.includes('sleep 300'))!;
+		const callB = tools.find((t) => t.toolArgs?.includes('echo hi'))!;
+		expect(callA.interrupted).toBe(true);
+		expect(callA.toolOutput).toBe('');
+		// Call B got its result.
+		expect(callB.interrupted).toBeFalsy();
+		expect(callB.toolOutput).toBe('hi');
+		// Order in the transcript is preserved (A before B).
+		expect(state().messages.indexOf(callA)).toBeLessThan(
+			state().messages.indexOf(callB),
+		);
+	});
+
 	it('a matched tool_call + tool_result is NOT interrupted', () => {
 		ws.last().receive({
 			type: 'session_created',
