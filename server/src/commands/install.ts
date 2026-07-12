@@ -24,10 +24,10 @@ const LAUNCHD_LABEL = 'dev.wherever.server';
 export interface InstallOptions {
   system: boolean;
   configurePi: boolean;
-  // Server flags to bake into the service invocation (pass-through).
-  port?: number;
-  host?: string;
-  token?: string;
+  // Every argument that is not an install-owned flag is forwarded verbatim to
+  // `wherever start` and baked into the service, e.g. `--host`, `--port`,
+  // `--token`, `--http-localhost-fallback`, `--no-ssl`, `--ssl-key`, ...
+  serverArgs: string[];
   // When true, only print what would happen; write nothing.
   dryRun: boolean;
 }
@@ -47,11 +47,9 @@ function resolveServiceContext(opts: InstallOptions): ServiceContext {
   // dist/commands/install.js -> dist/index.js
   const serverEntry = path.resolve(path.dirname(__filename), '..', 'index.js');
   // The server is started via the explicit `start` verb; bare invocation prints
-  // help, so the service must pass `start` before any flags.
-  const serverArgs: string[] = ['start'];
-  if (opts.port !== undefined) serverArgs.push('--port', String(opts.port));
-  if (opts.host !== undefined) serverArgs.push('--host', opts.host);
-  if (opts.token !== undefined) serverArgs.push('--token', opts.token);
+  // help, so the service must pass `start` before any flags. Everything the
+  // user passed to `install` (minus install-owned flags) follows verbatim.
+  const serverArgs: string[] = ['start', ...opts.serverArgs];
   return {
     nodePath: process.execPath,
     serverEntry,
@@ -116,6 +114,7 @@ function installSystemd(ctx: ServiceContext, opts: InstallOptions): void {
     console.log('---');
     console.log(`[dry-run] would run: systemctl ${opts.system ? '' : '--user '}daemon-reload`);
     console.log(`[dry-run] would run: systemctl ${opts.system ? '' : '--user '}enable --now ${SERVICE_NAME}`);
+    console.log(`[dry-run] would run: systemctl ${opts.system ? '' : '--user '}restart ${SERVICE_NAME}`);
     return;
   }
 
@@ -125,7 +124,12 @@ function installSystemd(ctx: ServiceContext, opts: InstallOptions): void {
 
   runSystemctl(opts.system, ['daemon-reload']);
   runSystemctl(opts.system, ['enable', '--now', SERVICE_NAME]);
-  console.log(`Service '${SERVICE_NAME}' enabled and started.`);
+  // `enable --now` starts a stopped unit but is a no-op for an already-running
+  // one, so on a re-install the live process would keep the OLD ExecStart until
+  // the next restart. Explicitly restart so re-running install always applies
+  // the freshly written options (mirrors launchd's unload+load on macOS).
+  runSystemctl(opts.system, ['restart', SERVICE_NAME]);
+  console.log(`Service '${SERVICE_NAME}' enabled and (re)started.`);
   if (!opts.system) {
     console.log(
       'Tip: run `loginctl enable-linger $USER` so the service keeps running after you log out.',
@@ -414,10 +418,18 @@ export function parseInstallOptions(args: string[]): InstallOptions {
   const opts: InstallOptions = {
     system: false,
     configurePi: true,
+    serverArgs: [],
     dryRun: false,
   };
-  for (let i = 0; i < args.length; i++) {
-    switch (args[i]) {
+  // Install owns only these three flags; everything else is forwarded verbatim
+  // to `wherever start` and baked into the service. A bare `--` separator is
+  // still tolerated (and dropped) so old muscle memory keeps working, but it is
+  // no longer required.
+  for (const arg of args) {
+    switch (arg) {
+      case '--':
+        // Legacy separator: no-op now that everything forwards by default.
+        break;
       case '--system':
         opts.system = true;
         break;
@@ -427,15 +439,8 @@ export function parseInstallOptions(args: string[]): InstallOptions {
       case '--dry-run':
         opts.dryRun = true;
         break;
-      case '--port':
-        opts.port = parseInt(args[++i] || '', 10);
-        break;
-      case '--host':
-        opts.host = args[++i];
-        break;
-      case '--token':
-        opts.token = args[++i];
-        break;
+      default:
+        opts.serverArgs.push(arg);
     }
   }
   return opts;
@@ -449,16 +454,19 @@ Usage:
   wherever install [options]       Install & start a background service
   wherever uninstall [options]     Stop & remove the background service
   wherever service-status          Show the service status
+  wherever --version               Show the installed version
   wherever help                    Show this help
 
 Install options:
   --system            Install a system-wide service (Linux only, needs root).
                       Default is a per-user service (no sudo).
   --no-pi-config      Do not touch ~/.pi/agent/settings.json.
-  --port <n>          Port for the service to listen on.
-  --host <addr>       Host/interface to bind.
-  --token <token>     Auth token to bake into the service.
   --dry-run           Print what would happen without writing anything.
+
+Any other flag is forwarded verbatim to the baked 'wherever start' command,
+so all server flags work here directly, e.g.
+  wherever install --host 0.0.0.0 --port 31415 --http-localhost-fallback
+  wherever install --host 0.0.0.0 --token secret --no-ssl
 
 Platforms: Linux (systemd) and macOS (launchd). On install, the
 '${PI_PACKAGE}' extension is added to your pi config unless --no-pi-config.
