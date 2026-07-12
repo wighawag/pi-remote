@@ -1,3 +1,8 @@
+export interface ToolImage {
+	mimeType: string;
+	data: string;
+}
+
 export interface ChatMessage {
 	id: string;
 	role: 'user' | 'assistant' | 'thinking' | 'tool';
@@ -8,6 +13,10 @@ export interface ChatMessage {
 	toolName?: string;
 	toolArgs?: string;
 	toolOutput?: string;
+	// Image attachments extracted from a tool result (e.g. `read` on an image
+	// file). `data` is base64 (no data-URI prefix); rendered inline in the tool
+	// output, mirroring the CLI's inline image display.
+	images?: ToolImage[];
 	isError?: boolean;
 	// Wall-clock start of a tool call (ms epoch), set when the tool_start frame
 	// arrives. `timestamp` also carries this, but startedAt is kept explicit so

@@ -324,12 +324,16 @@ Establish a connection via `ws://127.0.0.1:31415/ws?token=YOUR_TOKEN`.
 }
 
 // Tool end
+// `images` is optional and only present when a tool result carried image
+// content blocks (e.g. `read` on an image file). Each entry is base64 `data`
+// plus its `mimeType`, so clients can render the image inline.
 {
   "type": "tool_end",
   "sessionId": "abc123xyz",
   "toolName": "bash",
   "isError": false,
-  "result": "test result output..."
+  "result": "test result output...",
+  "images": [{ "mimeType": "image/png", "data": "<base64>" }]
 }
 
 // File upload confirmation

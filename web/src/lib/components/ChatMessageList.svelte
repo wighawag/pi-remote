@@ -1178,6 +1178,31 @@
 										</div>
 									</button>
 
+									<!-- Tool image attachments (e.g. read on an image file).
+									     Rendered OUTSIDE the collapsible section so images stay
+									     visible even when the tool details are collapsed; the
+									     args/output below remain collapsible. -->
+									{#if msg.images && msg.images.length > 0}
+										<div class="mt-2 flex flex-col gap-1">
+											<div class="flex flex-wrap gap-2">
+												{#each msg.images as img}
+													<a
+														href={`data:${img.mimeType};base64,${img.data}`}
+														target="_blank"
+														rel="noopener noreferrer"
+														class="block"
+													>
+														<img
+															src={`data:${img.mimeType};base64,${img.data}`}
+															alt="Tool output"
+															class="max-h-96 max-w-full rounded border border-brand-border/40 bg-brand-dark/60 object-contain"
+														/>
+													</a>
+												{/each}
+											</div>
+										</div>
+									{/if}
+
 									<!-- Tool Output (collapsible) -->
 									{#if isExpanded}
 										<div

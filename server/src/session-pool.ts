@@ -1008,15 +1008,23 @@ export class SessionPool {
           const resultMsg = msg as any;
           const toolName = resultMsg.toolName || 'unknown';
           let resultText = '';
+          const resultImages: { mimeType: string; data: string }[] = [];
           if (Array.isArray(resultMsg.content)) {
             resultText = resultMsg.content
               .filter((c: any) => c.type === 'text')
               .map((c: any) => c.text || '')
               .join('\n');
+            // Pull image blocks (e.g. `read` on an image file) so reloaded
+            // history renders them inline, mirroring live tool_end.
+            for (const c of resultMsg.content) {
+              if (c && c.type === 'image' && typeof c.data === 'string' && c.data) {
+                resultImages.push({ mimeType: typeof c.mimeType === 'string' ? c.mimeType : 'image/png', data: c.data });
+              }
+            }
           } else if (typeof resultMsg.content === 'string') {
             resultText = resultMsg.content;
           }
-          messages.push({ role: 'tool_result', content: resultText, timestamp: ts, toolName, isError: !!resultMsg.isError });
+          messages.push({ role: 'tool_result', content: resultText, timestamp: ts, toolName, isError: !!resultMsg.isError, ...(resultImages.length > 0 ? { images: resultImages } : {}) });
         } else if (msg.role === 'bashExecution') {
           const bashMsg = msg as any;
           messages.push({

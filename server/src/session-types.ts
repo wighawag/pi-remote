@@ -50,12 +50,25 @@ export interface SessionsResponse {
   activeSessions: SessionInfo[];
 }
 
+/**
+ * An image block extracted from a tool result (e.g. `read` on an image file).
+ * `data` is base64 (no data-URI prefix); `mimeType` is the source media type.
+ * Carried alongside the textual tool output so the web frontend can render the
+ * image inline, mirroring the CLI's inline image display.
+ */
+export interface ToolImage {
+  mimeType: string;
+  data: string;
+}
+
 export interface HistoryMessage {
   role: 'user' | 'assistant' | 'thinking' | 'tool_call' | 'tool_result';
   content: string;
   timestamp: number;
   toolName?: string;
   isError?: boolean;
+  /** Image attachments extracted from a tool_result (base64), if any. */
+  images?: ToolImage[];
 }
 
 export interface ModelInfo {

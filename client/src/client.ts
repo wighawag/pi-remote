@@ -876,6 +876,10 @@ export class WhereverClient {
 
       case 'tool_end': {
         const result = msg.result ? `${msg.result}` : '';
+        const toolImages =
+          Array.isArray(msg.images) && msg.images.length > 0
+            ? msg.images
+            : undefined;
         this.stateStore.update((s: WhereverState) => {
           const toolMsg = [...s.messages]
             .reverse()
@@ -898,6 +902,7 @@ export class WhereverClient {
                       isStreaming: false,
                       isError: msg.isError,
                       toolOutput: result,
+                      ...(toolImages ? {images: toolImages} : {}),
                       endedAt,
                     }
                   : m,
@@ -916,6 +921,7 @@ export class WhereverClient {
               toolName: msg.toolName,
               toolArgs: '',
               toolOutput: result,
+              ...(toolImages ? {images: toolImages} : {}),
               isError: msg.isError,
               endedAt,
             };
@@ -1185,6 +1191,9 @@ export class WhereverClient {
           toolName: tName,
           toolArgs: tArgs,
           toolOutput: m.content,
+          ...(Array.isArray(m.images) && m.images.length > 0
+            ? {images: m.images}
+            : {}),
           isError: m.isError,
           sessionId,
           // Duration from the matched call. Only when both timestamps are

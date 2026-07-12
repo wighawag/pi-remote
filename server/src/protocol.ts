@@ -1,5 +1,5 @@
-import { HistoryMessage, ContextUsageInfo } from './session-types.js';
-export type { ContextUsageInfo } from './session-types.js';
+import { HistoryMessage, ContextUsageInfo, ToolImage } from './session-types.js';
+export type { ContextUsageInfo, ToolImage } from './session-types.js';
 
 // Initial number of (most recent) history messages sent when a session is
 // loaded/joined. Older messages are fetched lazily via `history_load_more`.
@@ -35,7 +35,7 @@ export type ServerMessage =
   | { type: 'agent_end'; sessionId: string }
   | { type: 'tool_start'; sessionId: string; toolName: string; args: unknown }
   | { type: 'tool_update'; sessionId: string; toolName: string; delta: string }
-  | { type: 'tool_end'; sessionId: string; toolName: string; isError: boolean; result?: string }
+  | { type: 'tool_end'; sessionId: string; toolName: string; isError: boolean; result?: string; images?: ToolImage[] }
   | { type: 'cli_bash'; command: string; excludeFromContext?: boolean }
   | { type: 'session_created'; sessionId: string; sessionFile: string; cwd: string; model: string; isStreaming?: boolean; readOnly?: boolean; contextUsage?: ContextUsageInfo | null; pending?: boolean }
   // Sent after a `pending` session_created once the live agent has finished

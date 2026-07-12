@@ -4,7 +4,7 @@ import { createServer as createHttpsServer, request as httpRequest } from 'node:
 import { WebSocketServer, WebSocket } from 'ws';
 import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent';
 import { SessionPool, getWhereverConfig, type WhereverConfig } from './session-pool.js';
-import type { ClientMessage, ServerMessage } from './protocol.js';
+import type { ClientMessage, ServerMessage, ToolImage } from './protocol.js';
 import { INITIAL_HISTORY_LIMIT, HISTORY_PAGE_SIZE } from './protocol.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -375,10 +375,19 @@ async function main(): Promise<void> {
         msg = { type: 'tool_update', sessionId, toolName: event.toolName, delta: evt.delta || '' };
         break;
       }
-      case 'tool_execution_end':
+      case 'tool_execution_end': {
         const toolResult = extractToolResult(event as any);
-        msg = { type: 'tool_end', sessionId, toolName: event.toolName, isError: event.isError, result: toolResult };
+        const toolImages = extractToolImages(event as any);
+        msg = {
+          type: 'tool_end',
+          sessionId,
+          toolName: event.toolName,
+          isError: event.isError,
+          result: toolResult,
+          ...(toolImages.length > 0 ? { images: toolImages } : {}),
+        };
         break;
+      }
       case 'model_select' as any: {
         const evt = event as any;
         const modelStr = typeof evt.model === 'string'
@@ -1588,6 +1597,27 @@ async function handleWSMessage(
       break;
     }
   }
+}
+
+/**
+ * Extract image blocks from a tool result so the web frontend can render them
+ * inline (mirroring the CLI's inline image display). The `read` tool returns
+ * `{ content: [{type:'text',...},{type:'image', data, mimeType}] }` for image
+ * files; `extractToolResult` keeps only text, so image blocks are pulled out
+ * here and shipped separately as base64.
+ */
+function extractToolImages(event: any): ToolImage[] {
+  const result = event?.result;
+  if (!result || typeof result !== 'object') return [];
+  const content = (result as any).content;
+  if (!Array.isArray(content)) return [];
+  const images: ToolImage[] = [];
+  for (const c of content) {
+    if (c && c.type === 'image' && typeof c.data === 'string' && c.data) {
+      images.push({ mimeType: typeof c.mimeType === 'string' ? c.mimeType : 'image/png', data: c.data });
+    }
+  }
+  return images;
 }
 
 function extractToolResult(event: any): string {
