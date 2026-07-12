@@ -92,7 +92,9 @@ export async function startHarness(opts?: HarnessOptions): Promise<Harness> {
 
   const child: ChildProcess = spawn(
     'pnpm',
-    ['exec', 'tsx', serverEntry, '--port', String(port), '--host', '127.0.0.1', '--no-ssl'],
+    // `start` is required: bare invocation prints usage and exits (the server is
+    // reached only via the explicit `start` verb, see dispatch() in index.ts).
+    ['exec', 'tsx', serverEntry, 'start', '--port', String(port), '--host', '127.0.0.1', '--no-ssl'],
     {
       cwd: serverDir,
       env: {
