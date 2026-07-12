@@ -664,7 +664,9 @@
 					? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-400'
 					: 'border-blue-500/30 bg-blue-500/10 text-blue-400'}"
 			>
-				<span class="min-w-0 flex-1 break-words whitespace-pre-wrap">{notice.message}</span>
+				<span class="min-w-0 flex-1 break-words whitespace-pre-wrap"
+					>{notice.message}</span
+				>
 				<button
 					onclick={() => dismissNotice()}
 					aria-label="Dismiss notice"
@@ -747,7 +749,7 @@
 				bind:this={chatInput}
 				searchMode={searchActive}
 				searchConfigured={!!searchFolder}
-				searchModels={searchModels}
+				{searchModels}
 				bind:searchModel
 				onSubmit={(q) => runSearch(q, searchModel)}
 				placeholder="Search the web..."

@@ -1268,9 +1268,9 @@
 													</div>
 												{:else if parsed.interrupted}
 													<div class="p-1 text-xs text-brand-text-muted italic">
-														Interrupted before a result was returned (the running
-														tool was stopped, e.g. by a CLI takeover). Its outcome
-														is unknown.
+														Interrupted before a result was returned (the
+														running tool was stopped, e.g. by a CLI takeover).
+														Its outcome is unknown.
 													</div>
 												{:else}
 													<div class="p-1 text-xs text-brand-text-muted italic">
