@@ -329,6 +329,10 @@ export function dismissSessionError() {
 	client.dismissSessionError();
 }
 
+export function dismissNotice() {
+	client.dismissNotice();
+}
+
 export function changeModel(model: string) {
 	client.changeModel(model);
 }
@@ -342,6 +346,10 @@ export const currentSession = derived(piState, ($s) => $s.session);
 export const conflict = derived(piState, ($s) => $s.conflict);
 export const isInterrupted = derived(piState, ($s) => $s.isInterrupted);
 export const sessionError = derived(piState, ($s) => $s.sessionError);
+// A dismissible, non-fatal session notice (e.g. a CLI took over this session
+// while it was mid-turn here, discarding the in-flight tool call or streaming
+// reply). Rendered as a banner.
+export const sessionNotice = derived(piState, ($s) => $s.notice);
 export const isReadOnly = derived(piState, ($s) => $s.readOnly);
 export const activeSessionInfo = derived(piState, ($s) => ({
 	sessionFile: $s.activeSessionFile,

@@ -10,6 +10,7 @@
 		isConnected,
 		isInterrupted,
 		sessionError,
+		sessionNotice,
 		isReadOnly,
 		activeSessionInfo,
 		connect,
@@ -18,6 +19,7 @@
 		resume,
 		leaveSession,
 		dismissSessionError,
+		dismissNotice,
 		changeModel,
 		joinSession,
 		switchSession,
@@ -189,6 +191,7 @@
 	let loadingSession = $derived($isLoadingSession);
 	let interrupted = $derived($isInterrupted);
 	let sError = $derived($sessionError);
+	let notice = $derived($sessionNotice);
 	let readOnly = $derived($isReadOnly);
 	let sessionInfo = $derived($activeSessionInfo);
 	let appState = $derived($piState);
@@ -647,6 +650,26 @@
 				class="border border-red-500/30 bg-red-500/10 px-4 py-2 text-center text-sm text-rose-400"
 			>
 				Your session was interrupted — another client took over.
+			</div>
+		{/if}
+
+		<!-- Session notice (non-fatal). e.g. a CLI took over this session while it
+		     was mid-turn here, discarding the in-flight tool call or streaming
+		     reply. The session stays attached; the user just needs to know why the
+		     running turn stopped. Dismissible. -->
+		{#if notice}
+			<div
+				class="flex items-start justify-between gap-2 border px-4 py-2 text-sm {notice.level ===
+				'warning'
+					? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-400'
+					: 'border-blue-500/30 bg-blue-500/10 text-blue-400'}"
+			>
+				<span class="min-w-0 flex-1 break-words whitespace-pre-wrap">{notice.message}</span>
+				<button
+					onclick={() => dismissNotice()}
+					aria-label="Dismiss notice"
+					class="flex-shrink-0 opacity-80 hover:opacity-100">X</button
+				>
 			</div>
 		{/if}
 

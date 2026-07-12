@@ -18,6 +18,14 @@ export interface ChatMessage {
 	// output, mirroring the CLI's inline image display.
 	images?: ToolImage[];
 	isError?: boolean;
+	// A tool call that ended WITHOUT a result: the assistant issued the toolCall
+	// but no toolResult was ever persisted (e.g. a CLI took over the session and
+	// the running tool was killed mid-execution). Its outcome is unknown, so the
+	// UI must show a distinct "interrupted / no result" state, NOT the green
+	// success tick (we do not know if it succeeded or failed) and NOT the red
+	// error tick (it was not an error, it just never finished). Only meaningful
+	// for role: 'tool'; mutually exclusive with a live isStreaming tool.
+	interrupted?: boolean;
 	// Wall-clock start of a tool call (ms epoch), set when the tool_start frame
 	// arrives. `timestamp` also carries this, but startedAt is kept explicit so
 	// the elapsed/took duration is unambiguous and survives content rewrites.
@@ -38,6 +46,11 @@ export interface ChatMessage {
 	// e.g. one loaded from server history). Confirmed on the server's user echo
 	// (message_end role:user) or when it reappears in loaded history.
 	delivery?: 'sending' | 'failed';
+}
+
+export interface SessionNotice {
+	level: 'info' | 'warning';
+	message: string;
 }
 
 export interface ConflictInfo {
@@ -75,6 +88,12 @@ export interface WhereverState {
 	clientId: string | null;
 	conflict: ConflictInfo | null;
 	isInterrupted: boolean;
+	// A dismissible, non-fatal notice about the active session (e.g. a CLI bridge
+	// took over while this session was mid-turn here, discarding the in-flight
+	// tool call or streaming reply). Rendered as a banner and cleared on dismiss,
+	// on leaving the session, or when a fresh notice replaces it. null when there
+	// is nothing to show.
+	notice: SessionNotice | null;
 	sessionError: string | null;
 	readOnly: boolean;
 	activeSessionFile: string | null;

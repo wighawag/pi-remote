@@ -45,6 +45,12 @@ When you run `pi` in a local directory, the **CLI Bridge Extension** connects to
 
 > ⚠️ **Bridge Mode Limitation:** When executing in Bridge Mode, the `pi` CLI process in your terminal takes exclusive control of the session's execution loop ("brain operation"). Quitting or killing the `pi` CLI process (e.g. via `Ctrl+C` or closing your terminal) will immediately interrupt any active conversation or running tools, even if you are viewing or interacting with it on the web frontend. This is an architectural limitation of the `pi` CLI.
 
+> ℹ️ **CLI Takeover Notice:** If a `pi` CLI resumes a session while the standalone server is **mid-turn** for a web viewer, the CLI seizes control and the server discards that in-flight turn without persisting it (persistence only happens when a turn completes). The web frontend now surfaces a dismissible warning banner so the viewer understands why the running turn stopped, tailored to what was lost: a running **tool call** (its result never arrives) or a streaming **reply** (the partial text is discarded and not saved). Previously the web viewer's turn would just stop with no explanation. A takeover of an already-settled (idle) session is not flagged, since nothing was in flight.
+>
+> Once the CLI has taken over, it **owns** the session's execution loop: anything you send from the web frontend is relayed to the CLI (it does not wrestle control back). The web frontend regains control only when that CLI process disconnects (e.g. you quit it), at which point the server resumes headless control of the session.
+>
+> The CLI side is warned too. When it takes over a mid-turn session, the server tells it explicitly, so the CLI surfaces a matching notice (tool-call result lost, or streaming reply discarded). This covers the streaming-text case that the CLI could not otherwise detect: a still-streaming turn is never persisted, so the CLI's own resumed-mid-tool-call check (which reads the saved transcript) sees nothing. For the tool-call case, the CLI's transcript check already warns with the tool names, so the server notice defers to it to avoid a duplicate.
+
 ---
 
 ## 2. HTTP REST API Reference

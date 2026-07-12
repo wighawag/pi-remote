@@ -26,6 +26,7 @@ const defaultState: WhereverState = {
 	clientId: null,
 	conflict: null,
 	isInterrupted: false,
+	notice: null,
 	sessionError: null,
 	readOnly: false,
 	activeSessionFile: null,
@@ -1004,6 +1005,17 @@ export class WhereverClient {
         }));
         break;
 
+      case 'session_notice':
+        // A non-fatal notice for the active session (e.g. a CLI took over while
+        // this session was mid-turn here, discarding the in-flight tool call or
+        // streaming reply). Keep the session attached; surface it as a
+        // dismissible banner. Ignore a notice for a session we switched away from.
+        this.stateStore.update((s: WhereverState) => {
+          if (s.sessionId && msg.sessionId && s.sessionId !== msg.sessionId) return s;
+          return { ...s, notice: { level: msg.level, message: msg.message } };
+        });
+        break;
+
       case 'session_destroyed':
         this.stateStore.update((s: WhereverState) => {
           if (s.sessionId === msg.sessionId) {
@@ -1017,6 +1029,7 @@ export class WhereverClient {
               activeModel: null,
               loadingSession: false,
               agentPending: false,
+              notice: null,
             };
           }
           return s;
@@ -1067,6 +1080,7 @@ export class WhereverClient {
           creatingSession: false,
           loadingSession: false,
           agentPending: false,
+          notice: null,
         }));
         break;
 
@@ -1221,6 +1235,14 @@ export class WhereverClient {
 
     for (const [tName, calls] of Object.entries(pendingCalls)) {
       for (const call of calls) {
+        // An unmatched call (assistant issued a toolCall, no toolResult). Two
+        // distinct meanings depending on context:
+        //   - streaming tail (applyStreamingTail): the tool is STILL RUNNING;
+        //     keep isStreaming so the UI ticks "Elapsed".
+        //   - otherwise: the call is FROZEN with no result. The tool ended
+        //     without producing one (e.g. a CLI takeover killed it mid-run), so
+        //     its outcome is unknown. Mark it `interrupted` so the UI shows a
+        //     neutral "no result" state instead of a bogus green success tick.
         mapped.push({
           id: this.generateId(),
           role: 'tool',
@@ -1234,6 +1256,7 @@ export class WhereverClient {
           toolArgs: call.args,
           toolOutput: '',
           sessionId,
+          ...(applyStreamingTail ? {} : {interrupted: true}),
           // An unmatched call (no result yet). Keep its start so a still-running
           // tool in the streaming tail can tick "Elapsed"; leave endedAt unset.
           ...(Number.isFinite(call.startedAt)
@@ -1592,6 +1615,7 @@ export class WhereverClient {
       readOnly: false,
       conflict: null,
       sessionError: null,
+      notice: null,
       creatingSession: false,
       resyncing: false,
       agentPending: false,
@@ -1659,6 +1683,7 @@ export class WhereverClient {
       activeCwd: null,
       activeModel: null,
       readOnly: false,
+      notice: null,
       creatingSession: false,
       loadingSession: false,
       resyncing: false,
@@ -1699,6 +1724,10 @@ export class WhereverClient {
 
   public dismissSessionError() {
     this.stateStore.update((s: WhereverState) => ({...s, sessionError: null}));
+  }
+
+  public dismissNotice() {
+    this.stateStore.update((s: WhereverState) => ({...s, notice: null}));
   }
 
   public changeModel(model: string) {

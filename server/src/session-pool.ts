@@ -430,6 +430,13 @@ export interface ServerTrackedSession {
   eventUnsubscribe: () => void;
   createdAt: number;
   lastActivity: number;
+  // Number of tool executions currently IN FLIGHT (tool_execution_start seen,
+  // matching tool_execution_end not yet). > 0 means a tool call is running right
+  // now. Used to decide, on a CLI takeover, whether an actual tool call was
+  // interrupted (which leaves a dangling toolCall in the transcript), as opposed
+  // to merely streaming assistant text (a normal, resumable state). Mirrors the
+  // CLI's findDanglingToolCalls warning trigger.
+  inFlightToolCount: number;
 }
 
 export interface CliTrackedSession {
@@ -707,6 +714,7 @@ export class SessionPool {
           eventUnsubscribe: this.setupEventListeners(resolvedFile, agentSession),
           createdAt: Date.now(),
           lastActivity: Date.now(),
+          inFlightToolCount: 0,
         };
 
         this.sessions.set(resolvedFile, tracked);
@@ -901,6 +909,7 @@ export class SessionPool {
           eventUnsubscribe: this.setupEventListeners(sessionFile, agentSession),
           createdAt: Date.now(),
           lastActivity: Date.now(),
+          inFlightToolCount: 0,
         };
 
         this.sessions.set(sessionFile, tracked);
@@ -1486,7 +1495,7 @@ export class SessionPool {
     this.sessions.delete(tracked.sessionFile);
   }
 
-  async registerCliSession(rawSessionFile: string, cwd: string, modelStr: string, cliWs: WebSocket, isStreaming = false): Promise<{ tracked: TrackedSession; error?: string }> {
+  async registerCliSession(rawSessionFile: string, cwd: string, modelStr: string, cliWs: WebSocket, isStreaming = false): Promise<{ tracked: TrackedSession; error?: string; interruptedTurn?: boolean; interruptedToolCall?: boolean }> {
     // Canonicalize the CLI-reported path so it keys the same entry the server
     // would compute itself (see normalizeSessionFile). Without this, a CLI on a
     // different pi version can register a second, parallel session for the same
@@ -1494,10 +1503,24 @@ export class SessionPool {
     const sessionFile = normalizeSessionFile(rawSessionFile);
     const existing = this.sessions.get(sessionFile);
     let clients = new Set<string>();
+    // A CLI registering for a session that already had a LIVE server-side agent
+    // seizes control: we dispose that agent below. Disposing MID-TURN discards
+    // the whole in-flight turn WITHOUT persisting it (persistence only happens
+    // on message_end, which never fires here), so the web viewer who was
+    // watching the turn loses it silently. Two flavours, both worth warning:
+    //   - a TOOL CALL was executing (inFlightToolCount > 0): its result is never
+    //     produced;
+    //   - only assistant TEXT was streaming: the partial reply is discarded.
+    // We report `interruptedTurn` (either flavour) and `interruptedToolCall`
+    // (the tool-call flavour specifically) so the caller can warn accurately.
+    let interruptedTurn = false;
+    let interruptedToolCall = false;
     if (existing) {
       clients = existing.clients;
       this.cancelIdleCheck(sessionFile);
       if (existing.type === 'server') {
+        interruptedToolCall = existing.inFlightToolCount > 0;
+        interruptedTurn = interruptedToolCall || existing.agentSession.isStreaming;
         try {
           existing.eventUnsubscribe();
           existing.agentSession.dispose();
@@ -1550,7 +1573,7 @@ export class SessionPool {
     }
 
     this.sessions.set(sessionFile, tracked);
-    return { tracked };
+    return { tracked, interruptedTurn, interruptedToolCall };
   }
 
   async unregisterCliSession(rawSessionFile: string): Promise<void> {
@@ -1637,13 +1660,26 @@ export class SessionPool {
         case 'agent_end':
           tracked.isIdle = true;
           tracked.lastActivity = Date.now();
+          // A turn ended: nothing is in flight anymore. Reset defensively in case
+          // a start/end pair was ever missed, so the count cannot drift positive.
+          if (tracked.type === 'server') tracked.inFlightToolCount = 0;
           this.scheduleIdleCheck(sessionFile);
+          break;
+
+        case 'tool_execution_start':
+          if (tracked.type === 'server') tracked.inFlightToolCount++;
+          tracked.lastActivity = Date.now();
+          break;
+
+        case 'tool_execution_end':
+          // Clamp at 0: an unmatched end must never make the count negative.
+          if (tracked.type === 'server')
+            tracked.inFlightToolCount = Math.max(0, tracked.inFlightToolCount - 1);
+          tracked.lastActivity = Date.now();
           break;
 
         case 'message_update':
         case 'message_end':
-        case 'tool_execution_start':
-        case 'tool_execution_end':
           tracked.lastActivity = Date.now();
           break;
 

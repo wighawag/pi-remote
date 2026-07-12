@@ -24,7 +24,13 @@ export type FakeBehavior =
   // Stream `text` one char every `charDelayMs` ms (default slow), so a test has
   // a wide, deterministic window to submit a second message MID-TURN and observe
   // how the server delivers it (steer vs followUp). Finishes normally.
-  | { kind: 'slow-reply'; text: string; charDelayMs?: number };
+  | { kind: 'slow-reply'; text: string; charDelayMs?: number }
+  // Emit a single tool_use block (stop_reason: tool_use) so the agent actually
+  // EXECUTES a tool. Used to reproduce a tool call that is IN FLIGHT (e.g. a
+  // `bash` running `sleep`) when a test takes an action mid-execution. The tool
+  // name + input are provided by the test; a long-running command gives a wide,
+  // deterministic window while the tool_execution_start/end pair straddles it.
+  | { kind: 'tool-call'; toolName: string; input: Record<string, unknown>; toolCallId?: string };
 
 export interface FakeLlmServer {
   server: Server;
@@ -59,6 +65,52 @@ export async function startFakeLlmServer(
       });
 
       const behavior = next;
+
+      // Tool-call behavior: emit one tool_use block and end with stop_reason
+      // tool_use, so pi executes the tool. The tool's own runtime (e.g. a
+      // `sleep`) provides the in-flight window; no per-char streaming needed.
+      if (behavior.kind === 'tool-call') {
+        sse(res, 'message_start', {
+          type: 'message_start',
+          message: {
+            id: 'msg_fake_tool',
+            type: 'message',
+            role: 'assistant',
+            model: 'fake',
+            content: [],
+            stop_reason: null,
+            usage: { input_tokens: 10, output_tokens: 0 },
+          },
+        });
+        sse(res, 'content_block_start', {
+          type: 'content_block_start',
+          index: 0,
+          content_block: {
+            type: 'tool_use',
+            id: behavior.toolCallId ?? 'toolu_fake_1',
+            name: behavior.toolName,
+            input: {},
+          },
+        });
+        // pi's anthropic provider builds tool arguments from input_json_delta
+        // (partial_json), not from content_block.input, so the JSON must be
+        // streamed as a delta here.
+        sse(res, 'content_block_delta', {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'input_json_delta', partial_json: JSON.stringify(behavior.input) },
+        });
+        sse(res, 'content_block_stop', { type: 'content_block_stop', index: 0 });
+        sse(res, 'message_delta', {
+          type: 'message_delta',
+          delta: { stop_reason: 'tool_use' },
+          usage: { output_tokens: 1 },
+        });
+        sse(res, 'message_stop', { type: 'message_stop' });
+        res.end();
+        return;
+      }
+
       const text = behavior.text;
       const charDelayMs = behavior.kind === 'slow-reply' ? (behavior.charDelayMs ?? 40) : 2;
 

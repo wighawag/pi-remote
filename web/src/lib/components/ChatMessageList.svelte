@@ -414,6 +414,9 @@
 			fullArgs,
 			toolOutput,
 			isError,
+			// A tool call that ended with no result (e.g. killed by a CLI takeover).
+			// Outcome unknown: render a neutral "interrupted" state, not success.
+			interrupted: !!msg.interrupted,
 		};
 	}
 
@@ -962,7 +965,9 @@
 													? 'border-amber-400'
 													: msg.isError
 														? 'border-rose-400'
-														: 'border-emerald-400'
+														: msg.interrupted
+															? 'border-brand-border'
+															: 'border-emerald-400'
 											}`
 									: msg.role === 'assistant'
 										? 'border-l-2 border-brand-purple bg-brand-purple/10 text-brand-text'
@@ -1131,6 +1136,15 @@
 												<span class="font-bold text-rose-400" title="Failed"
 													>❌</span
 												>
+											{:else if parsed.interrupted}
+												<!-- Interrupted: no result (e.g. a CLI took over and the
+												     running tool was killed). Outcome unknown: neither
+												     success nor failure. -->
+												<span
+													class="font-bold text-brand-text-muted"
+													title="Interrupted, no result (the running tool was stopped, e.g. by a CLI takeover)"
+													>⊘</span
+												>
 											{:else}
 												<!-- Success -->
 												<span
@@ -1234,6 +1248,12 @@
 														class="animate-pulse p-1 text-xs text-brand-text-muted italic"
 													>
 														Running and waiting for output...
+													</div>
+												{:else if parsed.interrupted}
+													<div class="p-1 text-xs text-brand-text-muted italic">
+														Interrupted before a result was returned (the running
+														tool was stopped, e.g. by a CLI takeover). Its outcome
+														is unknown.
 													</div>
 												{:else}
 													<div class="p-1 text-xs text-brand-text-muted italic">

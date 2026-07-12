@@ -83,11 +83,26 @@ function findDanglingToolCalls(ctx: ExtensionContext): DanglingToolCall[] {
     current = current.parentId ? byId.get(current.parentId) : undefined;
   }
 
-  // Collect satisfied tool-call ids (those with a matching toolResult) and the
-  // tool calls issued, both restricted to the active branch.
+  // Only the TRAILING run matters. pi can auto-continue unless the LAST context
+  // message is an unsatisfied tool call, so a dangling tool call from an EARLIER
+  // turn (before the most recent user message) is already superseded and does
+  // not block anything. Reporting those would over-count (e.g. "4 tool calls"
+  // when 3 are from previous, resolved-by-a-human-turn segments). So restrict
+  // the scan to entries AFTER the last user message on the active branch.
+  let lastUserIdx = -1;
+  for (let i = 0; i < path.length; i++) {
+    const entry = path[i];
+    if (entry.type !== "message") continue;
+    const role = ((entry as SessionMessageEntry).message as { role?: string })?.role;
+    if (role === "user") lastUserIdx = i;
+  }
+  const trailing = path.slice(lastUserIdx + 1);
+
+  // Within the trailing segment, collect satisfied tool-call ids (those with a
+  // matching toolResult) and the tool calls issued.
   const satisfied = new Set<string>();
   const issued: DanglingToolCall[] = [];
-  for (const entry of path) {
+  for (const entry of trailing) {
     if (entry.type !== "message") continue;
     const message = (entry as SessionMessageEntry).message as unknown;
     const role = (message as { role?: string })?.role;
@@ -155,6 +170,12 @@ export default async function (pi: ExtensionAPI) {
   let client: WhereverClient | null = null;
   let sessionFile: string | null = null;
   let ctxVal: ExtensionContext | null = null;
+  // True while this session's resume showed the dangling-tool-call warning (from
+  // the persisted transcript). Lets the server-driven cli_takeover_interrupted
+  // notice avoid double-warning for the tool-call case (which the CLI's own
+  // heuristic already covers, with tool names); the server notice is still the
+  // ONLY signal for the streaming-text case.
+  let resumeDanglingShown = false;
 
   function updateCliWidget(status: 'disconnected' | 'connecting' | 'connected') {
     if (!ctxVal) return;
@@ -342,6 +363,34 @@ export default async function (pi: ExtensionAPI) {
             ctxVal?.abort();
             break;
           }
+          case "cli_takeover_interrupted": {
+            // This CLI just resumed a session the standalone server was running
+            // MID-TURN, so that in-flight turn was interrupted and discarded
+            // (not persisted). The CLI's own dangling-tool-call heuristic cannot
+            // see a still-streaming (unpersisted) turn, so the server tells us
+            // explicitly. Surface it, symmetric with the web client's banner.
+            //
+            // Avoid double-warning: for the tool-call case, the resume check
+            // already showed its own (more detailed, tool-named) warning from the
+            // persisted transcript, so skip. The streaming-text case is the one
+            // only the server can see, and is always surfaced here.
+            if (msg.toolCall && resumeDanglingShown) {
+              break;
+            }
+            // A single transient notify is enough: after the takeover this CLI
+            // owns the session and is NOT stuck (unlike the dangling-tool-call
+            // resume case, which pins a persistent widget because pi sits idle
+            // waiting). So no persistent widget here, just the one-time message.
+            const what = msg.toolCall
+              ? 'a tool call was running (its result was lost)'
+              : 'a reply was streaming (that partial reply was discarded)';
+            ctxVal?.ui.notify(
+              `[Wherever] You took over this session from the web frontend while ${what}. ` +
+                `This CLI now controls the session; continue here.`,
+              "warning",
+            );
+            break;
+          }
           case "cli_model_change": {
             const { model: modelStr } = msg;
             if (modelStr && ctxVal) {
@@ -402,6 +451,7 @@ export default async function (pi: ExtensionAPI) {
   // Clear the "resumed mid-tool-call" warning widget, if shown. Safe to call
   // unconditionally; it is a no-op when nothing was set.
   function clearResumeToolWarning() {
+    resumeDanglingShown = false;
     if (!ctxVal) return;
     try {
       ctxVal.ui.setWidget("wherever-resume-warning", undefined);
@@ -434,22 +484,24 @@ export default async function (pi: ExtensionAPI) {
             dangling.length === 1
               ? `the "${names}" tool call`
               : `${dangling.length} tool calls (${names})`;
-          ctx.ui.notify(
-            `[Wherever] This session was resumed mid-run: ${detail} has no result yet. ` +
-              `If it is still running in the web frontend, its result will not appear here; ` +
-              `send a message to take over and continue, or wait/abort.`,
-            "warning",
-          );
+          // pi cannot auto-continue from a trailing unsatisfied tool call, so it
+          // sits idle. A single PERSISTENT widget is the right surface: it is an
+          // ongoing "you must act" state, not a one-off event, so no transient
+          // notify (which would just duplicate it). This CLI already owns the
+          // session now, so the guidance is to send a message to retry/continue
+          // (NOT "take over" -- the takeover already happened).
           ctx.ui.setWidget("wherever-resume-warning", (_tui, theme) => {
             const line = theme.fg(
               "warning",
-              `⏳ [Wherever] Resumed mid-run: ${detail} has no result yet (may be running in another client).`,
+              `⏳ [Wherever] Resumed mid-run: ${detail} had no result and cannot auto-continue. ` +
+                `Send a message to retry or continue.`,
             );
             return {
               render: () => [line],
               invalidate: () => {},
             };
           });
+          resumeDanglingShown = true;
         } else {
           clearResumeToolWarning();
         }

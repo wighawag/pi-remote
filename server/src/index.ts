@@ -1207,6 +1207,21 @@ async function handleWSMessage(
         console.log(`Registered CLI Bridge for session ${msg.sessionFile} at ${msg.cwd}`);
         onSessionsUpdated();
         const sId = result.tracked.sessionId;
+
+        // The CLI just took over a session the server was running MID-TURN, so
+        // registering disposed that server-side agent and discarded the in-flight
+        // turn. Tell the CLI explicitly so it can surface the takeover: its own
+        // dangling-tool-call heuristic reads the persisted transcript, which
+        // never captured a still-streaming (unpersisted) turn, so it cannot
+        // detect the streaming-text case on its own. Symmetric with the web
+        // client's session_notice below.
+        if (result.interruptedTurn) {
+          sendWS(client.ws, {
+            type: 'cli_takeover_interrupted',
+            sessionId: sId,
+            toolCall: result.interruptedToolCall === true,
+          });
+        }
         const msgToWeb: ServerMessage = {
           type: 'session_created',
           sessionId: sId,
@@ -1226,6 +1241,27 @@ async function handleWSMessage(
               totalCount: history.totalCount,
               offset: history.offset,
             });
+            // The CLI took control of this session. If the server agent was
+            // MID-TURN, disposing it above discarded that in-flight turn without
+            // persisting it, so the web viewer who was watching it lost it
+            // silently. Warn, tailoring the wording to what was lost: a running
+            // tool call (its result never arrives) vs a streaming assistant
+            // reply (the partial text is discarded).
+            if (result.interruptedTurn) {
+              const lost = result.interruptedToolCall
+                ? 'a tool call was running. That tool call was interrupted and its result will not appear here.'
+                : 'a reply was streaming. That in-progress reply was interrupted here and will not be saved.';
+              const message =
+                `A terminal (CLI) took over this session while ${lost} ` +
+                'The CLI now controls this session: anything you send from here is relayed to it. ' +
+                'The web frontend regains control only once that CLI disconnects.';
+              sendWS(c.ws, {
+                type: 'session_notice',
+                sessionId: sId,
+                level: 'warning',
+                message,
+              });
+            }
           }
         }
       }

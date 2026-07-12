@@ -49,6 +49,19 @@ export type ServerMessage =
   | { type: 'session_error'; sessionId?: string; error: string; detail?: string }
   | { type: 'session_conflict'; sessionId: string; conflictingSession: string; conflictingCwd: string }
   | { type: 'session_interrupted'; sessionId: string; reason: string }
+  // A non-fatal, dismissible notice about the active session that the UI should
+  // surface as a banner (e.g. a CLI bridge took over a mid-run session and its
+  // in-flight tool call/turn was interrupted). Unlike session_interrupted, the
+  // client KEEPS the session attached; this is purely informational.
+  | { type: 'session_notice'; sessionId: string; level: 'info' | 'warning'; message: string }
+  // Sent to the CLI bridge (only) right after it registers a session that the
+  // server was actively running MID-TURN. Registering disposes that server-side
+  // agent, discarding the in-flight turn without persisting it, so the CLI's own
+  // dangling-tool-call heuristic cannot see the streaming-text case. This tells
+  // the CLI explicitly so it can surface the takeover, symmetric with the web
+  // client's session_notice. `toolCall` is true when a tool call was in flight
+  // (its result is lost), false when only assistant text was streaming.
+  | { type: 'cli_takeover_interrupted'; sessionId: string; toolCall: boolean }
   | { type: 'message_history'; sessionId: string; messages: HistoryMessage[]; totalCount?: number; offset?: number }
   | { type: 'message_history_prepend'; sessionId: string; messages: HistoryMessage[]; offset: number }
   | { type: 'model_changed'; sessionId: string; model: string }
