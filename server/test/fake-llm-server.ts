@@ -30,7 +30,11 @@ export type FakeBehavior =
   // `bash` running `sleep`) when a test takes an action mid-execution. The tool
   // name + input are provided by the test; a long-running command gives a wide,
   // deterministic window while the tool_execution_start/end pair straddles it.
-  | { kind: 'tool-call'; toolName: string; input: Record<string, unknown>; toolCallId?: string };
+  | { kind: 'tool-call'; toolName: string; input: Record<string, unknown>; toolCallId?: string }
+  // Emit MULTIPLE tool_use blocks in one assistant message (stop_reason:
+  // tool_use), so the agent runs several tools in PARALLEL. Used to reproduce
+  // how an abort mid-execution settles each of several concurrent tool calls.
+  | { kind: 'tool-calls'; calls: Array<{ toolName: string; input: Record<string, unknown>; toolCallId?: string }> };
 
 export interface FakeLlmServer {
   server: Server;
@@ -101,6 +105,48 @@ export async function startFakeLlmServer(
           delta: { type: 'input_json_delta', partial_json: JSON.stringify(behavior.input) },
         });
         sse(res, 'content_block_stop', { type: 'content_block_stop', index: 0 });
+        sse(res, 'message_delta', {
+          type: 'message_delta',
+          delta: { stop_reason: 'tool_use' },
+          usage: { output_tokens: 1 },
+        });
+        sse(res, 'message_stop', { type: 'message_stop' });
+        res.end();
+        return;
+      }
+
+      // Multiple parallel tool_use blocks in one message.
+      if (behavior.kind === 'tool-calls') {
+        sse(res, 'message_start', {
+          type: 'message_start',
+          message: {
+            id: 'msg_fake_tools',
+            type: 'message',
+            role: 'assistant',
+            model: 'fake',
+            content: [],
+            stop_reason: null,
+            usage: { input_tokens: 10, output_tokens: 0 },
+          },
+        });
+        behavior.calls.forEach((call, i) => {
+          sse(res, 'content_block_start', {
+            type: 'content_block_start',
+            index: i,
+            content_block: {
+              type: 'tool_use',
+              id: call.toolCallId ?? `toolu_fake_${i + 1}`,
+              name: call.toolName,
+              input: {},
+            },
+          });
+          sse(res, 'content_block_delta', {
+            type: 'content_block_delta',
+            index: i,
+            delta: { type: 'input_json_delta', partial_json: JSON.stringify(call.input) },
+          });
+          sse(res, 'content_block_stop', { type: 'content_block_stop', index: i });
+        });
         sse(res, 'message_delta', {
           type: 'message_delta',
           delta: { stop_reason: 'tool_use' },

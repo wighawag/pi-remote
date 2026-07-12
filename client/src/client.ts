@@ -791,6 +791,13 @@ export class WhereverClient {
                 ? {
                     ...m,
                     isStreaming: false,
+                    // A tool still streaming when the turn ends never got a
+                    // tool_end (e.g. the turn was aborted, or its result frame
+                    // was lost): its outcome is unknown. Mark it interrupted
+                    // (neutral), never let it fall through to a green success
+                    // tick, which would falsely claim it succeeded. Assistant/
+                    // thinking messages just stop streaming.
+                    ...(m.role === 'tool' ? {interrupted: true} : {}),
                     // Freeze a still-running tool's duration if it never got a
                     // tool_end (turn ended between steps), so "Elapsed" stops
                     // ticking and shows the final "Took".
@@ -877,22 +884,43 @@ export class WhereverClient {
 
       case 'tool_end': {
         const result = msg.result ? `${msg.result}` : '';
+        // An abort (e.g. the web "abort" button killed the tool mid-run) surfaces
+        // as isError with a trailing "...aborted" status. That is not a tool
+        // FAILURE, so render it as the neutral interrupted state, not a red
+        // error.
+        const aborted = !!msg.isError && this.isAbortedToolResult(result);
+        const effectiveIsError = !!msg.isError && !aborted;
         const toolImages =
           Array.isArray(msg.images) && msg.images.length > 0
             ? msg.images
             : undefined;
         this.stateStore.update((s: WhereverState) => {
-          const toolMsg = [...s.messages]
-            .reverse()
-            .find(
+          // Claim the OLDEST still-streaming tool of this name (FIFO). Parallel
+          // tool calls share a name, so matching the LAST one (or any already
+          // finalized one) would let two tool_end frames land on the SAME
+          // message and leave the other tool stuck streaming: it would then be
+          // finalized by the 'aborted'/agent_end sweep with no result and render
+          // as a bogus green success. Preferring a streaming message means each
+          // tool_end settles a distinct in-flight call. Fall back to the newest
+          // non-error tool of this name only if none are still streaming.
+          const toolMsg =
+            s.messages.find(
               (m: ChatMessage) =>
                 m.role === 'tool' &&
                 m.toolName === msg.toolName &&
-                !m.content.startsWith('Tool error:'),
-            );
+                m.isStreaming,
+            ) ??
+            [...s.messages]
+              .reverse()
+              .find(
+                (m: ChatMessage) =>
+                  m.role === 'tool' &&
+                  m.toolName === msg.toolName &&
+                  !m.content.startsWith('Tool error:'),
+              );
           const endedAt = Date.now();
           if (toolMsg) {
-            const errorPrefix = msg.isError ? 'Error: ' : '';
+            const errorPrefix = effectiveIsError ? 'Error: ' : '';
             return {
               ...s,
               messages: s.messages.map((m: ChatMessage) =>
@@ -901,7 +929,8 @@ export class WhereverClient {
                       ...m,
                       content: `${errorPrefix}${m.content}\n${result}`,
                       isStreaming: false,
-                      isError: msg.isError,
+                      isError: effectiveIsError,
+                      interrupted: aborted,
                       toolOutput: result,
                       ...(toolImages ? {images: toolImages} : {}),
                       endedAt,
@@ -910,7 +939,7 @@ export class WhereverClient {
               ),
             };
           } else {
-            const content = msg.isError
+            const content = effectiveIsError
               ? `Tool error: ${msg.toolName}\n${result}`
               : `${msg.toolName}\n${result}`;
             const message: ChatMessage = {
@@ -923,7 +952,8 @@ export class WhereverClient {
               toolArgs: '',
               toolOutput: result,
               ...(toolImages ? {images: toolImages} : {}),
-              isError: msg.isError,
+              isError: effectiveIsError,
+              interrupted: aborted,
               endedAt,
             };
             return {
@@ -945,6 +975,11 @@ export class WhereverClient {
               ? {
                   ...m,
                   isStreaming: false,
+                  // A tool still streaming when the turn is aborted was killed
+                  // with no result: mark it interrupted (neutral), never leave
+                  // it to fall through to a green success tick. Assistant/
+                  // thinking messages just stop streaming.
+                  ...(m.role === 'tool' ? {interrupted: true} : {}),
                   endedAt:
                     m.role === 'tool' && m.endedAt === undefined
                       ? abortedAt
@@ -1163,6 +1198,24 @@ export class WhereverClient {
   }
 
   /**
+   * True when an errored tool result is the product of a USER ABORT (e.g. the
+   * web "abort" button killed a running tool), rather than a genuine tool
+   * failure. The pi tools append a trailing status line on abort ("Command
+   * aborted" for bash, "Operation aborted" for edit/write, bare "aborted" for a
+   * pre-execution abort). We match that trailing status so the UI can render a
+   * neutral "interrupted" state instead of a red error: you cancelling a tool is
+   * not the tool failing. Only meaningful when isError is already true; matched
+   * as the LAST non-empty line to avoid false positives from command output that
+   * merely contains the word "aborted".
+   */
+  private isAbortedToolResult(result: string | undefined): boolean {
+    if (!result) return false;
+    const lines = result.trimEnd().split('\n');
+    const last = (lines[lines.length - 1] || '').trim();
+    return /^(command|operation)?\s*aborted$/i.test(last);
+  }
+
+  /**
    * Map a server `HistoryMessage[]` window into UI `ChatMessage[]`. When
    * `applyStreamingTail` is true, the last assistant/thinking message and any
    * unmatched tool-call placeholders are marked streaming (used only for the
@@ -1208,7 +1261,11 @@ export class WhereverClient {
           ...(Array.isArray(m.images) && m.images.length > 0
             ? {images: m.images}
             : {}),
-          isError: m.isError,
+          // A user abort surfaces as an errored result with a trailing
+          // "...aborted" status. Render it as interrupted (neutral), not a red
+          // error: aborting a tool is not the tool failing.
+          isError: m.isError && !this.isAbortedToolResult(m.content),
+          interrupted: !!m.isError && this.isAbortedToolResult(m.content),
           sessionId,
           // Duration from the matched call. Only when both timestamps are
           // finite and coherent (end >= start); otherwise leave unset so the UI
