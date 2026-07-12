@@ -1,5 +1,77 @@
 # wherever-dev
 
+## 0.5.3
+
+### Patch Changes
+
+- 4836b65: Fix dangling tool calls being hoisted to the end of the transcript on the web frontend, showing as a phantom "series of aborted tool calls" after the latest reply.
+
+  When loaded history contained a tool call with no matching tool result (e.g. an interrupted long-running `bash` that was superseded by a new user turn, then more replies), the web history mapping deferred every unmatched tool call and appended them all AFTER the last mapped message. So dangling calls from the MIDDLE of the conversation piled up below the latest assistant reply, even though the CLI (and the actual transcript) has them inline where they were issued. The reproducing session was a deliberate recoverability test ("Generate a long message..."/"long running tool call using bash sleep" then interrupting it).
+
+  The mapping now renders each tool call IN PLACE at its position in the stream: a result-less tool message is emitted when the tool call is seen, and its matching tool result fills it in later (oldest-open-first per tool name, preserving the parallel-call FIFO behaviour). A call that never receives a result stays exactly where it was issued, correctly marked `interrupted` (neutral "no result" state), instead of migrating to the end. On the live streaming tail, only the newest still-open call is kept streaming ("Elapsed" ticking); earlier open calls in the window are interrupted.
+
+  Tests: two new client tests covering (1) a mid-conversation dangling call staying in place with the final message still an assistant reply, and (2) multiple dangling calls where only the newest streams on the live tail while earlier ones are interrupted in place. All existing tool abort/interrupted/duration tests still pass.
+
+- 12083e5: Render an aborted tool call as interrupted, not a red error.
+
+  When you hit the web "abort" button while tools are running, pi kills the in-flight tools and surfaces each as an errored result with a trailing "...aborted" status ("Command aborted" for bash, "Operation aborted" for edit/write). The web then rendered that as a red error tick, as if the tool had genuinely failed. With parallel tool calls this was especially confusing: a tool that happened to finish just before the abort showed a green success tick while the killed one showed a red error, even though the user aborted the whole turn.
+
+  The client now detects an abort result (an errored result whose trailing status line is "...aborted") and renders it with the neutral "interrupted" state (muted icon, neutral border) instead of a red error, on both the live tool_end path and when reconstructing from loaded history. A tool that genuinely completed keeps its green success, and a genuine failure keeps its red error. The match is anchored to the trailing status line, so ordinary command output that merely contains the word "aborted" is not misclassified.
+
+  Also fixes a related mismatch with PARALLEL same-named tools. Live tool_end frames were matched to a tool message by name via a last-match search, so with two concurrent bash calls both tool_end frames could land on the same message, leaving the other tool stuck streaming; it was then finalized by the agent_end sweep with no result and shown as a bogus green success tick. tool_end now claims the OLDEST still-streaming tool of that name (FIFO), so each concurrent call settles a distinct message. And any tool still streaming when the turn ends (agent_end) is now marked interrupted rather than left to render green, since its outcome is unknown.
+
+  Also adds a `tool-calls` (parallel tool_use) behavior to the test fake LLM to exercise concurrent tool execution.
+
+- b87f1bc: Search mode: let the user pick the model before searching, and make the default folder-aware.
+
+  The main-page search composer now shows a compact model picker (same list as the sidebar new-session picker). The selection is seeded from the search folder's default model, which the server now resolves against that folder's own settings (a folder-local harness/pi config default wins over the server global). The chosen model is threaded through `runSearch` into session creation, so a search runs on the selected model instead of always falling back to the global default. The top-bar magnifier needs no separate control: it just focuses the same composer.
+
+  Server: `getAvailableModels(cwd?)` now resolves `isDefault` against an optional folder, a new `getDefaultModelFor(cwd)` returns a folder's default as `provider:modelId`, and `GET /config` includes `searchDefaultModel` for the configured search folder.
+
+- db16623: Render `read`-tool image output inline in the web frontend, mirroring the CLI's inline image display.
+
+  When the agent uses the builtin `read` tool on an image path, the pi tool result carries an image content block (`{type:'image', data, mimeType}`) alongside the text note. Previously the server's `extractToolResult` kept only text blocks, so the web never saw the image. The server now also pulls image blocks out of the tool result and ships them (base64 + mimeType) on the `tool_end` frame via a new optional `images` field, and reconstructs them from history when a session is reloaded. The client stores them on the `ChatMessage` (`images`), and the web renders each image inline right under the tool header, always visible (not hidden behind the collapse toggle), while the textual arguments/output stay collapsible. Click an image to open it full size. Text-only tools are unaffected.
+
+- 9931867: Pair reconstructed tool results to their exact tool call by id, not just by tool name.
+
+  The server now forwards the tool-call id on both `tool_call` (the id the assistant issued) and `tool_result` (the `toolCallId` it satisfies) history messages, and the web history mapping matches a result to its exact call by that id, falling back to the previous oldest-open-first per-tool-name behaviour only when no id is present (older sessions, or the synthesized `bashExecution` pair).
+
+  This fixes mis-pairing when same-named calls interleave with some left dangling: e.g. two `bash` calls issued back-to-back where only the second returns a result. Name-FIFO alone would resolve the first call and leave the second dangling; id matching resolves the correct one and leaves the genuinely-interrupted call marked interrupted, in place.
+
+  Tests: a new client test covering id-exact pairing (result resolves call #2 by id, leaving call #1 dangling/interrupted, order preserved).
+
+- 676ca94: Add an inviting "agent is waiting for you" beep to both the web frontend and the CLI bridge extension.
+
+  Both surfaces can now play a gentle sound the moment the agent finishes and is waiting for a human message, so you can look away and be called back when it is your turn. The beep is DISABLED by default on both. Each surface has a per-session toggle, and a config that sets the default for new sessions (which the per-session toggle can still override). The two surfaces are configured independently.
+
+  Web frontend (`wherever-dev`): the chime is synthesised with the Web Audio API (a soft two-note rising interval, no bundled asset) and fires on the `isStreaming` true -> false edge for the active session. Connection Settings has a "Beep when the agent is waiting" checkbox (`beepDefault`) for the persisted default and an optional custom sound URL (`beepSoundUrl`, played via an `Audio` element, with a Test button; blank = built-in chime), both persisted in the `wherever-config` localStorage entry.
+
+  The chat toolbar (next to "Hide Thinking" / context usage) has a tri-state per-session beep control that cycles Default -> On -> Off -> Default. Per-session choices are stored per session id (persisted in a separate `wherever-beep-overrides` localStorage map), so a session with NO explicit choice follows the global default live (changing the default updates it), while an explicit On/Off sticks to that session across session switches and reloads, unaffected by later default changes, until cleared back to Default. The default is a reactive store so toggling it in the Config menu takes effect immediately.
+
+  CLI bridge extension (`@wherever-dev/pi`): plays a sound on the `agent_settled` event (the run has fully settled and is genuinely waiting for input, so it does not fire between chained internal turns).
+  - Enabled by default when EITHER the `--remote-beep` flag is set OR `beep.enabled: true` in `~/.wherever/config.json` (the flag can only force-on, so the config file is the way to enable-by-default without passing the flag). Default off.
+  - `/remote-beep [on|off]` toggles it for the current session (no argument toggles; enabling plays a sample); resets to the configured default on each session start.
+  - Sound resolution, highest precedence first: `--remote-beep-command` flag, then `beep.command` in `~/.wherever/config.json`, then an auto-detected player + a system chime (`pw-play`/`paplay`/`canberra-gtk-play`/`ffplay` + freedesktop `complete.oga`, or `afplay` on macOS), then a terminal bell. The bell (`\x07`) is written to `/dev/tty` rather than stdout because pi's TUI owns stdout and can swallow an out-of-band byte; the command path exists because many terminals (e.g. WezTerm on Linux) have a silent audible bell.
+
+  Also adds a typed `beep` section (`enabled`, `command`) to the server's `WhereverConfig` (the shared `~/.wherever/config.json` type), which the extension reads directly.
+
+- 8536f30: Warn both the web frontend and the CLI when a CLI takeover discards an in-flight turn.
+
+  When a `pi` CLI resumes/registers a session while the standalone server is mid-turn for a web viewer, the CLI seizes control and the server disposes its live agent. Disposing mid-turn discards the whole in-flight turn without persisting it (persistence only happens on turn completion), so the web viewer, who was watching a tool run or a reply stream, lost it silently with no explanation.
+
+  The server now detects that the server-side agent was mid-turn at takeover and sends the attached web clients a non-fatal `session_notice` (level: warning). The web frontend renders it as a dismissible banner. The wording is tailored to what was lost: a running tool call (tracked via a per-session in-flight tool-execution count, so its result never arrives) or a streaming reply (the partial text is discarded and not saved). A takeover of an already-settled (idle) session is not flagged. The session stays attached (informational, unlike `session_interrupted`).
+
+  The notice also states the takeover semantics accurately: once the CLI has taken over it owns the session's execution loop, so messages sent from the web frontend are relayed to the CLI rather than wresting control back. The web frontend regains control only when the CLI disconnects.
+
+  The CLI side is covered too. On register, the server sends the taking-over CLI a `cli_takeover_interrupted` message, and the Wherever extension surfaces a single matching notice. This closes a blind spot: a still-streaming turn is never persisted, so the extension's own resumed-mid-tool-call check (which reads the saved transcript) cannot see the streaming-text case. For the tool-call case, the extension's transcript check already warns with the tool names, so the server-driven notice defers to it to avoid a duplicate.
+
+  Also fixes the web frontend rendering a killed-then-orphaned tool call as a green success tick. When a CLI takeover kills an in-flight tool (the pi SDK aborts the run and SIGKILLs the tool's process tree, so it does not keep running in the background), the transcript keeps a dangling toolCall with no toolResult. The web history mapping now flags such a result-less, non-streaming tool call as `interrupted`, and the UI shows a neutral "interrupted, no result" state (a muted ⊘ icon, neutral border, and an explanatory output note) instead of the green ✅ "Succeeded": its outcome is genuinely unknown, neither success nor failure.
+
+  Also cleans up the CLI's resumed-mid-run warning (the extension's dangling-tool-call widget):
+  - It now counts only the TRAILING dangling tool calls (those after the last user message on the active branch), not every unsatisfied tool call in the whole session. Earlier turns' interrupted tool calls are already superseded by a later human turn and do not block auto-continue, so they were over-counted (e.g. "4 tool calls" when only 1 was actually blocking).
+  - It shows a single persistent widget instead of a widget plus a duplicate transient notify.
+  - Its guidance is corrected: the CLI has already taken over, so it says to send a message to retry or continue, rather than the stale "send a message to take over".
+
 ## 0.5.2
 
 ### Patch Changes
