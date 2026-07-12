@@ -1227,56 +1227,100 @@ export class WhereverClient {
     applyStreamingTail: boolean,
   ): ChatMessage[] {
     const mapped: ChatMessage[] = [];
-    // Each pending tool_call carries its args AND its start timestamp (the ts of
-    // the toolCall entry). When the matching tool_result arrives, startedAt =
-    // the call ts and endedAt = the result ts, so a tool reconstructed from
-    // loaded history shows the same "Took N.Ns" as a live-streamed one.
-    const pendingCalls: Record<string, {args: string; startedAt: number}[]> = {};
+    // A tool_call is rendered IN PLACE, at its position in the stream, as a tool
+    // message that is initially result-less. Its matching tool_result fills it
+    // in later. We track the still-open calls per tool name as indices into
+    // `mapped`, so a call that never receives a result simply stays where it was
+    // issued (correctly marked interrupted below) instead of being hoisted to
+    // the very end of the transcript. The end-hoisting was the bug: dangling
+    // tool calls from EARLIER in the conversation (e.g. an interrupted long-
+    // running bash, later superseded by a new user turn) would all pile up as a
+    // "series of aborted tool calls" AFTER the latest reply, even though the CLI
+    // shows them inline where they happened.
+    const openCalls: Record<string, number[]> = {};
 
     for (const m of rawMessages) {
       if (m.role === 'tool_call') {
         const tName = m.toolName || 'unknown';
-        if (!pendingCalls[tName]) {
-          pendingCalls[tName] = [];
-        }
-        pendingCalls[tName].push({args: m.content || '', startedAt: m.timestamp});
-      } else if (m.role === 'tool_result') {
-        const tName = m.toolName || 'unknown';
-        const call =
-          pendingCalls[tName] && pendingCalls[tName].length > 0
-            ? pendingCalls[tName].shift()!
-            : undefined;
-        const tArgs = call?.args ?? '';
+        const args = m.content || '';
+        const idx = mapped.length;
         mapped.push({
           id: this.generateId(),
           role: 'tool',
-          content: tArgs
-            ? `$ ${tName} ${tArgs}\n${m.content}`
-            : `$ ${tName}\n${m.content}`,
+          content: args ? `$ ${tName} ${args}` : `$ ${tName}`,
           timestamp: m.timestamp,
+          // No result yet. Marked as interrupted below if it stays unmatched;
+          // the streaming tail promotes the last one back to streaming.
           isStreaming: false,
           toolName: tName,
-          toolArgs: tArgs,
-          toolOutput: m.content,
-          ...(Array.isArray(m.images) && m.images.length > 0
-            ? {images: m.images}
-            : {}),
-          // A user abort surfaces as an errored result with a trailing
-          // "...aborted" status. Render it as interrupted (neutral), not a red
-          // error: aborting a tool is not the tool failing.
-          isError: m.isError && !this.isAbortedToolResult(m.content),
-          interrupted: !!m.isError && this.isAbortedToolResult(m.content),
+          toolArgs: args,
+          toolOutput: '',
           sessionId,
-          // Duration from the matched call. Only when both timestamps are
-          // finite and coherent (end >= start); otherwise leave unset so the UI
-          // simply shows no duration rather than a bogus one.
-          ...(call &&
-          Number.isFinite(call.startedAt) &&
-          Number.isFinite(m.timestamp) &&
-          m.timestamp >= call.startedAt
-            ? {startedAt: call.startedAt, endedAt: m.timestamp}
-            : {}),
+          // Keep the start so a matched result (or a still-running streaming
+          // tail) can show a coherent duration / "Elapsed".
+          ...(Number.isFinite(m.timestamp) ? {startedAt: m.timestamp} : {}),
         });
+        if (!openCalls[tName]) openCalls[tName] = [];
+        openCalls[tName].push(idx);
+      } else if (m.role === 'tool_result') {
+        const tName = m.toolName || 'unknown';
+        // Fill the OLDEST still-open call of this name (FIFO), mirroring how
+        // parallel same-named calls resolve in order.
+        const callIdx =
+          openCalls[tName] && openCalls[tName].length > 0
+            ? openCalls[tName].shift()!
+            : undefined;
+        const isError = m.isError && !this.isAbortedToolResult(m.content);
+        const interrupted = !!m.isError && this.isAbortedToolResult(m.content);
+        if (callIdx !== undefined) {
+          const call = mapped[callIdx];
+          const tArgs = call.toolArgs || '';
+          const startedAt = call.startedAt;
+          mapped[callIdx] = {
+            ...call,
+            content: tArgs
+              ? `$ ${tName} ${tArgs}\n${m.content}`
+              : `$ ${tName}\n${m.content}`,
+            isStreaming: false,
+            toolOutput: m.content,
+            ...(Array.isArray(m.images) && m.images.length > 0
+              ? {images: m.images}
+              : {}),
+            // A user abort surfaces as an errored result with a trailing
+            // "...aborted" status. Render it as interrupted (neutral), not a red
+            // error: aborting a tool is not the tool failing.
+            isError,
+            interrupted,
+            timestamp: m.timestamp,
+            // Duration only when both timestamps are finite and coherent
+            // (end >= start); otherwise leave unset rather than show a bogus one.
+            ...(startedAt !== undefined &&
+            Number.isFinite(startedAt) &&
+            Number.isFinite(m.timestamp) &&
+            m.timestamp >= startedAt
+              ? {endedAt: m.timestamp}
+              : {}),
+          };
+        } else {
+          // A result with no preceding open call (shouldn't normally happen).
+          // Render it in place as a standalone tool message so nothing is lost.
+          mapped.push({
+            id: this.generateId(),
+            role: 'tool',
+            content: `$ ${tName}\n${m.content}`,
+            timestamp: m.timestamp,
+            isStreaming: false,
+            toolName: tName,
+            toolArgs: '',
+            toolOutput: m.content,
+            ...(Array.isArray(m.images) && m.images.length > 0
+              ? {images: m.images}
+              : {}),
+            isError,
+            interrupted,
+            sessionId,
+          });
+        }
       } else {
         mapped.push({
           id: this.generateId(),
@@ -1290,36 +1334,27 @@ export class WhereverClient {
       }
     }
 
-    for (const [tName, calls] of Object.entries(pendingCalls)) {
-      for (const call of calls) {
-        // An unmatched call (assistant issued a toolCall, no toolResult). Two
-        // distinct meanings depending on context:
-        //   - streaming tail (applyStreamingTail): the tool is STILL RUNNING;
-        //     keep isStreaming so the UI ticks "Elapsed".
-        //   - otherwise: the call is FROZEN with no result. The tool ended
-        //     without producing one (e.g. a CLI takeover killed it mid-run), so
-        //     its outcome is unknown. Mark it `interrupted` so the UI shows a
-        //     neutral "no result" state instead of a bogus green success tick.
-        mapped.push({
-          id: this.generateId(),
-          role: 'tool',
-          content: call.args ? `$ ${tName} ${call.args}` : `$ ${tName}`,
-          timestamp:
-            mapped.length > 0
-              ? mapped[mapped.length - 1].timestamp + 1
-              : Date.now(),
-          isStreaming: applyStreamingTail,
-          toolName: tName,
-          toolArgs: call.args,
-          toolOutput: '',
-          sessionId,
-          ...(applyStreamingTail ? {} : {interrupted: true}),
-          // An unmatched call (no result yet). Keep its start so a still-running
-          // tool in the streaming tail can tick "Elapsed"; leave endedAt unset.
-          ...(Number.isFinite(call.startedAt)
-            ? {startedAt: call.startedAt}
-            : {}),
-        });
+    // Any call still open (issued a toolCall, never got a tool_result) is FROZEN
+    // in place with no result. Meaning depends on context:
+    //   - streaming tail (applyStreamingTail): only the MOST RECENT open call is
+    //     plausibly still running; keep it streaming so the UI ticks "Elapsed".
+    //     Earlier open calls in the same window are already superseded and are
+    //     interrupted.
+    //   - otherwise: its outcome is unknown (e.g. a CLI takeover / interruption
+    //     killed it mid-run), so mark it `interrupted` for a neutral "no result"
+    //     state instead of a bogus green success tick.
+    const allOpen: number[] = [];
+    for (const idxs of Object.values(openCalls)) allOpen.push(...idxs);
+    allOpen.sort((a, b) => a - b);
+    const lastOpenIdx =
+      applyStreamingTail && allOpen.length > 0
+        ? allOpen[allOpen.length - 1]
+        : -1;
+    for (const idx of allOpen) {
+      if (idx === lastOpenIdx) {
+        mapped[idx] = {...mapped[idx], isStreaming: true};
+      } else {
+        mapped[idx] = {...mapped[idx], interrupted: true};
       }
     }
 

@@ -103,6 +103,99 @@ describe('interrupted (result-less) tool call from loaded history', () => {
 		expect(tool.isStreaming).toBe(true);
 	});
 
+	it('renders a dangling mid-conversation tool_call IN PLACE, not hoisted to the end', () => {
+		// Recoverability case: an interrupted long-running bash call, superseded by
+		// a new user turn and later assistant replies. The dangling call must stay
+		// where it was issued (between "start it" and "never mind"), NOT be moved
+		// below the final reply as a phantom trailing "aborted tool call".
+		ws.last().receive({
+			type: 'session_created',
+			sessionId: 'sid-1',
+			sessionFile: '/tmp/project/session.jsonl',
+			cwd: '/tmp/project',
+			model: 'fake:model',
+			isStreaming: false,
+		});
+		ws.last().receive({
+			type: 'message_history',
+			sessionId: 'sid-1',
+			messages: [
+				{role: 'user', content: 'start it', timestamp: 1_000},
+				{
+					role: 'tool_call',
+					content: '{"command":"sleep 300"}',
+					timestamp: 2_000,
+					toolName: 'bash',
+				},
+				{role: 'user', content: 'never mind', timestamp: 3_000},
+				{role: 'assistant', content: 'ok, stopped', timestamp: 4_000},
+				{role: 'user', content: 'hello', timestamp: 5_000},
+				{role: 'assistant', content: 'hi there', timestamp: 6_000},
+			],
+			totalCount: 6,
+			offset: 0,
+		});
+
+		const roles = state().messages.map((m) => m.role);
+		// The tool sits at index 1 (right after the first user message), not last.
+		expect(roles).toEqual([
+			'user',
+			'tool',
+			'user',
+			'assistant',
+			'user',
+			'assistant',
+		]);
+		const tool = state().messages[1];
+		expect(tool.interrupted).toBe(true);
+		expect(tool.isStreaming).toBe(false);
+		// The final message is the assistant reply, NOT a trailing tool call.
+		expect(state().messages[state().messages.length - 1].role).toBe(
+			'assistant',
+		);
+	});
+
+	it('with multiple dangling calls, only the newest streams on the live tail; earlier ones are interrupted in place', () => {
+		ws.last().receive({
+			type: 'session_created',
+			sessionId: 'sid-1',
+			sessionFile: '/tmp/project/session.jsonl',
+			cwd: '/tmp/project',
+			model: 'fake:model',
+			isStreaming: true,
+		});
+		ws.last().receive({
+			type: 'message_history',
+			sessionId: 'sid-1',
+			messages: [
+				{
+					role: 'tool_call',
+					content: '{"command":"sleep 1"}',
+					timestamp: 1_000,
+					toolName: 'bash',
+				},
+				{role: 'user', content: 'again', timestamp: 2_000},
+				{
+					role: 'tool_call',
+					content: '{"command":"sleep 2"}',
+					timestamp: 3_000,
+					toolName: 'bash',
+				},
+			],
+			totalCount: 3,
+			offset: 0,
+		});
+
+		const tools = state().messages.filter((m) => m.role === 'tool');
+		expect(tools).toHaveLength(2);
+		// First (older) dangling call: interrupted, not streaming.
+		expect(tools[0].interrupted).toBe(true);
+		expect(tools[0].isStreaming).toBe(false);
+		// Newest dangling call: still running on the live tail.
+		expect(tools[1].interrupted).toBeFalsy();
+		expect(tools[1].isStreaming).toBe(true);
+	});
+
 	it('a matched tool_call + tool_result is NOT interrupted', () => {
 		ws.last().receive({
 			type: 'session_created',
