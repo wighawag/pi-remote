@@ -11,6 +11,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
+import {
+  runInstall,
+  runUninstall,
+  runServiceStatus,
+  parseInstallOptions,
+  printInstallHelp,
+} from './commands/install.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1693,7 +1700,50 @@ function extractText(msg: any): string {
   return '';
 }
 
-main().catch((err) => {
-  console.error('Fatal server startup error:', err);
-  process.exit(1);
-});
+/**
+ * Subcommand dispatch. Every action is an explicit verb:
+ *   - `wherever start [server flags]` runs the server
+ *   - `wherever install|uninstall|service-status` manage the background service
+ *   - bare `wherever` (or `help`) prints usage
+ * Server flags after `start` are consumed by parseArgs() (which reads
+ * process.argv), so `start` is stripped from argv before main() runs.
+ */
+function dispatch(): void {
+  const argv = process.argv.slice(2);
+  const verb = argv[0];
+  const rest = argv.slice(1);
+
+  switch (verb) {
+    case 'start':
+      // Drop the `start` verb so the existing flag parser sees only server
+      // flags (it reads process.argv directly).
+      process.argv.splice(2, 1);
+      main().catch((err) => {
+        console.error('Fatal server startup error:', err);
+        process.exit(1);
+      });
+      return;
+    case 'install':
+      runInstall(parseInstallOptions(rest));
+      return;
+    case 'uninstall':
+      runUninstall(parseInstallOptions(rest));
+      return;
+    case 'service-status':
+    case 'status':
+      runServiceStatus(parseInstallOptions(rest));
+      return;
+    case undefined:
+    case 'help':
+    case '--help':
+    case '-h':
+      printInstallHelp();
+      return;
+    default:
+      console.error(`Unknown command: ${verb}\n`);
+      printInstallHelp();
+      process.exit(1);
+  }
+}
+
+dispatch();

@@ -57,18 +57,24 @@
 		{
 			number: '01',
 			title: 'Install the Server',
-			description:
-				'Install the wherever-dev server package globally or locally in your project.',
+			description: 'Install the wherever-dev server package globally.',
 			code: 'npm install -g wherever-dev',
 		},
 		{
 			number: '02',
 			title: 'Start the Server',
-			description: 'Launch the server with your preferred token and port.',
-			code: 'wherever',
+			description: 'Run one command to launch the server.',
+			code: 'wherever start',
 		},
 		{
 			number: '03',
+			title: 'Run it as a Service',
+			description:
+				'Optional: install a background service (systemd on Linux, launchd on macOS) that starts on boot and wires the pi extension in automatically.',
+			code: 'wherever install',
+		},
+		{
+			number: '04',
 			title: 'Open the Dashboard',
 			description:
 				'Open the dashboard in your browser and start creating and maintaining your apps.',
