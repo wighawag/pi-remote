@@ -1,5 +1,25 @@
 # wherever-dev
 
+## 0.5.2
+
+### Patch Changes
+
+- 333f6ad: Never silently lose a message when the connection drops mid-send; confirm delivery and recover it on reload.
+
+  A frame handed to a socket that reports OPEN can still never reach the server (a half-open TCP connection: `send()` buffers locally and does not throw, but the bytes never land). The optimistic echo was treated as delivered, the input was cleared, and on reload the message was gone with no way to recover it.
+
+  Outbound user messages are now tracked as `delivery: 'sending'` until the server echoes them back (`message_end` role:user), at which point they are confirmed. If no echo arrives within a window, the message flips to `delivery: 'failed'` and the UI surfaces "Not delivered" with Retry / Discard instead of a normal-looking sent message. Unconfirmed messages are persisted per session, so a reload reconciles them against the loaded history: anything the server actually persisted is shown as delivered, and anything it did not is re-surfaced as a recoverable failed message (never silently dropped). New client APIs: `resendMessage(id)` and `discardMessage(id)`.
+
+- 0976c2e: Steer the agent immediately on a mid-stream submit, matching pi's default.
+
+  Submitting a message while the agent is streaming now steers it right away (the server injects it at the next tool/step boundary, before the next LLM call) instead of parking it in a local queue that waits for the whole turn to resolve. The primary button is renamed "Queue" -> "Steer" and the surrounding copy is aligned to pi's language ("Agent is working, Steer to interrupt"). The local `queuedText` wait-then-send and the `isStreaming`-driven auto-drain (and the "Unqueue" button) are removed; this also eliminates the "pi stops midway" auto-fire mechanism (see docs/adr/0003). The submit decision is now a pure, unit-tested helper (`web/src/lib/core/compose-send.ts`), and the hard-won safety is preserved: text is kept on a dropped send, per-session drafts persist, and disconnected/resyncing/agent-pending surface clear states instead of silently swallowing a message.
+
+- 9368269: Show how long each tool call has been running, like the pi CLI.
+
+  A running tool now shows a live-ticking "Elapsed N.Ns" and, once it finishes, "Took N.Ns" (one decimal, matching the CLI's bash duration format). The client reducer stamps `startedAt` on `tool_start` and `endedAt` on `tool_end` (new `ChatMessage` fields), and freezes a still-running tool's `endedAt` if the turn ends or is aborted without a `tool_end`, so the timer stops instead of counting up forever. The web UI ticks only while a tool is actually running (no per-frame work on an idle session).
+
+  Durations also survive a reload/reconnect: history mapping pairs each `tool_call` with its `tool_result` and derives `startedAt`/`endedAt` from their timestamps (no server change needed), so a tool restored from loaded history shows the same "Took N.Ns" as a live-streamed one.
+
 ## 0.5.1
 
 ### Patch Changes

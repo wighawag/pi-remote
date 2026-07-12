@@ -1,5 +1,13 @@
 # @wherever-dev/pi
 
+## 0.2.7
+
+### Patch Changes
+
+- Updated dependencies [333f6ad]
+- Updated dependencies [9368269]
+  - @wherever-dev/client@0.3.1
+
 ## 0.2.6
 
 ### Patch Changes
