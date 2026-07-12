@@ -46,7 +46,9 @@ function resolveServiceContext(opts: InstallOptions): ServiceContext {
   const __filename = fileURLToPath(import.meta.url);
   // dist/commands/install.js -> dist/index.js
   const serverEntry = path.resolve(path.dirname(__filename), '..', 'index.js');
-  const serverArgs: string[] = [];
+  // The server is started via the explicit `start` verb; bare invocation prints
+  // help, so the service must pass `start` before any flags.
+  const serverArgs: string[] = ['start'];
   if (opts.port !== undefined) serverArgs.push('--port', String(opts.port));
   if (opts.host !== undefined) serverArgs.push('--host', opts.host);
   if (opts.token !== undefined) serverArgs.push('--token', opts.token);
@@ -443,10 +445,11 @@ export function printInstallHelp(): void {
   console.log(`wherever - remote control server for the pi coding agent
 
 Usage:
-  wherever [server options]        Run the server (default; see --help below)
+  wherever start [server options]  Run the server
   wherever install [options]       Install & start a background service
   wherever uninstall [options]     Stop & remove the background service
   wherever service-status          Show the service status
+  wherever help                    Show this help
 
 Install options:
   --system            Install a system-wide service (Linux only, needs root).

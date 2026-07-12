@@ -65,7 +65,7 @@
 			number: '02',
 			title: 'Start the Server',
 			description: 'Launch the server with your preferred token and port.',
-			code: 'wherever',
+			code: 'wherever start',
 		},
 		{
 			number: '03',

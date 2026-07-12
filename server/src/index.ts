@@ -1701,9 +1701,12 @@ function extractText(msg: any): string {
 }
 
 /**
- * Subcommand dispatch. `wherever <verb>` routes service management to the
- * install module; anything else (including no subcommand) runs the server, so
- * the historical `wherever [server flags]` behavior is unchanged.
+ * Subcommand dispatch. Every action is an explicit verb:
+ *   - `wherever start [server flags]` runs the server
+ *   - `wherever install|uninstall|service-status` manage the background service
+ *   - bare `wherever` (or `help`) prints usage
+ * Server flags after `start` are consumed by parseArgs() (which reads
+ * process.argv), so `start` is stripped from argv before main() runs.
  */
 function dispatch(): void {
   const argv = process.argv.slice(2);
@@ -1711,6 +1714,15 @@ function dispatch(): void {
   const rest = argv.slice(1);
 
   switch (verb) {
+    case 'start':
+      // Drop the `start` verb so the existing flag parser sees only server
+      // flags (it reads process.argv directly).
+      process.argv.splice(2, 1);
+      main().catch((err) => {
+        console.error('Fatal server startup error:', err);
+        process.exit(1);
+      });
+      return;
     case 'install':
       runInstall(parseInstallOptions(rest));
       return;
@@ -1721,16 +1733,16 @@ function dispatch(): void {
     case 'status':
       runServiceStatus(parseInstallOptions(rest));
       return;
+    case undefined:
     case 'help':
     case '--help':
     case '-h':
       printInstallHelp();
       return;
     default:
-      main().catch((err) => {
-        console.error('Fatal server startup error:', err);
-        process.exit(1);
-      });
+      console.error(`Unknown command: ${verb}\n`);
+      printInstallHelp();
+      process.exit(1);
   }
 }
 

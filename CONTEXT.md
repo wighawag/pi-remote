@@ -112,7 +112,7 @@ Wherever is a TypeScript extension for the [pi coding agent](https://pi.dev) tha
 
 ### Service Install (`wherever install`)
 
-The standalone server (`server/`, bin `wherever`) can install itself as a background service. `server/src/index.ts` dispatches on the first argv: `install` / `uninstall` / `service-status` (aliased `status`) route to `server/src/commands/install.ts`; anything else (including no subcommand) runs the server unchanged.
+The standalone server (`server/`, bin `wherever`) uses explicit verbs. `server/src/index.ts` dispatches on the first argv: `start` runs the server (server flags follow it; the `start` token is stripped from `process.argv` before `main()` so the existing flag parser is unchanged), `install` / `uninstall` / `service-status` (aliased `status`) route to `server/src/commands/install.ts`, and a bare `wherever` (or `help`) prints usage. An unknown verb prints usage and exits 1. The generated service unit invokes `wherever start ...`.
 
 - **Linux**: systemd unit. Per-user (`~/.config/systemd/user/wherever.service`) by default, or system-wide (`/etc/systemd/system/wherever.service`) with `--system` (needs root). Enabled + started via `systemctl [--user] enable --now wherever`.
 - **macOS**: per-user launchd LaunchAgent at `~/Library/LaunchAgents/dev.wherever.server.plist`, loaded via `launchctl`. `--system` is not supported.

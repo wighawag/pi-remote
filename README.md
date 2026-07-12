@@ -115,7 +115,7 @@ pi install npm:@wherever-dev/pi
 Start the standalone multi-session server:
 
 ```bash
-wherever
+wherever start
 ```
 
 The server will boot up and automatically generate self-signed SSL certificates for a secure `https`/`wss` local environment. Open `https://localhost:31415` in your browser. (The first time, proceed past your browser's SSL warning).
@@ -165,7 +165,9 @@ Install options:
 - `--port` / `--host` / `--token` — Server flags to bake into the service invocation.
 - `--dry-run` — Print the generated unit/plist and the intended actions without writing anything.
 
-> On Linux user services, run `loginctl enable-linger $USER` if you want the service to keep running after you log out. Windows is not supported yet; run `wherever` manually or use a tool like NSSM.
+> On Linux user services, run `loginctl enable-linger $USER` if you want the service to keep running after you log out. Windows is not supported yet; run `wherever start` manually or use a tool like NSSM.
+
+> Note: the server is started with the explicit `wherever start` verb. A bare `wherever` prints the command help. All server flags below apply to `wherever start`.
 
 ---
 
@@ -358,7 +360,7 @@ Using a secure private mesh VPN like [Tailscale](https://tailscale.com) or [Head
 1. Install Tailscale/Headscale on both your machine and your remote client device (e.g., your phone).
 2. Start the Wherever server binding to all interfaces (or your specific Tailscale IP):
    ```bash
-   wherever --host 0.0.0.0 --token your-secure-token
+   wherever start --host 0.0.0.0 --token your-secure-token
    ```
    _Warning: Always use a strong `--token` when binding to any interface other than localhost!_
 3. Access your Svelte dashboard securely from your remote device's browser at `https://<your-tailscale-ip>:31415` with your token.
@@ -380,7 +382,7 @@ Replace `your-machine.your-tailnet.ts.net` below with your device's MagicDNS nam
 # Issue a cert for your MagicDNS name (writes <name>.crt and <name>.key)
 tailscale cert your-machine.your-tailnet.ts.net
 
-wherever --host 0.0.0.0 --token your-secure-token \
+wherever start --host 0.0.0.0 --token your-secure-token \
   --ssl-cert your-machine.your-tailnet.ts.net.crt \
   --ssl-key  your-machine.your-tailnet.ts.net.key
 ```
@@ -395,7 +397,7 @@ tailscale cert \
   --key-file  ~/.wherever/certs/localhost.key \
   your-machine.your-tailnet.ts.net
 
-wherever --host 0.0.0.0 --token your-secure-token
+wherever start --host 0.0.0.0 --token your-secure-token
 ```
 
 _(The filenames stay `localhost.*` but contain a cert for your MagicDNS name; the server only cares about the path, not the name.)_
@@ -412,7 +414,7 @@ To allow access from devices on your local home network (Wi-Fi):
 
 1. Start the server binding to `0.0.0.0`:
    ```bash
-   wherever --host 0.0.0.0 --token your-secure-token
+   wherever start --host 0.0.0.0 --token your-secure-token
    ```
 2. Find your Pi's local network IP (e.g., `192.168.1.50`) and open `https://192.168.1.50:31415` in your client's browser.
 3. If running the CLI `pi` command from another computer on the same local network, point it to the Pi:
