@@ -6,6 +6,7 @@
 		setConfig,
 		isConnected,
 	} from '$lib/wherever';
+	import {playInvitingBeep} from '$lib/core/beep';
 	import {onMount} from 'svelte';
 
 	let {
@@ -24,7 +25,8 @@
 	let localPort = $state(0);
 	let localToken = $state('');
 	let localHideThinking = $state(false);
-	let localHideTools = $state(false);
+	let localBeepDefault = $state(false);
+	let localBeepSoundUrl = $state('');
 	let saving = $state(false);
 	let connected = $derived($isConnected);
 
@@ -34,8 +36,13 @@
 		localPort = config.port;
 		localToken = config.token || '';
 		localHideThinking = !!config.hideThinking;
-		localHideTools = !!config.hideTools;
+		localBeepDefault = !!config.beepDefault;
+		localBeepSoundUrl = config.beepSoundUrl || '';
 	});
+
+	function handleTestBeep() {
+		playInvitingBeep(localBeepSoundUrl.trim() || undefined);
+	}
 
 	function handleConfigChange() {
 		setConfig({
@@ -43,7 +50,11 @@
 			port: localPort,
 			token: localToken,
 			hideThinking: localHideThinking,
-			hideTools: localHideTools,
+			// Tool calls are always shown (the toggle was removed); force it off so a
+			// previously-stored `true` is cleared.
+			hideTools: false,
+			beepDefault: localBeepDefault,
+			beepSoundUrl: localBeepSoundUrl.trim(),
 		});
 	}
 
@@ -53,7 +64,9 @@
 			port: localPort,
 			token: localToken,
 			hideThinking: localHideThinking,
-			hideTools: localHideTools,
+			hideTools: false,
+			beepDefault: localBeepDefault,
+			beepSoundUrl: localBeepSoundUrl.trim(),
 		});
 		disconnect();
 		setTimeout(() => connect(), 100);
@@ -126,18 +139,44 @@
 
 		<div class="flex items-center gap-2 py-1">
 			<input
-				id="pi-hide-tools"
+				id="pi-beep-default"
 				type="checkbox"
-				bind:checked={localHideTools}
+				bind:checked={localBeepDefault}
 				onchange={handleConfigChange}
 				class="h-4 w-4 rounded border-brand-border bg-brand-surface-2 text-brand-blue focus:ring-brand-blue focus:ring-offset-0"
 			/>
 			<label
-				for="pi-hide-tools"
+				for="pi-beep-default"
 				class="cursor-pointer text-xs text-brand-text select-none"
 			>
-				Hide tool calls
+				Beep when the agent is waiting (default for new sessions)
 			</label>
+		</div>
+
+		<div>
+			<label
+				for="pi-beep-sound"
+				class="mb-1 block text-xs text-brand-text-muted"
+				>Beep sound URL (optional, blank = built-in chime)</label
+			>
+			<div class="flex gap-2">
+				<input
+					id="pi-beep-sound"
+					type="text"
+					bind:value={localBeepSoundUrl}
+					onchange={handleConfigChange}
+					placeholder="/sounds/complete.mp3 or https://..."
+					class="w-full rounded border border-brand-border bg-brand-surface-2 px-3 py-2 text-sm text-brand-text placeholder-brand-text-muted focus:border-brand-blue focus:outline-none"
+				/>
+				<button
+					type="button"
+					onclick={handleTestBeep}
+					title="Play the beep to test it"
+					class="flex-shrink-0 rounded border border-brand-border bg-brand-surface-2 px-3 py-2 text-sm text-brand-text transition-colors hover:bg-brand-surface-3"
+				>
+					Test
+				</button>
+			</div>
 		</div>
 
 		<div class="flex gap-2">

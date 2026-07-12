@@ -14,6 +14,10 @@
 		isResyncing,
 		resendMessage,
 		discardMessage,
+		beepEnabled,
+		beepSessionOverride,
+		setBeepSessionOverride,
+		isReadOnly,
 	} from '$lib/wherever';
 	import {
 		availableModels,
@@ -238,6 +242,19 @@
 	let sessionInfo = $derived($activeSessionInfo);
 	let loadingSession = $derived($isLoadingSession);
 	let resyncing = $derived($isResyncing);
+
+	// Per-session beep control is tri-state: undefined = follow the global
+	// default, true/false = an explicit choice that sticks to this session.
+	// Cycling order: Default -> On -> Off -> Default. Showing "Default" (rather
+	// than a plain on/off) is what signals the choice has NOT been set for this
+	// session, so it tracks the default live.
+	let beepOverride = $derived($beepSessionOverride);
+	let beepOn = $derived($beepEnabled);
+	function cycleBeep() {
+		if (beepOverride === undefined) setBeepSessionOverride(true);
+		else if (beepOverride === true) setBeepSessionOverride(false);
+		else setBeepSessionOverride(undefined);
+	}
 
 	// True when we hold a cached session (its file + messages) that is merely
 	// reconnecting/resyncing, not loading fresh. In this state the conversation
@@ -1383,20 +1400,37 @@
 				/>
 				Hide Thinking
 			</label>
-			<label
-				class="flex cursor-pointer items-center gap-1.5 text-xs text-brand-text-muted select-none hover:text-brand-text"
-			>
-				<input
-					type="checkbox"
-					checked={$piState.hideTools}
-					onchange={(e) =>
-						updateConfig({
-							hideTools: (e.currentTarget as HTMLInputElement).checked,
-						})}
-					class="h-3.5 w-3.5 rounded border-brand-border bg-brand-surface-3 text-brand-blue focus:ring-brand-blue"
-				/>
-				Hide Tools
-			</label>
+
+			<!-- Per-session waiting-for-human beep, tri-state. Cycles
+			     Default -> On -> Off -> Default. "Default" means this session has no
+			     explicit choice and follows the global default live; On/Off stick to
+			     this session regardless of later default changes. Only for a live,
+			     drivable session. -->
+			{#if sessionInfo.sessionFile && !$isReadOnly}
+				<button
+					type="button"
+					onclick={cycleBeep}
+					class="flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs select-none hover:text-brand-text {beepOverride ===
+					undefined
+						? 'text-brand-text-muted'
+						: 'text-brand-blue'}"
+					title={beepOverride === undefined
+						? `Beep when the agent is waiting: following the default (${beepOn ? 'on' : 'off'}). Click to set On for this session.`
+						: beepOverride === true
+							? 'Beep when the agent is waiting: ON for this session. Click to set Off.'
+							: 'Beep when the agent is waiting: OFF for this session. Click to follow the default.'}
+					aria-label="Cycle waiting-for-human beep for this session"
+				>
+					<span>{beepOn ? '🔔' : '🔕'}</span>
+					<span>
+						{beepOverride === undefined
+							? `Beep: Default (${beepOn ? 'on' : 'off'})`
+							: beepOverride
+								? 'Beep: On'
+								: 'Beep: Off'}
+					</span>
+				</button>
+			{/if}
 
 			<!-- Context-window usage, e.g. "11.3% / 1.0M" -->
 			{#if contextLabel}

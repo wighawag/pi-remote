@@ -1,4 +1,5 @@
-import {derived, get} from 'svelte/store';
+import {derived, get, writable} from 'svelte/store';
+import {playInvitingBeep} from './core/beep';
 import {
 	WhereverClient,
 	type ChatMessage,
@@ -31,6 +32,8 @@ function saveConfig(config: {
 	token: string;
 	hideThinking?: boolean;
 	hideTools?: boolean;
+	beepDefault?: boolean;
+	beepSoundUrl?: string;
 }) {
 	localStorage.setItem('wherever-config', JSON.stringify(config));
 }
@@ -64,7 +67,13 @@ export function getConfig() {
 		if (!stored.host) {
 			stored.host = defaultHost;
 		}
-		return {hideThinking: false, hideTools: false, ...stored};
+		return {
+			hideThinking: false,
+			hideTools: false,
+			beepDefault: false,
+			beepSoundUrl: '',
+			...stored,
+		};
 	}
 	return {
 		host: defaultHost,
@@ -72,7 +81,119 @@ export function getConfig() {
 		token: '',
 		hideThinking: false,
 		hideTools: false,
+		beepDefault: false,
+		beepSoundUrl: '',
 	};
+}
+
+// --- Waiting-for-human beep ------------------------------------------------
+// The beep is DISABLED by default. A persisted config flag (beepDefault) sets
+// the default for EVERY session. Each session can additionally hold its OWN
+// explicit choice (a per-session override) that wins over the default.
+//
+// Key semantics ("unset" is a real, distinct state):
+//   - A session with NO override "follows the default": change the default and
+//     this session's effective beep state changes with it, live.
+//   - Once the user explicitly sets the per-session control (on/off), that
+//     choice STICKS to that session and is unaffected by later default changes,
+//     until the user clears it back to "follow default".
+//
+// Overrides are therefore stored PER SESSION (keyed by the session id/file) and
+// persisted, so a choice made in session A survives visiting session B and
+// coming back, and survives a reload. Absence of a key = "follow default".
+const beepDefaultStore = writable<boolean>(!!getConfig().beepDefault);
+
+// Map<sessionKey, boolean> of explicit per-session choices, persisted to
+// localStorage. A missing key means the session follows the default.
+const BEEP_OVERRIDES_KEY = 'wherever-beep-overrides';
+
+function loadBeepOverrides(): Record<string, boolean> {
+	try {
+		const raw = localStorage.getItem(BEEP_OVERRIDES_KEY);
+		if (raw) {
+			const parsed = JSON.parse(raw);
+			if (parsed && typeof parsed === 'object') return parsed;
+		}
+	} catch {}
+	return {};
+}
+
+function saveBeepOverrides(map: Record<string, boolean>) {
+	try {
+		localStorage.setItem(BEEP_OVERRIDES_KEY, JSON.stringify(map));
+	} catch {}
+}
+
+const beepOverridesStore = writable<Record<string, boolean>>(
+	typeof localStorage !== 'undefined' ? loadBeepOverrides() : {},
+);
+// The active session's key ('' when no session). Drives which override applies.
+const beepSessionKeyStore = writable<string>('');
+
+export function getBeepDefault(): boolean {
+	return get(beepDefaultStore);
+}
+
+// Optional custom sound file/URL to play instead of the synthesized chime.
+// Empty string means "use the built-in chime".
+export function getBeepSoundUrl(): string {
+	const url = getConfig().beepSoundUrl;
+	return typeof url === 'string' ? url : '';
+}
+
+// Persist the custom beep sound URL (empty string clears it, reverting to the
+// built-in chime).
+export function setBeepSoundUrl(value: string) {
+	const config = getConfig();
+	saveConfig({...config, beepSoundUrl: value});
+}
+
+// The current session's explicit choice, or undefined when it follows the
+// default. Tri-state: true | false | undefined. Lets the UI signal "not set".
+export const beepSessionOverride = derived(
+	[beepSessionKeyStore, beepOverridesStore],
+	([$key, $overrides]) =>
+		$key && $key in $overrides ? $overrides[$key] : undefined,
+);
+
+// True when the beep should sound for the current session: the per-session
+// override if the session set one, otherwise the persisted default. Recomputes
+// when the session, its override, or the default changes.
+export const beepEnabled = derived(
+	[beepSessionOverride, beepDefaultStore],
+	([$override, $default]) => ($override === undefined ? $default : $override),
+);
+
+// Set (or clear) the beep default that applies to all sessions. Persists to
+// config AND updates the reactive default store so beepEnabled recomputes.
+export function setBeepDefault(value: boolean) {
+	const config = getConfig();
+	saveConfig({...config, beepDefault: value});
+	beepDefaultStore.set(value);
+}
+
+// Set this session's explicit choice (true/false), or pass undefined to CLEAR
+// it back to "follow the default". Persisted per session.
+export function setBeepSessionOverride(value: boolean | undefined) {
+	const key = get(beepSessionKeyStore);
+	if (!key) return; // no active session to attach the choice to
+	beepOverridesStore.update((map) => {
+		const next = {...map};
+		if (value === undefined) {
+			delete next[key];
+		} else {
+			next[key] = value;
+		}
+		saveBeepOverrides(next);
+		return next;
+	});
+}
+
+// Point the beep state at a session (its id/file). Called when the active
+// session changes. Does NOT clear any stored per-session choice: an unset
+// session follows the default; a session with a stored choice keeps it.
+export function setBeepSessionKey(key: string | null) {
+	beepSessionKeyStore.set(key ?? '');
 }
 
 // Instantiate the isomorphic WhereverClient
@@ -90,6 +211,35 @@ export const client = new WhereverClient({
 });
 
 export const state = client.stateStore;
+
+// --- Waiting-for-human beep trigger ----------------------------------------
+// Watch the streaming flag and sound the inviting chime on the true -> false
+// edge, i.e. the moment the agent stops working and is waiting for a human
+// message. Gated by beepEnabled (per-session override or the persisted
+// default). Also point the beep state at the active session when it changes, so
+// beepEnabled reflects THAT session's stored choice (or the default if unset).
+let prevIsStreaming = false;
+let prevSessionKey: string | null = null;
+state.subscribe((s) => {
+	const sessionKey = s.sessionId ?? s.activeSessionFile ?? null;
+	if (sessionKey !== prevSessionKey) {
+		prevSessionKey = sessionKey;
+		// New/changed session: retarget the beep state at it (its stored choice, if
+		// any, else the default) and do not treat the session's initial streaming
+		// state as a finished-turn edge.
+		setBeepSessionKey(sessionKey);
+		prevIsStreaming = s.isStreaming;
+		return;
+	}
+	if (prevIsStreaming && !s.isStreaming) {
+		// Only chime for a real session with a transcript, not for a bare
+		// disconnect/leave that also drops isStreaming to false.
+		if (sessionKey && get(beepEnabled)) {
+			playInvitingBeep(getBeepSoundUrl());
+		}
+	}
+	prevIsStreaming = s.isStreaming;
+});
 
 // When runSearch() creates a session, hold the query here until the matching
 // session_created arrives, then send it as the first message of that session.
@@ -310,9 +460,20 @@ export function setConfig(config: {
 	token: string;
 	hideThinking?: boolean;
 	hideTools?: boolean;
+	beepDefault?: boolean;
+	beepSoundUrl?: string;
 }) {
 	saveConfig(config);
-	client.setConfig(config);
+	// beepDefault/beepSoundUrl are frontend-only preferences; the client config
+	// has no such fields, so forward only the fields it understands.
+	const {host, port, token, hideThinking, hideTools} = config;
+	client.setConfig({host, port, token, hideThinking, hideTools});
+	// Keep the reactive beep-default store in sync so beepEnabled recomputes when
+	// the Config menu changes the default (this is the path the settings UI uses,
+	// not setBeepDefault). Only when the field is actually present in this update.
+	if (config.beepDefault !== undefined) {
+		beepDefaultStore.set(!!config.beepDefault);
+	}
 }
 
 export function updateConfig(updates: {

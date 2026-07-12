@@ -13,7 +13,10 @@
  */
 
 import WebSocket from "ws";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { WhereverClient } from "@wherever-dev/client";
 import type {
   ExtensionAPI,
@@ -155,6 +158,24 @@ export default async function (pi: ExtensionAPI) {
     default: true,
   });
 
+  pi.registerFlag("remote-beep", {
+    description:
+      "Play an inviting sound when the agent finishes and is waiting for your next message. " +
+      "Sets the DEFAULT for new sessions (can also be enabled via `beep.enabled` in " +
+      "~/.wherever/config.json); toggle it per-session with /remote-beep.",
+    type: "boolean",
+    default: false,
+  });
+
+  pi.registerFlag("remote-beep-command", {
+    description:
+      "Shell command to run for the waiting-for-human sound instead of the terminal bell. " +
+      "Overrides `beep.command` in ~/.wherever/config.json and the auto-detected player. " +
+      "Useful when the terminal bell is silent (e.g. WezTerm on Linux). " +
+      "Example: 'pw-play /usr/share/sounds/freedesktop/stereo/complete.oga'.",
+    type: "string",
+  });
+
   pi.registerCommand("remote-reconnect", {
     description: "Manually reconnect to the standalone remote server",
     handler: async (args: string, ctx: any) => {
@@ -164,6 +185,183 @@ export default async function (pi: ExtensionAPI) {
       }
       ctx.ui.notify("[Wherever] Initiating manual reconnect...", "info");
       connect();
+    },
+  });
+
+  // Per-session override for the waiting-for-human beep. Undefined means "follow
+  // the configured default"; true/false is an explicit per-session choice made
+  // via /remote-beep. Reset on each session start so a new session begins from
+  // the configured default again.
+  let beepOverride: boolean | undefined = undefined;
+
+  // The default beep behaviour for new sessions is enabled when EITHER the
+  // --remote-beep flag is set OR `beep.enabled` is true in ~/.wherever/config.json.
+  // The flag can only force-on (its own default is false), so the config file is
+  // the way to enable-by-default across every session without passing the flag.
+  function beepDefault(): boolean {
+    if (pi.getFlag("remote-beep") === true) return true;
+    return readBeepConfig()?.enabled === true;
+  }
+
+  function beepEnabled(): boolean {
+    return beepOverride === undefined ? beepDefault() : beepOverride;
+  }
+
+  // Read the wherever config (`~/.wherever/config.json`) and return the beep
+  // section, if any. Best-effort: a missing/invalid file yields undefined. The
+  // extension is a separate package from the server, so it reads the shared file
+  // directly rather than importing the server's loader.
+  function readBeepConfig(): { enabled?: boolean; command?: string } | undefined {
+    try {
+      const configPath = path.join(os.homedir(), ".wherever", "config.json");
+      const raw = fs.readFileSync(configPath, "utf-8");
+      const parsed = JSON.parse(raw);
+      const beep = parsed?.beep;
+      if (beep && typeof beep === "object") return beep as { enabled?: boolean; command?: string };
+    } catch (err) {
+      // No config / unreadable / invalid JSON: fall through to auto-detect.
+    }
+    return undefined;
+  }
+
+  // Auto-detected sound command, computed once. `undefined` means "not computed
+  // yet"; `null` means "computed, nothing available" (so we do not re-probe).
+  let autoDetectedBeepCommand: string | null | undefined = undefined;
+
+  // Best guess at a "play this sound file" command available on the system, used
+  // when neither the flag nor config sets one. Picks the first available player
+  // and a pleasant freedesktop chime. Returns null when nothing suitable exists
+  // (then we fall back to the terminal bell).
+  function detectBeepCommand(): string | null {
+    if (autoDetectedBeepCommand !== undefined) return autoDetectedBeepCommand;
+
+    const has = (bin: string): boolean => {
+      try {
+        const probe = process.platform === "win32"
+          ? spawnSync("where", [bin], { stdio: "ignore" })
+          : spawnSync("command", ["-v", bin], { stdio: "ignore", shell: "bash" });
+        return probe.status === 0;
+      } catch {
+        return false;
+      }
+    };
+    const fileExists = (p: string): boolean => {
+      try {
+        return fs.statSync(p).isFile();
+      } catch {
+        return false;
+      }
+    };
+
+    // macOS: afplay + a built-in system sound.
+    if (process.platform === "darwin" && has("afplay")) {
+      const sound = "/System/Library/Sounds/Glass.aiff";
+      autoDetectedBeepCommand = fileExists(sound) ? `afplay ${sound}` : "afplay /System/Library/Sounds/Ping.aiff";
+      return autoDetectedBeepCommand;
+    }
+
+    // Linux/BSD: a freedesktop chime through whichever player is present.
+    const soundCandidates = [
+      "/usr/share/sounds/freedesktop/stereo/complete.oga",
+      "/usr/share/sounds/freedesktop/stereo/bell.oga",
+      "/usr/share/sounds/freedesktop/stereo/message.oga",
+    ];
+    const sound = soundCandidates.find(fileExists);
+    if (sound) {
+      // Prefer PipeWire, then PulseAudio, then canberra, then ffplay.
+      if (has("pw-play")) { autoDetectedBeepCommand = `pw-play ${sound}`; return autoDetectedBeepCommand; }
+      if (has("paplay")) { autoDetectedBeepCommand = `paplay ${sound}`; return autoDetectedBeepCommand; }
+      if (has("canberra-gtk-play")) { autoDetectedBeepCommand = `canberra-gtk-play -f ${sound}`; return autoDetectedBeepCommand; }
+      if (has("ffplay")) { autoDetectedBeepCommand = `ffplay -nodisp -autoexit -loglevel quiet ${sound}`; return autoDetectedBeepCommand; }
+    }
+
+    autoDetectedBeepCommand = null;
+    return autoDetectedBeepCommand;
+  }
+
+  // Resolve the sound command to run, highest precedence first:
+  //   1. --remote-beep-command flag
+  //   2. `beep.command` in ~/.wherever/config.json
+  //   3. an auto-detected player + system chime
+  // Returns undefined when none apply (then the terminal bell is used).
+  function resolveBeepCommand(): string | undefined {
+    const flag = (pi.getFlag("remote-beep-command") as string | undefined)?.trim();
+    if (flag) return flag;
+    const configured = readBeepConfig()?.command?.trim();
+    if (configured) return configured;
+    const detected = detectBeepCommand();
+    return detected || undefined;
+  }
+
+  // Emit an inviting waiting-for-human sound. Best-effort: never throw into the
+  // agent loop.
+  //
+  // Two delivery paths:
+  //   1. A sound COMMAND (flag / config / auto-detected): run it to play a real
+  //      audio file (e.g. `pw-play .../complete.oga`). This is the reliable path
+  //      when the terminal bell is silent (WezTerm on Linux defaults to
+  //      SystemBeep, which is often a no-op without a PC speaker).
+  //   2. Fallback terminal BEL (\x07), written to the controlling terminal
+  //      (/dev/tty) rather than process.stdout, because pi's TUI owns stdout and
+  //      its render loop can swallow an out-of-band byte. Falls back to
+  //      process.stdout when /dev/tty is unavailable (e.g. no controlling tty).
+  function playBeep() {
+    const command = resolveBeepCommand();
+    if (command) {
+      try {
+        const shell = process.platform === "win32" ? "cmd.exe" : "bash";
+        const shellArgs = process.platform === "win32" ? ["/c", command] : ["-c", command];
+        const child = spawn(shell, shellArgs, { stdio: "ignore", detached: false });
+        // Never let a failing sound command surface as an unhandled error.
+        child.on("error", () => {});
+        return;
+      } catch (err) {
+        // Fall through to the terminal bell on spawn failure.
+      }
+    }
+
+    // Terminal bell. Prefer /dev/tty so the TUI renderer does not absorb it.
+    try {
+      const fd = fs.openSync("/dev/tty", "w");
+      try {
+        fs.writeSync(fd, "\x07");
+      } finally {
+        fs.closeSync(fd);
+      }
+      return;
+    } catch (err) {
+      // No controlling tty (or platform without /dev/tty): fall back to stdout.
+    }
+    try {
+      process.stdout.write("\x07");
+    } catch (err) {
+      // Quiet fail: a closed/redirected stdout must not break the session.
+    }
+  }
+
+  pi.registerCommand("remote-beep", {
+    description:
+      "Toggle the waiting-for-human beep for THIS session (on/off). Run with no argument to toggle, " +
+      "or pass on/off. The --remote-beep flag sets the default for new sessions.",
+    handler: async (args: string, ctx: any) => {
+      const arg = (args || "").trim().toLowerCase();
+      let next: boolean;
+      if (arg === "on" || arg === "true" || arg === "1" || arg === "enable") {
+        next = true;
+      } else if (arg === "off" || arg === "false" || arg === "0" || arg === "disable") {
+        next = false;
+      } else {
+        // No/unknown arg: toggle from the current effective state.
+        next = !beepEnabled();
+      }
+      beepOverride = next;
+      if (next) {
+        // Sample the chosen sound so the user hears what to expect.
+        playBeep();
+        ctx.ui.notify("[Wherever] Waiting-for-human beep ENABLED for this session 🔔", "info");
+      } else {
+        ctx.ui.notify("[Wherever] Waiting-for-human beep DISABLED for this session", "info");
+      }
     },
   });
 
@@ -468,6 +666,10 @@ export default async function (pi: ExtensionAPI) {
     sessionFile = ctx.sessionManager.getSessionFile() || "";
     if (!sessionFile) return;
 
+    // Each new/resumed session starts from the configured default beep behaviour;
+    // any prior per-session /remote-beep override does not carry over.
+    beepOverride = undefined;
+
     // On resume/reload, the loaded transcript may end mid-tool-call (the matching
     // toolResult was never persisted). This happens when another process (the web
     // frontend / standalone server) is still running that tool, or the previous
@@ -565,6 +767,14 @@ export default async function (pi: ExtensionAPI) {
     });
     // Context usage is freshest right after a turn completes.
     sendContextUsage();
+  });
+
+  // agent_settled fires once the run has fully settled: no automatic retry,
+  // compaction, or queued continuation is pending, so the agent is genuinely
+  // waiting for a human message. This is the right (single) moment to beep,
+  // rather than agent_end which can fire between chained internal turns.
+  pi.on("agent_settled", async () => {
+    if (beepEnabled()) playBeep();
   });
 
   pi.on("tool_execution_start", async (event: any) => {

@@ -103,6 +103,17 @@ export interface WhereverConfig {
     subDir?: string;
     method?: 'post' | 'websocket';
   };
+  /**
+   * Waiting-for-human beep for the CLI bridge extension (read from this shared
+   * config file by that extension). The web frontend has its own separate
+   * localStorage-based beep config.
+   */
+  beep?: {
+    /** Enable the beep by default for new CLI sessions. Overridden per-session by /remote-beep; the --remote-beep flag can also force it on. Default false. */
+    enabled?: boolean;
+    /** Shell command to play the sound (e.g. 'pw-play .../complete.oga'). Overrides the auto-detected player; --remote-beep-command overrides this. */
+    command?: string;
+  };
   /** Folder used by "search mode" sessions. No default; must be set explicitly. */
   searchFolder?: string;
   /** When true, the on-demand search folder gets a remote, forced to private visibility. Default false. */
