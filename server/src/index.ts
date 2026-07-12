@@ -11,6 +11,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
+import {
+  runInstall,
+  runUninstall,
+  runServiceStatus,
+  parseInstallOptions,
+  printInstallHelp,
+} from './commands/install.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1693,7 +1700,38 @@ function extractText(msg: any): string {
   return '';
 }
 
-main().catch((err) => {
-  console.error('Fatal server startup error:', err);
-  process.exit(1);
-});
+/**
+ * Subcommand dispatch. `wherever <verb>` routes service management to the
+ * install module; anything else (including no subcommand) runs the server, so
+ * the historical `wherever [server flags]` behavior is unchanged.
+ */
+function dispatch(): void {
+  const argv = process.argv.slice(2);
+  const verb = argv[0];
+  const rest = argv.slice(1);
+
+  switch (verb) {
+    case 'install':
+      runInstall(parseInstallOptions(rest));
+      return;
+    case 'uninstall':
+      runUninstall(parseInstallOptions(rest));
+      return;
+    case 'service-status':
+    case 'status':
+      runServiceStatus(parseInstallOptions(rest));
+      return;
+    case 'help':
+    case '--help':
+    case '-h':
+      printInstallHelp();
+      return;
+    default:
+      main().catch((err) => {
+        console.error('Fatal server startup error:', err);
+        process.exit(1);
+      });
+  }
+}
+
+dispatch();

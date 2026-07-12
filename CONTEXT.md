@@ -110,6 +110,17 @@ Wherever is a TypeScript extension for the [pi coding agent](https://pi.dev) tha
 - `POST /session/compact` - Trigger compaction
 - `GET /health` - Health check (no auth)
 
+### Service Install (`wherever install`)
+
+The standalone server (`server/`, bin `wherever`) can install itself as a background service. `server/src/index.ts` dispatches on the first argv: `install` / `uninstall` / `service-status` (aliased `status`) route to `server/src/commands/install.ts`; anything else (including no subcommand) runs the server unchanged.
+
+- **Linux**: systemd unit. Per-user (`~/.config/systemd/user/wherever.service`) by default, or system-wide (`/etc/systemd/system/wherever.service`) with `--system` (needs root). Enabled + started via `systemctl [--user] enable --now wherever`.
+- **macOS**: per-user launchd LaunchAgent at `~/Library/LaunchAgents/dev.wherever.server.plist`, loaded via `launchctl`. `--system` is not supported.
+- **Windows**: not supported yet; the command prints the manual steps.
+- Server flags `--port` / `--host` / `--token` are baked into the service's `ExecStart` / `ProgramArguments`.
+- **Pi config injection**: unless `--no-pi-config`, install adds `"npm:@wherever-dev/pi"` to the `packages` array in `~/.pi/agent/settings.json` (creating the file if missing) when not already present, backing up to `settings.json.bak` first.
+- `--dry-run` prints the generated unit/plist and intended actions without writing anything.
+
 ### Authentication
 
 - Optional token via `--remote-token` flag

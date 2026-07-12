@@ -135,6 +135,38 @@ Pi will automatically detect and load the `@wherever-dev/pi` extension, establis
 
 Note though that when pi cli run, it takes control of the brain operation and quiting (via ctrl+c, /quit, etc...) will interupt the conversation even on every devices
 
+#### 5. Run as a Background Service (Optional)
+
+Instead of keeping a terminal open, you can install Wherever as a background service that starts automatically and restarts on failure:
+
+```bash
+wherever install
+```
+
+This installs and starts a per-user service (a **systemd** user unit on Linux, or a **launchd** LaunchAgent on macOS). It also adds the `@wherever-dev/pi` extension to `~/.pi/agent/settings.json` for you (unless it is already configured), so a running `pi` CLI bridges into the server automatically.
+
+Server flags are baked into the service, so you can pass them through at install time:
+
+```bash
+wherever install --host 0.0.0.0 --token your-secure-token --port 31415
+```
+
+Other subcommands:
+
+```bash
+wherever service-status   # show whether the service is running
+wherever uninstall        # stop and remove the service
+```
+
+Install options:
+
+- `--system` — Install a system-wide service instead of a per-user one (Linux only, requires root).
+- `--no-pi-config` — Do not modify `~/.pi/agent/settings.json`.
+- `--port` / `--host` / `--token` — Server flags to bake into the service invocation.
+- `--dry-run` — Print the generated unit/plist and the intended actions without writing anything.
+
+> On Linux user services, run `loginctl enable-linger $USER` if you want the service to keep running after you log out. Windows is not supported yet; run `wherever` manually or use a tool like NSSM.
+
 ---
 
 ### Method B: Local Development Setup (From Source) 🛠️

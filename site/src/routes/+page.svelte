@@ -69,6 +69,13 @@
 		},
 		{
 			number: '03',
+			title: 'Run it as a Service',
+			description:
+				'Optional: install a background service (systemd on Linux, launchd on macOS) that starts on boot and wires the pi extension in automatically.',
+			code: 'wherever install',
+		},
+		{
+			number: '04',
 			title: 'Open the Dashboard',
 			description:
 				'Open the dashboard in your browser and start creating and maintaining your apps.',
