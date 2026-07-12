@@ -474,9 +474,14 @@ export class SessionPool {
     this.modelRegistry.refresh();
   }
 
-  getAvailableModels(): ModelInfo[] {
+  /**
+   * List available models. `isDefault` is resolved against `cwd` (falling back to
+   * the server's process cwd), so a folder-local harness/pi config default is
+   * honored, not just the server global default.
+   */
+  getAvailableModels(cwd?: string): ModelInfo[] {
     const available = this.modelRegistry.getAvailable();
-    const settings = SettingsManager.create(process.cwd(), this.agentDir);
+    const settings = SettingsManager.create(cwd || process.cwd(), this.agentDir);
     const defaultProvider = settings.getDefaultProvider();
     const defaultModel = settings.getDefaultModel();
 
@@ -489,6 +494,23 @@ export class SessionPool {
         isDefault,
       };
     });
+  }
+
+  /**
+   * Resolve the default model (as "provider:modelId") for a given folder, using
+   * that folder's resolved settings (folder-local harness/pi config wins over the
+   * server global). Returns null when no default is configured or the resolved
+   * model is not among the available models.
+   */
+  getDefaultModelFor(cwd: string): string | null {
+    const settings = SettingsManager.create(cwd, this.agentDir);
+    const defaultProvider = settings.getDefaultProvider();
+    const defaultModel = settings.getDefaultModel();
+    if (!defaultProvider || !defaultModel) return null;
+    const found = this.modelRegistry
+      .getAvailable()
+      .some((m: Model<Api>) => m.provider === defaultProvider && m.id === defaultModel);
+    return found ? `${defaultProvider}:${defaultModel}` : null;
   }
 
   findModel(provider: string, modelId: string): Model<Api> | undefined {

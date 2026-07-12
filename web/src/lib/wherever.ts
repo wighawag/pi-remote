@@ -257,10 +257,11 @@ export function createSession(
 /**
  * Run a web search: create a fresh session in the configured search folder and,
  * once it is created, send the query as the first message. Each search is a new
- * session, grouped in the sidebar under the search folder. Uses the server
- * default model. Returns false (no-op) if no search folder is configured.
+ * session, grouped in the sidebar under the search folder. When `model` is
+ * omitted the server default (folder-local config) is used. Returns false
+ * (no-op) if no search folder is configured.
  */
-export function runSearch(query: string): boolean {
+export function runSearch(query: string, model?: string): boolean {
 	const trimmed = query.trim();
 	if (!trimmed) return false;
 	const folder = get(searchFolderStore);
@@ -271,7 +272,7 @@ export function runSearch(query: string): boolean {
 	// repoVisibility forced to 'private' when a remote is created.
 	client.createSession(
 		folder,
-		undefined,
+		model || undefined,
 		createRemote,
 		createRemote,
 		createRemote ? 'private' : undefined,

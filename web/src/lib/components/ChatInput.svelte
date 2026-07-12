@@ -25,6 +25,8 @@
 		showAttach = true,
 		searchMode = false,
 		searchConfigured = false,
+		searchModels = [],
+		searchModel = $bindable(''),
 	}: {
 		disabled: boolean;
 		onSend?: () => void;
@@ -36,6 +38,10 @@
 		searchMode?: boolean;
 		// Whether a search folder is configured (gates enablement in search mode).
 		searchConfigured?: boolean;
+		// Model list + bound selection for the search-mode model picker. Values are
+		// "provider:modelId"; empty label list hides the picker.
+		searchModels?: {value: string; label: string}[];
+		searchModel?: string;
 	} = $props();
 
 	let text = $state('');
@@ -436,6 +442,26 @@
 						</button>
 					</div>
 				{/each}
+			</div>
+		{/if}
+		{#if searchMode && searchModels.length > 0}
+			<!-- Model picker for search mode. Lets the user override the search
+			     folder's default model before pressing Search. -->
+			<div class="mb-2 flex items-center gap-2">
+				<label
+					for="search-model"
+					class="text-xs font-medium text-brand-text-muted">Model</label
+				>
+				<select
+					id="search-model"
+					bind:value={searchModel}
+					disabled={effectivelyDisabled}
+					class="min-w-0 flex-1 rounded-lg border border-brand-border bg-brand-surface-2 px-2 py-1.5 text-xs text-brand-text focus:border-brand-blue focus:outline-none disabled:opacity-50"
+				>
+					{#each searchModels as m}
+						<option value={m.value}>{m.label}</option>
+					{/each}
+				</select>
 			</div>
 		{/if}
 		<form

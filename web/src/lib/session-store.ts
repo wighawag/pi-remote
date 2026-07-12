@@ -242,6 +242,9 @@ export const gitInitDefaultStore = writable<boolean>(false);
 export const uploadMethodStore = writable<'websocket' | 'post'>('websocket');
 export const searchFolderStore = writable<string | null>(null);
 export const searchCreateRemoteStore = writable<boolean>(false);
+// Default model (as "provider:modelId") for the configured search folder,
+// resolved server-side against that folder's settings. null when unset.
+export const searchDefaultModelStore = writable<string | null>(null);
 
 export interface PathCheckResult {
 	exists: boolean;
@@ -297,6 +300,7 @@ export async function fetchConfig(): Promise<void> {
 		uploadMethodStore.set(data.uploadMethod || 'websocket');
 		searchFolderStore.set(data.searchFolder || null);
 		searchCreateRemoteStore.set(!!data.searchCreateRemote);
+		searchDefaultModelStore.set(data.searchDefaultModel || null);
 	} catch (err) {
 		console.error('Failed to fetch config:', err);
 	}

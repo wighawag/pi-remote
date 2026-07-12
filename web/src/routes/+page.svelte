@@ -36,6 +36,7 @@
 		fetchReadOnlySessions,
 		availableModels,
 		searchFolderStore,
+		searchDefaultModelStore,
 	} from '$lib/session-store';
 	import {onMount} from 'svelte';
 	import {version} from '$app/environment';
@@ -281,6 +282,35 @@
 			hasSessionHash: typeof window !== 'undefined' && !!window.location.hash,
 		}),
 	);
+
+	// Search-mode model picker. Options mirror the sidebar new-session list; the
+	// selection is seeded from the search folder's server-resolved default (which
+	// honors folder-local harness/pi config), falling back to the models list's
+	// isDefault entry, then the first model.
+	let searchModels = $derived(
+		models.map((m) => ({
+			value: `${m.provider}:${m.modelId}`,
+			label: `${m.label}${m.isDefault ? ' (default)' : ''}`,
+		})),
+	);
+	let searchDefaultModel = $derived($searchDefaultModelStore);
+	let searchModel = $state('');
+	// Seed (or re-seed) the selection once options are available and nothing valid
+	// is chosen yet. Runs when the model list or folder default changes.
+	$effect(() => {
+		if (searchModels.length === 0) return;
+		const valid = searchModels.some((m) => m.value === searchModel);
+		if (valid) return;
+		const folderDefault = searchModels.find(
+			(m) => m.value === searchDefaultModel,
+		);
+		const listDefault = models.find((m) => m.isDefault);
+		searchModel = folderDefault
+			? folderDefault.value
+			: listDefault
+				? `${listDefault.provider}:${listDefault.modelId}`
+				: searchModels[0].value;
+	});
 
 	// On page load with no session, focus the search composer so it is ready to
 	// type. (One-shot; not inside the tap path, so no mobile-keyboard concern.)
@@ -694,7 +724,9 @@
 				bind:this={chatInput}
 				searchMode={searchActive}
 				searchConfigured={!!searchFolder}
-				onSubmit={(q) => runSearch(q)}
+				searchModels={searchModels}
+				bind:searchModel
+				onSubmit={(q) => runSearch(q, searchModel)}
 				placeholder="Search the web..."
 				submitLabel="Search"
 				disabled={searchActive

@@ -506,11 +506,18 @@ async function main(): Promise<void> {
       if (searchFolder && searchFolder.startsWith('~')) {
         searchFolder = path.join(os.homedir(), searchFolder.slice(1));
       }
+      // Resolve the search folder's default model against that folder's settings
+      // (folder-local harness/pi config wins), so the search composer can seed its
+      // model picker with the folder default rather than the server global.
+      const searchDefaultModel = searchFolder
+        ? sessionPool.getDefaultModelFor(searchFolder)
+        : null;
       sendJSON(res, 200, {
         gitInitDefault: !!config.gitInitDefault,
         uploadMethod: config.uploads?.method || 'websocket',
         searchFolder: searchFolder || null,
-        searchCreateRemote: !!config.searchCreateRemote
+        searchCreateRemote: !!config.searchCreateRemote,
+        searchDefaultModel
       });
       return;
     }
