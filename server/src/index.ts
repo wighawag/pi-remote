@@ -1701,9 +1701,27 @@ function extractText(msg: any): string {
 }
 
 /**
+ * Resolve this package's version from its package.json, which sits next to the
+ * compiled entrypoint (`dist/index.js` -> `../package.json`). Read at runtime so
+ * it stays correct for the installed package regardless of how it was launched
+ * (npm, Volta shim, absolute service path). Falls back to 'unknown' if the file
+ * cannot be read.
+ */
+function getVersion(): string {
+  try {
+    const pkgPath = path.resolve(__dirname, '..', 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')) as { version?: string };
+    return pkg.version ?? 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
  * Subcommand dispatch. Every action is an explicit verb:
  *   - `wherever start [server flags]` runs the server
  *   - `wherever install|uninstall|service-status` manage the background service
+ *   - `wherever --version` (or `-v` / `version`) prints the version
  *   - bare `wherever` (or `help`) prints usage
  * Server flags after `start` are consumed by parseArgs() (which reads
  * process.argv), so `start` is stripped from argv before main() runs.
@@ -1732,6 +1750,11 @@ function dispatch(): void {
     case 'service-status':
     case 'status':
       runServiceStatus(parseInstallOptions(rest));
+      return;
+    case 'version':
+    case '--version':
+    case '-v':
+      console.log(getVersion());
       return;
     case undefined:
     case 'help':
