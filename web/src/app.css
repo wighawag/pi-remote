@@ -162,6 +162,37 @@ body {
 	font-size: 0.8125em;
 	line-height: 1.5;
 }
+.markdown-body details.code-collapsible {
+	margin: 0.5em 0;
+}
+.markdown-body details.code-collapsible > summary {
+	cursor: pointer;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 0.8125em;
+	color: var(--color-brand-text-muted);
+	background: var(--color-brand-dark);
+	border: 1px solid var(--color-brand-border);
+	border-radius: 0.375rem;
+	padding: 0.35em 0.6em;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	list-style-position: inside;
+}
+.markdown-body details.code-collapsible[open] > summary {
+	border-bottom-left-radius: 0;
+	border-bottom-right-radius: 0;
+	margin-bottom: -1px;
+}
+.markdown-body details.code-collapsible > pre {
+	margin: 0;
+	border-top-left-radius: 0;
+	border-top-right-radius: 0;
+}
+.markdown-body details.code-collapsible .code-lang {
+	color: var(--color-brand-cyan);
+	margin-right: 0.4em;
+}
 .markdown-body blockquote {
 	border-left: 3px solid var(--color-brand-border);
 	padding-left: 0.75em;

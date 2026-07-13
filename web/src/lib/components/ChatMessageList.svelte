@@ -28,7 +28,7 @@
 	import type {ChatMessage} from '$lib/wherever';
 	import {onMount} from 'svelte';
 	import {url} from '$lib/core/utils/web/path';
-	import {renderMarkdown} from '$lib/core/utils/markdown';
+	import {renderMarkdown, linkifyText} from '$lib/core/utils/markdown';
 
 	// Memoize rendered markdown per (message id + content length) so a finalized
 	// assistant message is parsed once and its DOM stays stable afterwards. A
@@ -42,6 +42,19 @@
 		if (cached === undefined) {
 			cached = renderMarkdown(content);
 			markdownCache.set(key, cached);
+		}
+		return cached;
+	}
+
+	// Link-only rendering for user messages: bare URLs become clickable, but the
+	// user's literal characters (asterisks, backticks) are NOT reinterpreted as
+	// markdown. Memoized on the cleaned content so the DOM stays stable.
+	const linkifyCache = new Map<string, string>();
+	function renderUser(content: string): string {
+		let cached = linkifyCache.get(content);
+		if (cached === undefined) {
+			cached = linkifyText(content);
+			linkifyCache.set(content, cached);
 		}
 		return cached;
 	}
@@ -1301,9 +1314,17 @@
 							{/if}
 						{:else}
 							{@const parsedUserMsg = parseUserMessage(msg.content)}
-							<div class="text-sm leading-relaxed whitespace-pre-wrap">
+							<div
+								class="chat-selectable text-sm leading-relaxed whitespace-pre-wrap"
+							>
 								{#if parsedUserMsg.cleanContent}
-									{parsedUserMsg.cleanContent}
+									{@const userHtml = renderUser(parsedUserMsg.cleanContent)}
+									{#if userHtml}
+										<!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via DOMPurify in linkifyText -->
+										<span>{@html userHtml}</span>
+									{:else}
+										{parsedUserMsg.cleanContent}
+									{/if}
 								{:else if parsedUserMsg.attachments.length > 0}
 									<span class="text-brand-text-muted italic"
 										>Shared file{parsedUserMsg.attachments.length > 1
