@@ -194,6 +194,31 @@ Upload a document or image to the server via standard HTTP multipart POST.
   }
   ```
 
+### `GET /session/download`
+Download a file the agent produced (the reverse of `/session/upload`). The server streams the file with `Content-Disposition: attachment`. This is what makes file mentions in the chat tappable/downloadable from a phone or browser.
+* **Auth required:** Yes (if token is configured)
+* **Query Parameters:**
+  * `sessionId`: The session identifier the download is attributed to (used to resolve the working directory).
+  * `path`: The file to download. Relative paths resolve against the session's `cwd`; absolute/`~` paths are allowed only if inside an allowed root.
+* **Security (deny-by-default):** A file is served ONLY when its real (symlink-resolved) path is inside an allowed root. Allowed roots are always the session's `cwd` and the resolved upload dir, plus any extra roots in `downloads.roots`. `..` traversal and in-tree symlinks that escape a root are rejected. A path outside the roots returns `404` (indistinguishable from not-found, so existence is not leaked).
+* **Config (`~/.wherever/config.json`):**
+  ```json
+  {
+    "downloads": {
+      "enabled": true,
+      "roots": ["~/exports"],
+      "maxBytes": 104857600
+    }
+  }
+  ```
+  Set `"enabled": false` to disable downloads entirely (the endpoint then returns `403`).
+* **Responses:** `200` streams the file; `400` missing params; `404` not found / not allowed; `413` file exceeds `maxBytes`.
+
+**Downloading from the UI.** The download button is driven by the tool CALL itself: the web UI inspects each tool call and, for a few file-oriented tools, renders a download button in the tool-card header that hits `GET /session/download`. This works in both CLI-bridge and pure server-side (web-frontend) sessions, since both stream tool calls to every client. There is no separate protocol message.
+
+- **`attach_file` (agent-driven, the intended path):** a self-contained tool the agent calls to offer a specific file for download, e.g. right after producing a deliverable, or when you ask for a file by name/type, including one created earlier ("give me the gpx", "send me the pdf"). It is registered in every session type: for server-side sessions the server passes it as a `customTool` into `createAgentSession()`; for CLI-bridge sessions the same `@wherever-dev/pi` extension you already load registers it (nothing extra to install). Its prompt tells the agent that, for a remote user who cannot reach the filesystem, a bare file path in a reply is never enough, it must call `attach_file`.
+- **`read`/`write`/`edit` cards (opportunistic, no agent cooperation):** these cards already carry the exact path the agent touched, so a download button is offered there too. If the agent read/wrote a file, you can grab it.
+
 ### `POST /session/transcribe`
 Send a raw WAV voice recording to be transcribed using the configured server-side transcription API (e.g., Zhipu GLM-ASR-2512 or OpenAI Whisper).
 * **Auth required:** Yes (if token is configured)

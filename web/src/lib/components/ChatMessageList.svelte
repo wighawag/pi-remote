@@ -18,6 +18,7 @@
 		beepSessionOverride,
 		setBeepSessionOverride,
 		isReadOnly,
+		downloadFileUrl,
 	} from '$lib/wherever';
 	import {
 		availableModels,
@@ -447,7 +448,32 @@
 			// A tool call that ended with no result (e.g. killed by a CLI takeover).
 			// Outcome unknown: render a neutral "interrupted" state, not success.
 			interrupted: !!msg.interrupted,
+			// The path of a single file this tool operated on, when it is a
+			// file-oriented tool. Drives the per-tool download button. Two groups:
+			//   - `attach_file`: the agent EXPLICITLY offered this file for download
+			//     (the intended, agent-driven path, e.g. "give me the gpx").
+			//   - `read`/`write`/`edit`: the card already carries the exact path the
+			//     agent touched, so we offer it opportunistically too.
+			// `ls`/`grep`/`find` are excluded (their path arg is a directory or
+			// search scope, not a downloadable file). Suppressed on errors.
+			downloadPath: extractDownloadablePath(toolName, argsObj, isError),
 		};
+	}
+
+	// Return the single file path a file-oriented tool operated on, or null. Kept
+	// deliberately narrow so the button never appears on a directory (ls) or a
+	// search scope (grep/find).
+	function extractDownloadablePath(
+		toolName: string,
+		argsObj: Record<string, any> | null,
+		isError: boolean,
+	): string | null {
+		if (isError || !argsObj) return null;
+		const name = (toolName || '').toLowerCase();
+		if (!['attach_file', 'read', 'write', 'edit'].includes(name)) return null;
+		const pathVal = argsObj.path || argsObj.filepath || argsObj.file;
+		if (!pathVal || typeof pathVal !== 'string') return null;
+		return pathVal.trim() || null;
 	}
 
 	function isScrolledToBottom(el: HTMLDivElement): boolean {
@@ -531,7 +557,9 @@
 				}
 			}
 			if (msg.role === 'tool') {
-				if ($piState.hideTools) {
+				// attach_file renders as an attachment, not tool noise, so it is
+				// never suppressed by "hide tools".
+				if ($piState.hideTools && msg.toolName !== 'attach_file') {
 					return isAssociatedWithForceCommand(msg) || !!msg.isStreaming;
 				}
 			}
@@ -987,23 +1015,25 @@
 							? 'bg-brand-blue/80 text-brand-text'
 							: msg.role === 'thinking'
 								? 'border-l-2 border-brand-border bg-brand-surface/30 text-sm text-brand-text-muted'
-								: msg.role === 'tool'
-									? $piState.hideTools && !isAssociatedWithForceCommand(msg)
-										? 'border-l-2 border-brand-border bg-brand-surface/30 text-sm text-brand-text-muted'
-										: `border-l-2 bg-brand-surface-2 font-mono text-sm text-brand-text ${
-												msg.isStreaming
-													? 'border-amber-400'
-													: msg.isError
-														? 'border-rose-400'
-														: msg.interrupted
-															? 'border-brand-border'
-															: 'border-emerald-400'
-											}`
-									: msg.role === 'assistant'
-										? 'border-l-2 border-brand-purple bg-brand-purple/10 text-brand-text'
-										: msg.content === '' && msg.isStreaming
-											? 'bg-brand-surface-3 text-brand-text-muted italic'
-											: 'bg-brand-surface-2 text-brand-text'}"
+								: msg.role === 'tool' && msg.toolName === 'attach_file'
+									? 'bg-transparent p-0 text-brand-text'
+									: msg.role === 'tool'
+										? $piState.hideTools && !isAssociatedWithForceCommand(msg)
+											? 'border-l-2 border-brand-border bg-brand-surface/30 text-sm text-brand-text-muted'
+											: `border-l-2 bg-brand-surface-2 font-mono text-sm text-brand-text ${
+													msg.isStreaming
+														? 'border-amber-400'
+														: msg.isError
+															? 'border-rose-400'
+															: msg.interrupted
+																? 'border-brand-border'
+																: 'border-emerald-400'
+												}`
+										: msg.role === 'assistant'
+											? 'border-l-2 border-brand-purple bg-brand-purple/10 text-brand-text'
+											: msg.content === '' && msg.isStreaming
+												? 'bg-brand-surface-3 text-brand-text-muted italic'
+												: 'bg-brand-surface-2 text-brand-text'}"
 					>
 						{#if msg.role === 'thinking'}
 							{#if msg.content === 'FALLBACK_THINKING_LOADER'}
@@ -1102,7 +1132,7 @@
 								</div>
 							{/if}
 						{:else if msg.role === 'tool'}
-							{#if $piState.hideTools && !isAssociatedWithForceCommand(msg)}
+							{#if $piState.hideTools && msg.toolName !== 'attach_file' && !isAssociatedWithForceCommand(msg)}
 								<div
 									class="flex items-center gap-2 font-sans text-sm text-brand-text-muted italic select-none"
 								>
@@ -1145,155 +1175,266 @@
 									expandedMessages[msg.id] !== undefined
 										? expandedMessages[msg.id]
 										: shouldAutoExpand(msg, msgList)}
-								<div
-									class="flex max-w-full min-w-[280px] flex-col sm:min-w-[400px] md:min-w-[550px]"
-								>
-									<!-- Header of tool execution -->
-									<button
-										onclick={() => toggleMessage(msg.id, isExpanded)}
-										class="flex w-full items-center justify-between gap-3 rounded p-1 text-left transition-colors hover:bg-brand-surface-3/30 focus:outline-none"
-									>
-										<div class="flex flex-1 items-center gap-2 overflow-hidden">
-											<!-- Status icon -->
-											{#if msg.isStreaming}
-												<!-- Running -->
+								{@const dlPath = parsed.downloadPath}
+								{@const dlUrl = dlPath ? downloadFileUrl(dlPath) : null}
+								{@const isAttachTool = parsed.toolName === 'attach_file'}
+								{#if isAttachTool}
+									<!-- attach_file rendered as a first-class ATTACHMENT, not a
+									     generic tool card: the agent explicitly offered this file
+									     for the (remote) user to download. Three states: streaming
+									     (attaching...), error (could not attach), success (download
+									     link). A failed attach shows the tool's error text so the
+									     agent/user can see WHY (e.g. file not found). -->
+									{@const fileName = dlPath
+										? dlPath.split('/').pop() || dlPath
+										: ''}
+									<div class="flex max-w-full min-w-[240px] flex-col">
+										{#if msg.isStreaming}
+											<div
+												class="flex items-center gap-3 rounded-lg border border-brand-border bg-brand-surface-2 px-3 py-2.5 text-brand-text-muted"
+											>
+												<span class="animate-pulse text-2xl leading-none"
+													>📎</span
+												>
+												<span class="truncate text-sm">Attaching file…</span>
+											</div>
+										{:else if parsed.isError}
+											<div
+												class="flex items-start gap-3 rounded-lg border border-rose-400/40 bg-rose-400/10 px-3 py-2.5 text-brand-text"
+											>
+												<span class="text-2xl leading-none">📎</span>
+												<span class="flex min-w-0 flex-1 flex-col gap-0.5">
+													<span class="text-sm font-semibold text-rose-300"
+														>Could not attach file</span
+													>
+													{#if parsed.toolOutput}
+														<span
+															class="text-xs break-words text-brand-text-muted"
+															>{parsed.toolOutput}</span
+														>
+													{/if}
+												</span>
+											</div>
+										{:else if dlUrl}
+											<a
+												href={dlUrl}
+												download={fileName}
+												class="flex items-center gap-3 rounded-lg border border-brand-cyan/40 bg-brand-cyan/10 px-3 py-2.5 text-brand-text no-underline transition-colors hover:bg-brand-cyan/20"
+												title={`Download ${dlPath}`}
+											>
+												<span class="text-2xl leading-none">📎</span>
+												<span class="flex min-w-0 flex-1 flex-col">
+													<span class="truncate text-sm font-semibold"
+														>{fileName}</span
+													>
+													<span
+														class="truncate text-xs text-brand-text-muted"
+														title={dlPath}>{dlPath}</span
+													>
+												</span>
 												<span
-													class="inline-block animate-spin font-bold text-amber-400"
-													>⚡</span
+													class="flex shrink-0 items-center gap-1 rounded-md bg-brand-cyan/20 px-2.5 py-1 text-xs font-medium text-brand-cyan"
+													>⬇️ Download</span
 												>
-											{:else if parsed.isError}
-												<!-- Error -->
-												<span class="font-bold text-rose-400" title="Failed"
-													>❌</span
+											</a>
+										{:else}
+											<div
+												class="flex items-center gap-3 rounded-lg border border-brand-border bg-brand-surface-2 px-3 py-2.5 text-brand-text-muted"
+											>
+												<span class="text-2xl leading-none">📎</span>
+												<span class="flex min-w-0 flex-1 flex-col">
+													<span class="truncate text-sm font-semibold"
+														>{fileName}</span
+													>
+													<span class="truncate text-xs"
+														>No active session to download from</span
+													>
+												</span>
+											</div>
+										{/if}
+									</div>
+								{:else}
+									<div
+										class="flex max-w-full min-w-[280px] flex-col sm:min-w-[400px] md:min-w-[550px]"
+									>
+										<!-- Header of tool execution. The collapse toggle (button) and an
+									     optional download link (anchor) are SIBLINGS in a flex row so
+									     the anchor is never nested inside the button. -->
+										<div class="flex w-full items-center gap-1">
+											<button
+												onclick={() => toggleMessage(msg.id, isExpanded)}
+												class="flex min-w-0 flex-1 items-center justify-between gap-3 rounded p-1 text-left transition-colors hover:bg-brand-surface-3/30 focus:outline-none"
+											>
+												<div
+													class="flex flex-1 items-center gap-2 overflow-hidden"
 												>
-											{:else if parsed.interrupted}
-												<!-- Interrupted: no result (e.g. a CLI took over and the
+													<!-- Status icon -->
+													{#if msg.isStreaming}
+														<!-- Running -->
+														<span
+															class="inline-block animate-spin font-bold text-amber-400"
+															>⚡</span
+														>
+													{:else if parsed.isError}
+														<!-- Error -->
+														<span class="font-bold text-rose-400" title="Failed"
+															>❌</span
+														>
+													{:else if parsed.interrupted}
+														<!-- Interrupted: no result (e.g. a CLI took over and the
 												     running tool was killed). Outcome unknown: neither
 												     success nor failure. -->
-												<span
-													class="font-bold text-brand-text-muted"
-													title="Interrupted, no result (the running tool was stopped, e.g. by a CLI takeover)"
-													>⊘</span
-												>
-											{:else}
-												<!-- Success -->
-												<span
-													class="font-bold text-emerald-400"
-													title="Succeeded">✅</span
-												>
-											{/if}
+														<span
+															class="font-bold text-brand-text-muted"
+															title="Interrupted, no result (the running tool was stopped, e.g. by a CLI takeover)"
+															>⊘</span
+														>
+													{:else}
+														<!-- Success -->
+														<span
+															class="font-bold text-emerald-400"
+															title="Succeeded">✅</span
+														>
+													{/if}
 
-											<span class="font-mono text-sm font-bold text-brand-text">
-												{parsed.toolName}
-											</span>
+													<span
+														class="font-mono text-sm font-bold text-brand-text"
+													>
+														{parsed.toolName}
+													</span>
 
-											{#if parsed.smartTitleArgs}
-												<span
-													class="max-w-[180px] truncate font-mono text-xs text-brand-text-muted sm:max-w-[300px] md:max-w-[450px]"
-													title={parsed.smartTitleArgs}
-												>
-													{parsed.smartTitleArgs}
-												</span>
-											{/if}
+													{#if parsed.smartTitleArgs}
+														<span
+															class="max-w-[180px] truncate font-mono text-xs text-brand-text-muted sm:max-w-[300px] md:max-w-[450px]"
+															title={parsed.smartTitleArgs}
+														>
+															{parsed.smartTitleArgs}
+														</span>
+													{/if}
 
-											{#if toolDuration(msg)}
-												<span
-													class="shrink-0 font-mono text-xs tabular-nums {msg.isStreaming
-														? 'text-amber-400'
-														: 'text-brand-text-muted'}"
-													title={msg.isStreaming
-														? 'Elapsed time'
-														: 'Time taken'}
+													{#if toolDuration(msg)}
+														<span
+															class="shrink-0 font-mono text-xs tabular-nums {msg.isStreaming
+																? 'text-amber-400'
+																: 'text-brand-text-muted'}"
+															title={msg.isStreaming
+																? 'Elapsed time'
+																: 'Time taken'}
+														>
+															{msg.isStreaming ? 'Elapsed' : 'Took'}
+															{toolDuration(msg)}
+														</span>
+													{/if}
+												</div>
+
+												<div
+													class="flex shrink-0 items-center gap-1 font-sans text-xs font-medium whitespace-nowrap text-brand-text-muted select-none hover:text-brand-text"
 												>
-													{msg.isStreaming ? 'Elapsed' : 'Took'}
-													{toolDuration(msg)}
-												</span>
+													{#if isExpanded}
+														Collapse <span class="text-[10px]">▲</span>
+													{:else}
+														Expand <span class="text-[10px]">▼</span>
+													{/if}
+												</div>
+											</button>
+
+											{#if dlPath}
+												{#if dlUrl}
+													<a
+														href={dlUrl}
+														download={dlPath.split('/').pop() || ''}
+														class="flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-xs text-brand-cyan transition-colors hover:bg-brand-cyan/15"
+														title={`Download ${dlPath}`}
+														aria-label={`Download ${dlPath}`}
+													>
+														<span class="text-sm">⬇️</span>
+													</a>
+												{:else}
+													<span
+														class="shrink-0 px-1.5 py-1 text-xs text-brand-text-muted opacity-40"
+														title="No active session to download from">⬇️</span
+													>
+												{/if}
 											{/if}
 										</div>
 
-										<div
-											class="flex shrink-0 items-center gap-1 font-sans text-xs font-medium whitespace-nowrap text-brand-text-muted select-none hover:text-brand-text"
-										>
-											{#if isExpanded}
-												Collapse <span class="text-[10px]">▲</span>
-											{:else}
-												Expand <span class="text-[10px]">▼</span>
-											{/if}
-										</div>
-									</button>
-
-									<!-- Tool image attachments (e.g. read on an image file).
+										<!-- Tool image attachments (e.g. read on an image file).
 									     Rendered OUTSIDE the collapsible section so images stay
 									     visible even when the tool details are collapsed; the
 									     args/output below remain collapsible. -->
-									{#if msg.images && msg.images.length > 0}
-										<div class="mt-2 flex flex-col gap-1">
-											<div class="flex flex-wrap gap-2">
-												{#each msg.images as img}
-													<a
-														href={`data:${img.mimeType};base64,${img.data}`}
-														target="_blank"
-														rel="noopener noreferrer"
-														class="block"
-													>
-														<img
-															src={`data:${img.mimeType};base64,${img.data}`}
-															alt="Tool output"
-															class="max-h-96 max-w-full rounded border border-brand-border/40 bg-brand-dark/60 object-contain"
-														/>
-													</a>
-												{/each}
+										{#if msg.images && msg.images.length > 0}
+											<div class="mt-2 flex flex-col gap-1">
+												<div class="flex flex-wrap gap-2">
+													{#each msg.images as img}
+														<a
+															href={`data:${img.mimeType};base64,${img.data}`}
+															target="_blank"
+															rel="noopener noreferrer"
+															class="block"
+														>
+															<img
+																src={`data:${img.mimeType};base64,${img.data}`}
+																alt="Tool output"
+																class="max-h-96 max-w-full rounded border border-brand-border/40 bg-brand-dark/60 object-contain"
+															/>
+														</a>
+													{/each}
+												</div>
 											</div>
-										</div>
-									{/if}
+										{/if}
 
-									<!-- Tool Output (collapsible) -->
-									{#if isExpanded}
-										<div
-											class="mt-2 flex flex-col gap-3 overflow-hidden border-t border-brand-border/40 pt-2"
-										>
-											<!-- Full Arguments section -->
-											{#if parsed.fullArgs && parsed.fullArgs !== '{}'}
+										<!-- Tool Output (collapsible) -->
+										{#if isExpanded}
+											<div
+												class="mt-2 flex flex-col gap-3 overflow-hidden border-t border-brand-border/40 pt-2"
+											>
+												<!-- Full Arguments section -->
+												{#if parsed.fullArgs && parsed.fullArgs !== '{}'}
+													<div class="flex flex-col gap-1">
+														<span
+															class="font-sans text-[10px] font-bold tracking-wider text-brand-text-muted uppercase"
+															>Arguments</span
+														>
+														<pre
+															class="max-h-40 overflow-x-auto rounded border border-brand-border/30 bg-brand-dark/60 p-1.5 font-mono text-[11px] whitespace-pre-wrap text-amber-400">{parsed.fullArgs}</pre>
+													</div>
+												{/if}
+
+												<!-- Tool Output section -->
 												<div class="flex flex-col gap-1">
 													<span
 														class="font-sans text-[10px] font-bold tracking-wider text-brand-text-muted uppercase"
-														>Arguments</span
+														>Output</span
 													>
-													<pre
-														class="max-h-40 overflow-x-auto rounded border border-brand-border/30 bg-brand-dark/60 p-1.5 font-mono text-[11px] whitespace-pre-wrap text-amber-400">{parsed.fullArgs}</pre>
+													{#if parsed.toolOutput}
+														<pre
+															class="max-h-96 overflow-x-auto rounded border border-brand-border/40 bg-brand-dark/60 p-2 font-mono text-xs whitespace-pre-wrap text-brand-text">{parsed.toolOutput}</pre>
+													{:else if msg.isStreaming}
+														<div
+															class="animate-pulse p-1 text-xs text-brand-text-muted italic"
+														>
+															Running and waiting for output...
+														</div>
+													{:else if parsed.interrupted}
+														<div
+															class="p-1 text-xs text-brand-text-muted italic"
+														>
+															Interrupted before a result was returned (the
+															running tool was stopped, e.g. by a CLI takeover).
+															Its outcome is unknown.
+														</div>
+													{:else}
+														<div
+															class="p-1 text-xs text-brand-text-muted italic"
+														>
+															No output returned
+														</div>
+													{/if}
 												</div>
-											{/if}
-
-											<!-- Tool Output section -->
-											<div class="flex flex-col gap-1">
-												<span
-													class="font-sans text-[10px] font-bold tracking-wider text-brand-text-muted uppercase"
-													>Output</span
-												>
-												{#if parsed.toolOutput}
-													<pre
-														class="max-h-96 overflow-x-auto rounded border border-brand-border/40 bg-brand-dark/60 p-2 font-mono text-xs whitespace-pre-wrap text-brand-text">{parsed.toolOutput}</pre>
-												{:else if msg.isStreaming}
-													<div
-														class="animate-pulse p-1 text-xs text-brand-text-muted italic"
-													>
-														Running and waiting for output...
-													</div>
-												{:else if parsed.interrupted}
-													<div class="p-1 text-xs text-brand-text-muted italic">
-														Interrupted before a result was returned (the
-														running tool was stopped, e.g. by a CLI takeover).
-														Its outcome is unknown.
-													</div>
-												{:else}
-													<div class="p-1 text-xs text-brand-text-muted italic">
-														No output returned
-													</div>
-												{/if}
 											</div>
-										</div>
-									{/if}
-								</div>
+										{/if}
+									</div>
+								{/if}
 							{/if}
 						{:else if msg.role === 'assistant' && msg.content !== ''}
 							{#if msg.isStreaming}

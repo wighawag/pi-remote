@@ -589,6 +589,27 @@ function uploadFileViaWebSocket(
 	});
 }
 
+/**
+ * Build an authenticated URL for GET /session/download. The server streams the
+ * file with Content-Disposition: attachment, validating `path` against the
+ * session's allowed download roots. `path` is the server-provided (already
+ * validated) path echoed back verbatim. Returns null when there is no active
+ * session to attribute the download to.
+ */
+export function downloadFileUrl(path: string): string | null {
+	const state = get(piState);
+	const sessionId = state.sessionId;
+	if (!sessionId) return null;
+	const baseUrl = getBaseUrl();
+	const token = getToken();
+	return (
+		`${baseUrl}/session/download` +
+		`?sessionId=${encodeURIComponent(sessionId)}` +
+		`&path=${encodeURIComponent(path)}` +
+		(token ? `&token=${encodeURIComponent(token)}` : '')
+	);
+}
+
 export async function uploadFile(
 	sessionId: string,
 	file: File,

@@ -25,6 +25,103 @@ const devStaticPath = path.resolve(__dirname, '../../web/build');
 const prodStaticPath = path.resolve(__dirname, '../public');
 const staticDir = fs.existsSync(devStaticPath) ? devStaticPath : prodStaticPath;
 
+const MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html',
+  '.js': 'text/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.wasm': 'application/wasm',
+  '.txt': 'text/plain',
+  '.md': 'text/markdown',
+  '.pdf': 'application/pdf',
+  '.csv': 'text/csv',
+  '.zip': 'application/zip',
+  '.webp': 'image/webp',
+  '.webmanifest': 'application/manifest+json'
+};
+
+function mimeTypeFor(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  return MIME_TYPES[ext] || 'application/octet-stream';
+}
+
+function expandTilde(p: string): string {
+  if (p.startsWith('~')) return path.join(os.homedir(), p.slice(1));
+  return p;
+}
+
+/**
+ * Resolve the allowed download roots for a session. Deny-by-default: only files
+ * whose REAL path lives under one of these roots are served. Always includes the
+ * session cwd and the resolved upload dir; config.downloads.roots adds more.
+ * Roots are themselves realpath-resolved so a symlinked root still matches its
+ * realpath-resolved targets.
+ */
+function resolveDownloadRoots(config: WhereverConfig, cwd?: string): string[] {
+  const roots = new Set<string>();
+  const add = (p?: string) => {
+    if (!p) return;
+    try {
+      roots.add(fs.realpathSync(path.resolve(expandTilde(p))));
+    } catch {
+      // Non-existent root: keep the lexical resolution so a not-yet-created path
+      // under it can still be validated lexically as a fallback.
+      roots.add(path.resolve(expandTilde(p)));
+    }
+  };
+  if (cwd) add(cwd);
+  add(resolveUploadDir(config, cwd));
+  for (const r of config.downloads?.roots || []) add(r);
+  return Array.from(roots);
+}
+
+/**
+ * Validate a requested download path against the allowed roots and return the
+ * safe absolute path to stream, or null if it escapes / does not exist / is not
+ * a regular file. This is the security-critical guard: it realpath-resolves the
+ * target BEFORE the containment check so neither `..` traversal nor an in-tree
+ * symlink can point outside an allowed root.
+ */
+function resolveSafeDownloadPath(requested: string, cwd: string | undefined, roots: string[]): string | null {
+  if (!requested) return null;
+  let candidate = expandTilde(requested);
+  if (!path.isAbsolute(candidate)) {
+    if (!cwd) return null;
+    candidate = path.resolve(cwd, candidate);
+  } else {
+    candidate = path.resolve(candidate);
+  }
+
+  let real: string;
+  try {
+    real = fs.realpathSync(candidate);
+  } catch {
+    return null; // does not exist / broken symlink
+  }
+
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(real);
+  } catch {
+    return null;
+  }
+  if (!stat.isFile()) return null; // never serve directories/devices
+
+  const withinRoot = roots.some((root) => {
+    if (real === root) return true;
+    return real.startsWith(root.endsWith(path.sep) ? root : root + path.sep);
+  });
+  if (!withinRoot) return null;
+
+  return real;
+}
+
 function serveStaticFile(reqPath: string, res: ServerResponse) {
   let filePath = path.join(staticDir, reqPath === '/' ? 'index.html' : reqPath);
 
@@ -43,22 +140,7 @@ function serveStaticFile(reqPath: string, res: ServerResponse) {
   }
 
   const ext = path.extname(filePath).toLowerCase();
-  const mimeTypes: Record<string, string> = {
-    '.html': 'text/html',
-    '.js': 'text/javascript',
-    '.css': 'text/css',
-    '.json': 'application/json',
-    '.png': 'image/png',
-    '.jpg': 'image/jpeg',
-    '.gif': 'image/gif',
-    '.svg': 'image/svg+xml',
-    '.ico': 'image/x-icon',
-    '.wasm': 'application/wasm',
-    '.txt': 'text/plain',
-    '.webmanifest': 'application/manifest+json'
-  };
-
-  const contentType = mimeTypes[ext] || 'application/octet-stream';
+  const contentType = mimeTypeFor(filePath);
 
   // Cache-Control: content-hashed build assets under /_app/immutable/ never
   // change for a given URL, so they can be cached aggressively. Everything
@@ -522,6 +604,7 @@ async function main(): Promise<void> {
       sendJSON(res, 200, {
         gitInitDefault: !!config.gitInitDefault,
         uploadMethod: config.uploads?.method || 'websocket',
+        downloadsEnabled: config.downloads?.enabled !== false,
         searchFolder: searchFolder || null,
         searchCreateRemote: !!config.searchCreateRemote,
         searchDefaultModel
@@ -898,6 +981,69 @@ async function main(): Promise<void> {
       } catch (err) {
         sendJSON(res, 500, { error: `Upload error: ${(err as Error).message}` });
       }
+      return;
+    }
+
+    if (pathname === '/session/download' && req.method === 'GET') {
+      const config = getWhereverConfig();
+      if (config.downloads?.enabled === false) {
+        sendJSON(res, 403, { error: 'Downloads are disabled on this server' });
+        return;
+      }
+
+      const qSessionId = url.searchParams.get('sessionId') || '';
+      const qPath = url.searchParams.get('path') || '';
+      if (!qSessionId || !qPath) {
+        sendJSON(res, 400, { error: 'Missing sessionId or path' });
+        return;
+      }
+
+      const tracked = sessionPool.getSession(qSessionId);
+      const cwd = tracked?.cwd;
+
+      const roots = resolveDownloadRoots(config, cwd);
+      const safePath = resolveSafeDownloadPath(qPath, cwd, roots);
+      if (!safePath) {
+        // 404 (not 403) so we do not leak whether a path outside the allowed
+        // roots exists: escape and not-found are indistinguishable to the client.
+        sendJSON(res, 404, { error: 'File not found or not allowed' });
+        return;
+      }
+
+      let stat: fs.Stats;
+      try {
+        stat = fs.statSync(safePath);
+      } catch {
+        sendJSON(res, 404, { error: 'File not found' });
+        return;
+      }
+
+      const maxBytes = config.downloads?.maxBytes ?? 100 * 1024 * 1024;
+      if (stat.size > maxBytes) {
+        sendJSON(res, 413, { error: `File too large (${stat.size} > ${maxBytes} bytes)` });
+        return;
+      }
+
+      const filename = path.basename(safePath);
+      // RFC 5987 encoded filename for non-ASCII names, plus a plain ASCII
+      // fallback with quotes escaped.
+      const asciiName = filename.replace(/["\\]/g, '_').replace(/[^\x20-\x7e]/g, '_');
+      const encodedName = encodeURIComponent(filename);
+      res.writeHead(200, {
+        'Content-Type': mimeTypeFor(safePath),
+        'Content-Length': stat.size,
+        'Content-Disposition': `attachment; filename="${asciiName}"; filename*=UTF-8''${encodedName}`,
+        'Cache-Control': 'no-store',
+      });
+      const stream = fs.createReadStream(safePath);
+      stream.on('error', (err) => {
+        if (!res.headersSent) {
+          sendJSON(res, 500, { error: `Read error: ${err.message}` });
+        } else {
+          res.destroy();
+        }
+      });
+      stream.pipe(res);
       return;
     }
 

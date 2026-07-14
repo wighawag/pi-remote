@@ -109,6 +109,8 @@ Wherever is a TypeScript extension for the [pi coding agent](https://pi.dev) tha
 - `POST /session/new` - Start new session
 - `POST /session/compact` - Trigger compaction
 - `GET /health` - Health check (no auth)
+- `POST /session/upload` - Upload a file from the client to the server
+- `GET /session/download` - Download an agent-produced file to the client (see "File Download / Attachments" below)
 
 ### Service Install (`wherever install`)
 
@@ -137,6 +139,21 @@ Both the web frontend and the CLI bridge extension can play an inviting sound wh
   - **Per-session**: `/remote-beep [on|off]` (no arg toggles; enabling plays a sample). Resets to the configured default on each session start.
   - **Sound**: resolves, highest first: `--remote-beep-command` flag → `beep.command` in `~/.wherever/config.json` → auto-detected player + freedesktop/system chime (`pw-play`/`paplay`/`canberra-gtk-play`/`ffplay` + `complete.oga`, or `afplay` on macOS) → terminal bell `\x07` written to `/dev/tty` (falling back to stdout). The BEL goes to `/dev/tty` because pi's TUI owns stdout and can swallow an out-of-band byte; and many terminals (e.g. WezTerm on Linux) have a silent audible bell, which is why the command path exists.
 - **Web frontend** (`web/src/lib/core/beep.ts` + `web/src/lib/wherever.ts`): a Web Audio soft two-note chime fires on the `isStreaming` true -> false edge. A 🔔/🔕 top-bar button toggles it per session; Connection Settings has a "Beep when the agent is waiting" checkbox (`beepDefault`) and an optional custom sound URL (`beepSoundUrl`, played via an `Audio` element with a Test button; blank = built-in chime). Both persist in the `wherever-config` localStorage entry. The per-session override resets when the active session changes.
+
+### File Download / Attachments
+
+The reverse of the upload path: files the agent produces (a generated PDF, an export, a note in the work folder) can be pulled down to a phone/browser and shown as tappable chips/links.
+
+- **Endpoint** (`server/src/index.ts`): `GET /session/download?sessionId=..&path=..` streams the file with `Content-Disposition: attachment`. Behind the same token gate as the other `/session/*` routes.
+- **Security (deny-by-default):** `resolveSafeDownloadPath()` realpath-resolves the requested path BEFORE a containment check, so neither `..` traversal nor an in-tree symlink can escape. Allowed roots (`resolveDownloadRoots()`) are always the session `cwd` + the resolved upload dir, plus `config.downloads.roots`. Out-of-root returns `404` (existence not leaked); oversized returns `413` (`config.downloads.maxBytes`, default 100 MiB); `config.downloads.enabled: false` disables the feature (`403`).
+- **The download button is driven by the tool CALL, not by any side channel.** The web UI (`ChatMessageList.svelte`, `extractDownloadablePath()` + `parseToolMessage()`) inspects each tool call and, for a small set of file-oriented tools, renders a ⬇️ download link in the tool-card header (a sibling anchor beside Expand/Collapse, never nested in the button) whose href is built by `downloadFileUrl()` in `web/src/lib/wherever.ts` (carrying sessionId + token). This works for BOTH CLI-bridge and pure server-side (web-frontend) sessions, because both already stream `tool_start`/`tool_end` to every client. No `file_attachment` message, no `attachment` chat role, no bridge marker.
+  - `attach_file`: the intended, agent-driven download. The agent calls it to offer a specific file ("give me the gpx", or right after producing a PDF).
+  - `read` / `write` / `edit`: opportunistic. Their card already carries the exact path the agent touched, so a button is offered there too. `ls`/`grep`/`find` are excluded (their path arg is a directory/search scope).
+- **`attach_file` is a SELF-CONTAINED tool, registered in TWO places** so it exists in every session type:
+  - **Server-side sessions** (web frontend, no terminal): `server/src/attach-file-tool.ts` (`createAttachFileTool(cwd)`) is passed as a `customTool` into both `createAgentSession()` calls in `session-pool.ts`. The tool runs inside the server's own agent.
+  - **CLI-bridge sessions** (terminal pi): the same tool is registered by the `@wherever-dev/pi` extension (`extension/src/index.ts`), the extension you already load (nothing extra to install).
+  - In both, `execute` only validates the path and returns a normal tool result (`details: { path, filename, size }`). It does NOT read the file bytes and does NOT touch the bridge. The earlier bridge-marker design (a `file_attachment` cli_event relayed to a `file_attachment` ServerMessage) was REMOVED, because it could not work in a web-frontend session (no bridge). Its prompt tells the agent that a bare file path in a reply is never enough for a remote user; it must call `attach_file`.
+- **(Removed) prose path auto-linkify:** an earlier approach linkified file-path-looking tokens in assistant prose. Dropped because it was fuzzy (guessed paths, could 404 on out-of-root/non-existent paths).
 
 ### Event Flow
 
@@ -265,7 +282,7 @@ Potential additions:
 - [ ] WebSocket reconnection logic
 - [ ] Extension UI dialog forwarding to remote clients
 - [ ] Custom tool registration via API
-- [ ] File transfer capabilities
+- [x] File transfer capabilities (upload via `/session/upload`; download via `/session/download`, surfaced as a download button on `read`/`write`/`edit` tool cards plus the `attach_file` tool for explicit/"give me the X" deliverables)
 
 ## Related Pi Documentation
 

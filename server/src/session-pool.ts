@@ -104,6 +104,20 @@ export interface WhereverConfig {
     method?: 'post' | 'websocket';
   };
   /**
+   * Controls which files the `GET /session/download` endpoint will serve to a
+   * client (phone/browser). Deny-by-default: a file is only served when its
+   * REAL (symlink-resolved) path is inside one of the allowed roots. The
+   * session's own cwd and the resolved upload dir are ALWAYS allowed; `roots`
+   * adds extra roots. Tilde (~) is expanded. Set enabled:false to turn the
+   * whole download feature off.
+   */
+  downloads?: {
+    enabled?: boolean;
+    roots?: string[];
+    /** Max file size served, in bytes. Default 100 MiB. */
+    maxBytes?: number;
+  };
+  /**
    * Waiting-for-human beep for the CLI bridge extension (read from this shared
    * config file by that extension). The web frontend has its own separate
    * localStorage-based beep config.
@@ -422,6 +436,7 @@ export function setupUpstreamTracking(resolvedCwd: string) {
 }
 
 import { createAgentSession, AuthStorage, ModelRegistry, DefaultResourceLoader, SettingsManager, getAgentDir, SessionManager } from '@earendil-works/pi-coding-agent';
+import { createAttachFileTool } from './attach-file-tool.js';
 import type { AgentSession, AgentSessionEvent } from '@earendil-works/pi-coding-agent';
 import type { Model, Api } from '@earendil-works/pi-ai';
 import type { SessionMessageEntry, SessionEntry } from '@earendil-works/pi-coding-agent';
@@ -708,6 +723,10 @@ export class SessionPool {
           sessionManager,
           settingsManager,
           resourceLoader,
+          // Register attach_file for server-created sessions (web frontend with no
+          // CLI bridge). The tool is self-contained; the download button is driven
+          // by the tool call reaching the web UI, no bridge/marker needed.
+          customTools: [createAttachFileTool(normalizedCwd)],
         });
 
         const modelLabel = agentSession.model ? `${agentSession.model.provider}:${agentSession.model.id}` : '';
@@ -902,6 +921,9 @@ export class SessionPool {
           sessionManager,
           settingsManager,
           resourceLoader,
+          // Register attach_file for server-created sessions (see the other
+          // createAgentSession call for the rationale).
+          customTools: [createAttachFileTool(resolvedCwd)],
         });
 
         const sessionFile = normalizeSessionFile(agentSession.sessionFile || '');
