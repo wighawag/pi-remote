@@ -1718,6 +1718,25 @@ async function handleWSMessage(
     case 'message': {
       if (!client.sessionId) return;
       if (client.readOnly) return;
+      // The client stamps every send with the sessionId of the session it is
+      // actually viewing. Treat that as AUTHORITATIVE: if it does not resolve to
+      // the same tracked session this connection is attached to, REFUSE rather
+      // than delivering to the wrong agent. This closes a switch/reconnect/resync
+      // race where client.sessionId (per-connection, set only when a load
+      // attaches) is stale relative to the session the client painted and
+      // targeted, which silently misrouted a message into another session's
+      // agent. The client surfaces session_error as a recoverable, retryable
+      // failure (delivery watchdog + Retry), so no text is lost.
+      const attached = pool.getSession(client.sessionId);
+      const target = msg.sessionId ? pool.getSession(msg.sessionId) : attached;
+      if (!attached || !target || target !== attached) {
+        sendWS(client.ws, {
+          type: 'session_error',
+          sessionId: msg.sessionId,
+          error: 'This message was not delivered because the session changed. Re-open the session and resend.',
+        });
+        break;
+      }
       const streaming = pool.isStreaming(client.sessionId);
       await pool.sendUserMessage(client.sessionId, msg.message, streaming ? 'steer' : undefined);
       break;
@@ -1725,6 +1744,12 @@ async function handleWSMessage(
 
     case 'abort': {
       if (!client.sessionId) return;
+      // Same authority guard as 'message': never abort a session other than the
+      // one the client is actually looking at. A stale client.sessionId must not
+      // silently interrupt a different session's running turn.
+      const attached = pool.getSession(client.sessionId);
+      const target = msg.sessionId ? pool.getSession(msg.sessionId) : attached;
+      if (!attached || !target || target !== attached) break;
       await pool.abortSession(client.sessionId);
       break;
     }
