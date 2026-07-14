@@ -1,5 +1,17 @@
 # @wherever-dev/pi
 
+## 0.3.0
+
+### Minor Changes
+
+- 13c2d36: Register a self-contained `attach_file` tool in the CLI-bridge extension (shipped inside the same `@wherever-dev/pi` extension, nothing extra to install). The agent calls `attach_file({ path })` to offer a file for download; the tool only validates the path and returns a normal tool result carrying it, with no dependency on the bridge and without reading the file bytes. The download button is then driven by the tool call reaching the web UI, which is why the same tool works in a pure server-side session too. The prompt directs the agent to attach not only after producing a deliverable (a PDF, an export, a report) but also whenever the user asks for a file by name or type, including one created earlier in the conversation ("give me the gpx", "send me the pdf"), since the remote user can only obtain a file the agent attaches, so a bare file path in a reply is never enough.
+
+### Patch Changes
+
+- 11c4dc8: Fix a crash that could take down the pi CLI (not the wherever server) when a session was torn down while the client's WebSocket was still connecting, typically when the wherever server is not running. Calling `close()` on a socket that is still in the `CONNECTING` state makes `ws` abort the handshake and emit an `'error'` event asynchronously on the next tick; because `disconnect()` had already removed every listener, that error became an unhandled `EventEmitter` error and surfaced as an `uncaughtException` ("WebSocket was closed before the connection was established"), exiting the process. The existing try/catch could not help since the error was emitted asynchronously rather than thrown synchronously. `disconnect()` now attaches a no-op `'error'` sink to the socket it is tearing down (in both the node `ws` and browser `WebSocket` environments) so the late handshake-abort error is swallowed instead of crashing pi.
+- Updated dependencies [11c4dc8]
+  - @wherever-dev/client@0.3.3
+
 ## 0.2.8
 
 ### Patch Changes
