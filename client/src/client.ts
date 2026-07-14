@@ -309,11 +309,28 @@ export class WhereverClient {
     this.clearCreateWatchdog();
 
     if (this.ws) {
+      const dyingWs = this.ws as any;
       try {
-        if (typeof this.ws.removeAllListeners === 'function') {
-          this.ws.removeAllListeners();
+        if (typeof dyingWs.removeAllListeners === 'function') {
+          dyingWs.removeAllListeners();
         }
-        this.ws.close();
+        // Closing a socket that is still CONNECTING (e.g. the wherever server is
+        // not running so the handshake never completed) makes `ws` abort the
+        // handshake and emit an 'error' asynchronously on the next tick. With
+        // every listener removed, that 'error' would be an unhandled
+        // EventEmitter error and crash the whole process as an
+        // uncaughtException. Keep a no-op error sink on the socket we are
+        // tearing down so the late error is swallowed, in both the node (`ws`)
+        // and browser (`WebSocket`) environments.
+        const swallow = () => {};
+        if (typeof dyingWs.on === 'function') {
+          dyingWs.on('error', swallow);
+        } else if (typeof dyingWs.addEventListener === 'function') {
+          dyingWs.addEventListener('error', swallow);
+        } else {
+          dyingWs.onerror = swallow;
+        }
+        dyingWs.close();
       } catch (err) {}
       this.ws = null;
     }
