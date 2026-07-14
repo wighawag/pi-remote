@@ -165,6 +165,36 @@ Install options:
 - `--port` / `--host` / `--token` — Server flags to bake into the service invocation.
 - `--dry-run` — Print the generated unit/plist and the intended actions without writing anything.
 
+#### Updating to a new version
+
+The service runs a fixed path to the installed `wherever-dev` package, so updating the package files on disk does **not** restart the already-running process: it keeps the old code in memory until it is restarted. After you install a new version, do one of the following:
+
+1. Update the package however you installed it, for example:
+
+   ```bash
+   npm install -g wherever-dev@latest
+   ```
+
+2. Then apply it to the running service, using EITHER of these:
+
+   ```bash
+   # Simplest: just restart the service to load the new code.
+   systemctl --user restart wherever        # Linux (per-user)
+   # Linux (system-wide install): sudo systemctl restart wherever
+   # macOS: launchctl unload  ~/Library/LaunchAgents/dev.wherever.server.plist \
+   #     && launchctl load ~/Library/LaunchAgents/dev.wherever.server.plist
+
+   # OR re-run install with the SAME flags you used originally. This rewrites
+   # the service definition and restarts it in one step.
+   wherever install --host 0.0.0.0 --token your-secure-token --port 31415
+   ```
+
+> You do **not** need a manual restart *after* `wherever install`: install already restarts the service itself (it runs `daemon-reload` + `enable --now` + `restart`). Use a bare `systemctl --user restart wherever` only when you updated the package without re-running install.
+
+> A restart rebuilds the server's session pool, so any warm sessions pick up new tools/behaviour from the update. In-flight conversations are interrupted by the restart, so update when idle.
+
+> If you run Wherever from a source checkout (Method B below) rather than the published package, the service, if you installed one, still points at the global package path, not your repo. Rebuild + run your local server directly (or reinstall pointing at your build) to test local changes.
+
 > On Linux user services, run `loginctl enable-linger $USER` if you want the service to keep running after you log out. Windows is not supported yet; run `wherever start` manually or use a tool like NSSM.
 
 > Note: the server is started with the explicit `wherever start` verb. A bare `wherever` prints the command help. All server flags below apply to `wherever start`.
