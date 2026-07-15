@@ -331,7 +331,7 @@ The configuration file is located at `~/.wherever/config.json` on the server mac
 
 Each rule in `remoteRepoRules` can contain:
 
-- `pattern` (string, required): A regular expression matched against the absolute resolved path of the folder.
+- `pattern` (string, required): A regular expression matched against the absolute resolved path of the folder. A leading `~` in the pattern is expanded to the home directory before matching (so `~/dev/github/me/.*` works the same way it does in `commonFolders`), since the path it is matched against is already tilde-expanded and absolute.
 - `provider` (string, required): The git hosting provider (`'github'`, `'codeberg'`, `'gitea'`, or `'forgejo'`).
 - `visibility` (string, optional, Default: `'private'`): Visibility of the repository on the remote host (`'private'` or `'public'`).
 

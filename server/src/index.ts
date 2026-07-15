@@ -56,6 +56,20 @@ function expandTilde(p: string): string {
   return p;
 }
 
+// Match a folder path against a remoteRepoRules `pattern`. The path is an
+// absolute, tilde-expanded path (e.g. /home/user/dev/...), so a pattern that
+// starts with a literal `~` (as users naturally write, mirroring commonFolders)
+// would never match. Expand a leading `~` in the pattern to the home dir before
+// building the RegExp so `~/dev/...` matches the resolved path. An invalid
+// regex is treated as a non-match rather than throwing.
+function repoRuleMatches(pattern: string, resolvedPath: string): boolean {
+  try {
+    return new RegExp(expandTilde(pattern)).test(resolvedPath);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Resolve the allowed download roots for a session. Deny-by-default: only files
  * whose REAL path lives under one of these roots are served. Always includes the
@@ -643,7 +657,7 @@ async function main(): Promise<void> {
       let matchingRule = null;
       const config = getWhereverConfig();
       if (config.remoteRepoRules && Array.isArray(config.remoteRepoRules)) {
-        const rule = config.remoteRepoRules.find(r => new RegExp(r.pattern).test(resolved));
+        const rule = config.remoteRepoRules.find(r => repoRuleMatches(r.pattern, resolved));
         if (rule) {
           matchingRule = {
             provider: rule.provider,
@@ -677,7 +691,7 @@ async function main(): Promise<void> {
 
       const config = getWhereverConfig();
       const rule = (config.remoteRepoRules && Array.isArray(config.remoteRepoRules))
-        ? config.remoteRepoRules.find(r => new RegExp(r.pattern).test(resolved))
+        ? config.remoteRepoRules.find(r => repoRuleMatches(r.pattern, resolved))
         : undefined;
 
       if (!rule) {
