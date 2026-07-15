@@ -527,6 +527,10 @@ if [ -n "$WITH_SEARXNG" ]; then
     content: |
       #!/usr/bin/env bash
       set -euo pipefail
+      # Idempotent + RESUMABLE: safe to re-run. A prior failure (e.g. a pip
+      # error) must not leave the app unwired, so the settings + uWSGI ini +
+      # enable + restart run every invocation (they are cheap and idempotent),
+      # and the secret is preserved once written.
       SEARXNG_UID=searxng
       SRC=/usr/local/searxng/searxng-src
       VENV=/usr/local/searxng/searx-pyenv
@@ -547,22 +551,25 @@ if [ -n "$WITH_SEARXNG" ]; then
       if [ ! -d "$SRC/.git" ]; then
         runuser -u "$SEARXNG_UID" -- git clone --depth 1 https://github.com/searxng/searxng "$SRC"
       fi
-      runuser -u "$SEARXNG_UID" -- python3 -m venv "$VENV"
-      # Install runtime requirements BEFORE `pip install -e`. searx/__init__.py
-      # imports deps (e.g. msgspec) at module load, and setuptools imports the
-      # package while computing build requirements, so `pip install -e` alone
-      # fails with ModuleNotFoundError unless requirements.txt is installed first.
-      # --no-build-isolation on the editable install: pip's isolated build env
-      # runs searx/__init__.py (which imports msgspec et al.) to compute build
-      # requirements, and that isolated env cannot see the venv's packages, so a
-      # plain `pip install -e` fails with ModuleNotFoundError even after the deps
-      # are installed. Installing requirements first + reusing the venv for the
-      # build (no isolation) resolves it.
-      runuser -u "$SEARXNG_UID" -- bash -c "source '$VENV/bin/activate'; pip install -U pip setuptools wheel pyyaml msgspec; pip install -r '$SRC/requirements.txt'; pip install -e '$SRC' --no-build-isolation"
+      [ -d "$VENV" ] || runuser -u "$SEARXNG_UID" -- python3 -m venv "$VENV"
+      # Install runtime requirements BEFORE `pip install -e`, and with
+      # --no-build-isolation. searx/__init__.py imports deps (msgspec etc.) at
+      # module load; setuptools imports the package while computing build
+      # requirements, and pip's ISOLATED build env cannot see the venv, so a
+      # plain isolated `pip install -e` fails with ModuleNotFoundError even after
+      # the deps are installed. Installing requirements first + reusing the venv
+      # for the build (no isolation) resolves it. Guarded with `|| true` so a
+      # transient pip failure does not prevent the uWSGI wiring below from being
+      # written (re-running the script then completes the install).
+      runuser -u "$SEARXNG_UID" -- bash -c "source '$VENV/bin/activate'; pip install -U pip setuptools wheel pyyaml msgspec; pip install -r '$SRC/requirements.txt'; pip install -e '$SRC' --no-build-isolation" || echo "[searxng-setup] WARNING: pip install failed; wiring config anyway, re-run this script to finish"
 
       echo "[searxng-setup] writing /etc/searxng/settings.yml"
       install -d -o "$SEARXNG_UID" -g "$SEARXNG_UID" /etc/searxng
-      SECRET="$(head -c32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+      # Preserve an existing secret on re-run so a working instance keeps it.
+      if [ -f "$SETTINGS" ] && grep -q '^  secret_key:' "$SETTINGS"; then
+        SECRET="$(sed -n 's/^  secret_key: "\(.*\)"$/\1/p' "$SETTINGS" | head -n1)"
+      fi
+      [ -n "${SECRET:-}" ] || SECRET="$(head -c32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
       cat > "$SETTINGS" <<YML
       use_default_settings: true
       general:
