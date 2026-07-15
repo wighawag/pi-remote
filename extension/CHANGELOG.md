@@ -1,5 +1,12 @@
 # @wherever-dev/pi
 
+## 0.3.3
+
+### Patch Changes
+
+- Updated dependencies [8addff3]
+  - @wherever-dev/client@0.3.4
+
 ## 0.3.2
 
 ### Patch Changes
