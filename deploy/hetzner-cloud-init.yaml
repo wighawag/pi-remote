@@ -1,0 +1,213 @@
+#cloud-config
+# =============================================================================
+# cloud-init for a Hetzner Cloud server (Debian 13 "trixie") running wherever.
+#
+# What it does:
+#   - Creates a non-root "svcuser" user (sudo, ssh key from below).
+#   - Installs fnm (Fast Node Manager) for that user and a pinned Node LTS.
+#   - Installs the wherever-dev server globally via that Node.
+#   - Registers a SYSTEM systemd service that runs `wherever start` bound to
+#     0.0.0.0 (public), protected by an auth token.
+#   - Opens the wherever port in the firewall for direct public access.
+#   - Installs git + the GitHub CLI (gh) and authenticates gh for the
+#     `svcuser` user from a personal access token you provide.
+#
+# BEFORE YOU DEPLOY, edit the placeholders below:
+#   1. ssh_authorized_keys  -> your public key
+#   2. PI_REMOTE_TOKEN       -> a strong random token (openssl rand -hex 32)
+#   3. GH_TOKEN file         -> your GitHub personal access token (PAT)
+#   4. (optional) NODE_VERSION / PI_REMOTE_PORT / GIT_USER_NAME / GIT_USER_EMAIL
+# =============================================================================
+
+hostname: wherever
+timezone: UTC
+
+# --- Users ------------------------------------------------------------------
+users:
+  - name: svcuser
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+    ssh_authorized_keys:
+      # >>> REPLACE with your public key <<<
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA_REPLACE_ME your-comment
+
+# --- Base packages ----------------------------------------------------------
+package_update: true
+package_upgrade: true
+packages:
+  - curl
+  - unzip
+  - git
+  - openssl        # wherever uses it to self-sign certs (https/wss)
+  - ca-certificates
+  - gnupg          # needed to add the gh apt repo key
+  - ufw
+
+# --- Config written to disk (edit values here) ------------------------------
+write_files:
+  # Environment file consumed by the systemd unit.
+  - path: /etc/wherever/wherever.env
+    permissions: "0640"
+    owner: root:svcuser
+    content: |
+      # >>> REPLACE the token with a strong secret (openssl rand -hex 32) <<<
+      # This token is your ONLY protection since the port is public. Make it long.
+      PI_REMOTE_TOKEN=REPLACE_WITH_STRONG_TOKEN
+      # Public bind. The port below is opened in the firewall for direct access.
+      PI_REMOTE_HOST=0.0.0.0
+      PI_REMOTE_PORT=31415
+
+  # Version pins used by the bootstrap script (edit if you like).
+  - path: /etc/wherever/versions.env
+    permissions: "0644"
+    owner: root:root
+    content: |
+      NODE_VERSION=22
+
+  # GitHub identity + PAT for `gh` auth. Fill in the token; keep this file 0600.
+  # Create a PAT at https://github.com/settings/tokens (classic: `repo`,
+  # `read:org`, `workflow`; or a fine-grained token with the repo scopes you need).
+  - path: /etc/wherever/github.env
+    permissions: "0600"
+    owner: root:root
+    content: |
+      # >>> REPLACE with your GitHub personal access token <<<
+      GH_TOKEN=REPLACE_WITH_GITHUB_PAT
+      # Used for `git config --global user.*` for the svcuser user.
+      GIT_USER_NAME=Your Name
+      GIT_USER_EMAIL=you@example.com
+
+  # Bootstrap script: runs as the `svcuser` user, installs fnm + node +
+  # wherever-dev, then writes/refreshes the systemd unit with an absolute
+  # node bin path (so the service does not depend on shell init).
+  - path: /usr/local/sbin/wherever-bootstrap.sh
+    permissions: "0755"
+    owner: root:root
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      # shellcheck disable=SC1091
+      source /etc/wherever/versions.env
+
+      RUN_USER=svcuser
+      RUN_HOME=/home/${RUN_USER}
+      FNM_DIR="${RUN_HOME}/.local/share/fnm"
+
+      echo "[wherever-bootstrap] installing fnm for ${RUN_USER}"
+      # Install fnm into the svcuser user's home (no shell profile changes needed).
+      sudo -u "${RUN_USER}" env HOME="${RUN_HOME}" bash -c '
+        set -euo pipefail
+        curl -fsSL https://fnm.vercel.app/install | bash -s -- --skip-shell
+      '
+
+      FNM_BIN="${RUN_HOME}/.local/share/fnm/fnm"
+      if [ ! -x "${FNM_BIN}" ]; then
+        # Some installer versions drop the binary under ~/.fnm
+        FNM_BIN="${RUN_HOME}/.fnm/fnm"
+      fi
+
+      echo "[wherever-bootstrap] installing node ${NODE_VERSION} via fnm"
+      sudo -u "${RUN_USER}" env HOME="${RUN_HOME}" FNM_DIR="${FNM_DIR}" "${FNM_BIN}" install "${NODE_VERSION}"
+      sudo -u "${RUN_USER}" env HOME="${RUN_HOME}" FNM_DIR="${FNM_DIR}" "${FNM_BIN}" default "${NODE_VERSION}"
+
+      # Resolve the concrete bin dir fnm just created for this Node version.
+      NODE_BIN_DIR="$(sudo -u "${RUN_USER}" env HOME="${RUN_HOME}" FNM_DIR="${FNM_DIR}" bash -c "
+        eval \"\$('${FNM_BIN}' env --shell bash)\"
+        '${FNM_BIN}' use ${NODE_VERSION} >/dev/null
+        dirname \"\$(command -v node)\"
+      ")"
+      echo "[wherever-bootstrap] node bin dir: ${NODE_BIN_DIR}"
+
+      echo "[wherever-bootstrap] installing wherever-dev globally"
+      sudo -u "${RUN_USER}" env HOME="${RUN_HOME}" PATH="${NODE_BIN_DIR}:${PATH}" \
+        npm install -g wherever-dev@latest
+
+      echo "[wherever-bootstrap] writing systemd unit"
+      cat > /etc/systemd/system/wherever.service <<UNIT
+      [Unit]
+      Description=Wherever multi-session server for the pi coding agent
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      User=${RUN_USER}
+      Group=${RUN_USER}
+      Environment=HOME=${RUN_HOME}
+      Environment=PATH=${NODE_BIN_DIR}:/usr/local/bin:/usr/bin:/bin
+      EnvironmentFile=/etc/wherever/wherever.env
+      WorkingDirectory=${RUN_HOME}
+      ExecStart=${NODE_BIN_DIR}/wherever start
+      Restart=on-failure
+      RestartSec=3
+      # Hardening (relaxed enough for git/agent workloads in the home dir).
+      NoNewPrivileges=true
+      ProtectSystem=full
+      ProtectHome=false
+
+      [Install]
+      WantedBy=multi-user.target
+      UNIT
+
+      systemctl daemon-reload
+      systemctl enable --now wherever.service
+      echo "[wherever-bootstrap] done. status:"
+      systemctl --no-pager status wherever.service || true
+
+  # gh + git setup: installs the GitHub CLI from its apt repo and authenticates
+  # it for the `svcuser` user from the PAT in /etc/wherever/github.env.
+  - path: /usr/local/sbin/wherever-gh-setup.sh
+    permissions: "0755"
+    owner: root:root
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      RUN_USER=svcuser
+      RUN_HOME=/home/${RUN_USER}
+
+      # shellcheck disable=SC1091
+      source /etc/wherever/github.env
+
+      echo "[gh-setup] adding GitHub CLI apt repository"
+      install -d -m 0755 /etc/apt/keyrings
+      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg >/dev/null
+      chmod 0644 /etc/apt/keyrings/githubcli-archive-keyring.gpg
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        > /etc/apt/sources.list.d/github-cli.list
+      apt-get update
+      apt-get install -y gh
+
+      # git identity for the svcuser user (used by commits gh/agent make).
+      sudo -u "${RUN_USER}" env HOME="${RUN_HOME}" git config --global user.name "${GIT_USER_NAME}"
+      sudo -u "${RUN_USER}" env HOME="${RUN_HOME}" git config --global user.email "${GIT_USER_EMAIL}"
+
+      if [ "${GH_TOKEN:-}" != "REPLACE_WITH_GITHUB_PAT" ] && [ -n "${GH_TOKEN:-}" ]; then
+        echo "[gh-setup] authenticating gh for ${RUN_USER}"
+        printf '%s' "${GH_TOKEN}" \
+          | sudo -u "${RUN_USER}" env HOME="${RUN_HOME}" gh auth login --hostname github.com --git-protocol https --with-token
+        # Make git push/pull over https use the gh credential helper.
+        sudo -u "${RUN_USER}" env HOME="${RUN_HOME}" gh auth setup-git
+        sudo -u "${RUN_USER}" env HOME="${RUN_HOME}" gh auth status || true
+      else
+        echo "[gh-setup] GH_TOKEN not set; skipping gh auth. Run 'gh auth login' manually."
+      fi
+
+# --- Commands run once on first boot ---------------------------------------
+runcmd:
+  # Firewall: allow SSH and the public wherever port. The token in
+  # /etc/wherever/wherever.env is what protects the service, so keep it strong.
+  - ufw allow 22/tcp
+  - ufw allow 31415/tcp
+  - ufw --force enable
+
+  # Install + authenticate gh (and set git identity).
+  - bash /usr/local/sbin/wherever-gh-setup.sh
+
+  # Build node/wherever + the service.
+  - bash /usr/local/sbin/wherever-bootstrap.sh
+
+final_message: "wherever cloud-init finished after $UPTIME s. Open https://<public-ip>:31415 and authenticate with your token."

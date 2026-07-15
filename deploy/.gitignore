@@ -1,0 +1,3 @@
+# Generated cloud-init files contain secrets (wherever token, GitHub PAT,
+# git SSH private key). The generator writes them here by default.
+out/
