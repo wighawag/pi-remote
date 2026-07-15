@@ -1,5 +1,12 @@
 # wherever-dev
 
+## 0.7.1
+
+### Patch Changes
+
+- a4866aa: Show the context-window usage indicator ("11.3% / 1.0M") for CLI-controlled sessions as soon as a viewer joins, instead of leaving it blank until the next turn. Previously the pi extension only forwarded its context usage on `agent_end` and model switches, so an idle CLI-bridged session (no new turn since the bridge connected) had no usage snapshot to show, and the server broadcast `session_created` on `cli_register` without one. The extension now pushes a context-usage snapshot immediately after registering (on connect/reconnect), and the server includes any cached usage in the `session_created` message it broadcasts to web viewers on `cli_register`. Both are best-effort: when usage is genuinely unknown (no model or no turn yet) nothing is shown, matching the previous behavior.
+- fe99d43: Keep the scroll position anchored when loading older messages. Previously, clicking "Load older messages" preserved the distance from the bottom, which could visually shift the content the user was reading once the older window was prepended. Now the client records the message that was first before the load and, after the older messages are prepended, scrolls so that same message stays in place near the top of the viewport, leaving a small gap above it that reveals the newly loaded messages. If the anchor message can't be located after the prepend, it falls back to the previous "preserve distance from bottom" behavior so the content never jumps unexpectedly.
+
 ## 0.7.0
 
 ### Minor Changes
