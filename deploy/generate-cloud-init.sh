@@ -835,6 +835,23 @@ ${GIT_SSH_KEY_WRITEFILE}${WHEREVER_CONFIG_WRITEFILE}${MODELS_WRITEFILE}${SETTING
       runuser -u "\${RUN_USER}" -- env HOME="\${RUN_HOME}" FNM_DIR="\${FNM_DIR}" "\${FNM_BIN}" install "\${NODE_VERSION}"
       runuser -u "\${RUN_USER}" -- env HOME="\${RUN_HOME}" FNM_DIR="\${FNM_DIR}" "\${FNM_BIN}" default "\${NODE_VERSION}"
 
+      # fnm was installed with --skip-shell (so the systemd service stays
+      # self-contained), which means interactive SSH sessions have no fnm/node/
+      # npm on PATH. Add fnm to the user's ~/.bashrc so logins get node/npm
+      # (needed to e.g. 'npm install -g wherever-dev@latest' by hand). The fnm
+      # bin dir goes on PATH FIRST so 'fnm' itself resolves. Appended via
+      # printf (no nested heredoc) and guarded so it is added at most once.
+      # Single-quoted printf payloads keep \$PATH / \$(fnm env ...) literal so
+      # they expand at login time on the box, not now and not at bootstrap.
+      FNM_BIN_DIR="\$(dirname "\${FNM_BIN}")"
+      BRC="\${RUN_HOME}/.bashrc"
+      if ! grep -q 'fnm env --use-on-cd' "\${BRC}" 2>/dev/null; then
+        printf '\n# fnm (Node version manager) - added by wherever cloud-init\n' >> "\${BRC}"
+        printf 'export PATH="%s:\$PATH"\n' "\${FNM_BIN_DIR}" >> "\${BRC}"
+        printf 'command -v fnm >/dev/null && eval "\$(fnm env --use-on-cd)"\n' >> "\${BRC}"
+        chown "\${RUN_USER}:\${RUN_USER}" "\${BRC}"
+      fi
+
       NODE_BIN_DIR="\$(runuser -u "\${RUN_USER}" -- env HOME="\${RUN_HOME}" FNM_DIR="\${FNM_DIR}" bash -c "
         eval \\"\\\$('\${FNM_BIN}' env --shell bash)\\"
         '\${FNM_BIN}' use \${NODE_VERSION} >/dev/null
