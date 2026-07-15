@@ -211,6 +211,15 @@ if [ -z "${GIT_SSH_KEY:-}" ]; then
   if [ -n "$GIT_SSH_KEY_FILE" ]; then
     GIT_SSH_KEY_FILE="${GIT_SSH_KEY_FILE/#\~/$HOME}"
     [ -r "$GIT_SSH_KEY_FILE" ] || { echo "ERROR: cannot read key file: $GIT_SSH_KEY_FILE" >&2; exit 1; }
+    [ -s "$GIT_SSH_KEY_FILE" ] || { echo "ERROR: --git-ssh-key-file is empty: $GIT_SSH_KEY_FILE" >&2; exit 1; }
+    # Validate it is actually a private key (catches passing a .pub or a
+    # 0-byte file, which would otherwise ship a useless/empty key to the box).
+    if command -v ssh-keygen >/dev/null 2>&1; then
+      ssh-keygen -y -f "$GIT_SSH_KEY_FILE" >/dev/null 2>&1 || {
+        echo "ERROR: --git-ssh-key-file is not a valid SSH private key: $GIT_SSH_KEY_FILE" >&2
+        echo "       (pass the PRIVATE key, not the .pub; a passphrase-protected key also fails this check)" >&2
+        exit 1; }
+    fi
     GIT_SSH_KEY="$(cat "$GIT_SSH_KEY_FILE")"
   fi
 fi
@@ -420,9 +429,21 @@ WF
   GIT_SSH_KEY_INSTALL=$(cat <<'WF'
       echo "[gh-setup] installing git SSH key for ${RUN_USER}"
       install -d -m 0700 -o "${RUN_USER}" -g "${RUN_USER}" "${RUN_HOME}/.ssh"
-      base64 -d /etc/wherever/git_ssh_key.b64 > "${RUN_HOME}/.ssh/__KEYNAME__"
-      chmod 0600 "${RUN_HOME}/.ssh/__KEYNAME__"
-      chown "${RUN_USER}:${RUN_USER}" "${RUN_HOME}/.ssh/__KEYNAME__"
+      # Decode to a temp file first and only install it if it is a non-empty,
+      # parseable private key. Writing straight to the key path would leave a
+      # 0-byte key (which ssh rejects with 'error in libcrypto') if the staged
+      # blob was empty or the decode failed.
+      __keytmp="$(mktemp)"
+      if base64 -d /etc/wherever/git_ssh_key.b64 > "${__keytmp}" 2>/dev/null && [ -s "${__keytmp}" ] && ssh-keygen -y -f "${__keytmp}" >/dev/null 2>&1; then
+        install -m 0600 -o "${RUN_USER}" -g "${RUN_USER}" "${__keytmp}" "${RUN_HOME}/.ssh/__KEYNAME__"
+        # Derive the public key too (handy for adding to GitHub / debugging).
+        runuser -u "${RUN_USER}" -- ssh-keygen -y -f "${RUN_HOME}/.ssh/__KEYNAME__" > "${RUN_HOME}/.ssh/__KEYNAME__.pub" 2>/dev/null || true
+        chown "${RUN_USER}:${RUN_USER}" "${RUN_HOME}/.ssh/__KEYNAME__.pub" 2>/dev/null || true
+        chmod 0644 "${RUN_HOME}/.ssh/__KEYNAME__.pub" 2>/dev/null || true
+      else
+        echo "[gh-setup] WARNING: git SSH key blob was empty or not a valid private key; skipping key install" >&2
+      fi
+      rm -f "${__keytmp}"
       # Trust github.com host keys (avoids interactive prompt on first push).
       runuser -u "${RUN_USER}" -- env HOME="${RUN_HOME}" bash -c 'ssh-keyscan -t rsa,ecdsa,ed25519 github.com >> "${HOME}/.ssh/known_hosts" 2>/dev/null || true'
       chmod 0644 "${RUN_HOME}/.ssh/known_hosts" 2>/dev/null || true
