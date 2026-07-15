@@ -71,6 +71,14 @@ export class WhereverClient {
   private reconnectAttempts = 0;
   private reconnectDelay = 2000;
   private maxReconnectDelay = 15000;
+  // Whether the socket has EVER opened successfully since construction. Repeated
+  // closes with zero successful opens almost always mean a rejected handshake
+  // (bad/missing token, wrong host/port, or wrong ws-vs-wss scheme) rather than
+  // a transient network drop. A browser WebSocket cannot read the HTTP 401 body
+  // (it just sees close code 1006), so we infer auth/config failure from this
+  // pattern and surface an actionable error instead of looping silently.
+  private hasEverConnected = false;
+  private static readonly HANDSHAKE_FAIL_HINT_AFTER = 2;
   // Liveness watchdog: a half-open TCP socket fires neither 'close' nor 'error',
   // so the existing reconnect machinery never triggers and the agent hangs
   // forever (see work/observations/ws-half-open-connection-hangs-agent-no-heartbeat.md).
@@ -180,6 +188,7 @@ export class WhereverClient {
       if (!this.isInitialConnect) {
         console.info('[wherever] reconnected to relay');
       }
+      this.hasEverConnected = true;
       this.reconnectAttempts = 0;
       this.reconnectDelay = 2000;
       this.isInitialConnect = false;
@@ -581,6 +590,27 @@ export class WhereverClient {
       this.reconnectTimer = null;
       this.reconnectDelay = Math.min(this.reconnectDelay * 1.5, this.maxReconnectDelay);
       console.info(`[wherever] reconnecting to relay (attempt ${++this.reconnectAttempts})`);
+
+      // If we have retried a few times and NEVER once opened the socket, this is
+      // almost certainly a rejected handshake, not a flaky network. Surface a
+      // concrete, actionable error (the server rejects a bad/missing token with
+      // HTTP 401 during the WS upgrade, which the browser reports only as an
+      // opaque 1006 close). Keep retrying, but stop looking like a mere network
+      // hiccup.
+      if (
+        !this.hasEverConnected &&
+        this.reconnectAttempts >= WhereverClient.HANDSHAKE_FAIL_HINT_AFTER
+      ) {
+        const scheme = this.config.secure ? 'wss' : 'ws';
+        this.stateStore.update(s => ({
+          ...s,
+          error:
+            'Cannot connect to the wherever server: the connection is being rejected. ' +
+            'This usually means a missing or wrong token, or a wrong host/port/scheme ' +
+            `(currently ${scheme}://${this.config.host}:${this.config.port}). ` +
+            'Check the auth token and connection settings.',
+        }));
+      }
 
       // If we still hold an active session, PRESERVE the cached store across the
       // reconnect. A default connect() resets to a blank store, which wiped
