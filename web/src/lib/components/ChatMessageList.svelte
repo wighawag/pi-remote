@@ -123,15 +123,25 @@
 	// instead of creating a fresh empty remote.
 	let showCloneConfirmModal = $state(false);
 	let checkingRemote = $state(false);
-	let cloneRemoteInfo = $state<{provider?: string; sshUrl?: string} | null>(null);
+	let cloneRemoteInfo = $state<{provider?: string; sshUrl?: string} | null>(
+		null,
+	);
 
 	function submitCreateSession(cloneRemote: boolean) {
 		createSession(
 			newFolderCwd.trim(),
 			newFolderModel || undefined,
 			cloneRemote ? false : newFolderGitInit,
-			cloneRemote ? false : pathStatus.matchingRule ? createRemoteRepo : undefined,
-			cloneRemote ? undefined : pathStatus.matchingRule ? repoVisibility : undefined,
+			cloneRemote
+				? false
+				: pathStatus.matchingRule
+					? createRemoteRepo
+					: undefined,
+			cloneRemote
+				? undefined
+				: pathStatus.matchingRule
+					? repoVisibility
+					: undefined,
 			cloneRemote || undefined,
 		);
 	}
