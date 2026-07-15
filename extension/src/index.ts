@@ -159,6 +159,20 @@ export default async function (pi: ExtensionAPI) {
     default: true,
   });
 
+  // Explicit opt-out for a plain-ws server. `remote-secure` defaults to true
+  // and pi boolean flags cannot be forced false on the command line, so a
+  // server started with `--no-ssl` (e.g. bound to loopback behind a reverse
+  // proxy that terminates TLS) was unreachable from the bridge. Passing
+  // `--remote-insecure` forces a plain `ws://` connection.
+  pi.registerFlag("remote-insecure", {
+    description:
+      "Connect to the standalone server over plain ws:// (no TLS). Use when the " +
+      "server runs with --no-ssl, e.g. bound to localhost behind a reverse proxy " +
+      "(Caddy/nginx) that terminates HTTPS. Overrides --remote-secure.",
+    type: "boolean",
+    default: false,
+  });
+
   pi.registerFlag("remote-beep", {
     description:
       "Play an inviting sound when the agent finishes and is waiting for your next message. " +
@@ -552,7 +566,12 @@ export default async function (pi: ExtensionAPI) {
     const host = (pi.getFlag("remote-host") as string) || "127.0.0.1";
     const port = (pi.getFlag("remote-port") as string) || "31415";
     const token = pi.getFlag("remote-token") as string | undefined;
-    const isSecure = pi.getFlag("remote-secure") !== false;
+    // Insecure if --remote-insecure is set, OR --remote-secure is explicitly
+    // false (kept for back-compat). Otherwise default to secure WSS.
+    const isSecure =
+      pi.getFlag("remote-insecure") === true
+        ? false
+        : pi.getFlag("remote-secure") !== false;
 
     client = new WhereverClient({
       host,

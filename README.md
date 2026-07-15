@@ -282,7 +282,10 @@ Whenever you run `pi`, you can override bridge defaults:
 - `--remote-port` (Default: `31415`)
 - `--remote-token` (Auth token if configured)
 - `--remote-bridge` (Set to `false` to run as offline standard CLI)
-- `--remote-secure` (Whether to connect via WSS. Default: `true`. Set to `false` if server has `--no-ssl` active)
+- `--remote-secure` (Connect via WSS. Default: `true`.)
+- `--remote-insecure` (Connect via plain `ws://` instead of WSS. Use when the server runs with `--no-ssl`, e.g. bound to localhost behind a reverse proxy like Caddy/nginx that terminates HTTPS. Overrides `--remote-secure`.)
+
+> **Reverse-proxy / `--no-ssl` deployments:** you have two ways to bridge. Either point the bridge at the public HTTPS endpoint your proxy serves (the bridge's default WSS just works), e.g. `pi --remote-host your.domain --remote-port 443 --remote-token <token>`; or connect straight to the loopback plain-`ws` server with `pi --remote-insecure --remote-token <token>`. (A plain `--remote-secure false` does not work: pi boolean flags cannot be forced false on the command line, which is why `--remote-insecure` exists.)
 
 ---
 
