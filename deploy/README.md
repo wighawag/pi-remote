@@ -128,6 +128,17 @@ systemctl reload caddy
 
 Add the matching `grafana.example.com -> <box IP>` DNS A record and Caddy will obtain its certificate automatically. Bind each service to `127.0.0.1:<port>` (loopback only) and let Caddy be the sole public entry point on 80/443.
 
+## Bridging a terminal `pi` on the box (`wherever-pi`)
+
+If you install the `pi` CLI (`--with-pi`), the bootstrap also drops a `wherever-pi` wrapper in `~/.local/bin` so you can bridge a terminal session into the local server without remembering flags. It reads the auth token from `wherever.env` and uses the right connection settings for the deployment: with `--domain` it connects to the public HTTPS endpoint (`--remote-host <domain> --remote-port 443`), otherwise it connects to the loopback plain-`ws` server (`--remote-insecure`). Any extra arguments are passed through to `pi`:
+
+```bash
+wherever-pi                 # bridge into the local wherever server
+wherever-pi --some-pi-flag  # extra args are forwarded to pi
+```
+
+(`~/.local/bin` is added to PATH in the user's `.bashrc`, alongside fnm, so `node`/`npm`/`fnm` and `wherever-pi` are all available in interactive sessions.)
+
 ## Reaching wherever without a domain
 
 If you omit `--domain`, wherever binds `0.0.0.0` on its port with a self-signed certificate and the port is opened in the firewall. Browsers will warn about the certificate, and because a self-signed origin is not a "secure context" you cannot install the dashboard as a PWA. A real domain behind Caddy avoids all of that and is the recommended setup for anything beyond quick local testing.

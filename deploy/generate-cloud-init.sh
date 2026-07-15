@@ -676,6 +676,10 @@ WHEREVER_START_FLAGS="start"
 UFW_PORT_RULES="  - ufw allow ${PI_REMOTE_PORT}/tcp"
 CLOUD_INIT_NET_NOTE="public on :${PI_REMOTE_PORT}"
 FINAL_URL="https://<public-ip>:${PI_REMOTE_PORT}"
+# Connection flags (minus the token) baked into the `pi` alias on the box.
+# Without --domain the server is plain ws on loopback, so use --remote-insecure.
+# With --domain the server is behind Caddy on 443 (real WSS), so point at it.
+PI_BRIDGE_ARGS="--remote-insecure"
 if [ -n "$DOMAIN" ]; then
   WHEREVER_ENV_HOST="127.0.0.1"
   # wherever serves plain HTTP on loopback; Caddy terminates TLS.
@@ -684,6 +688,7 @@ if [ -n "$DOMAIN" ]; then
   UFW_PORT_RULES=$'  - ufw allow 80/tcp\n  - ufw allow 443/tcp'
   CLOUD_INIT_NET_NOTE="behind Caddy at https://${DOMAIN} (wherever HTTP on 127.0.0.1:${PI_REMOTE_PORT})"
   FINAL_URL="https://${DOMAIN}"
+  PI_BRIDGE_ARGS="--remote-host ${DOMAIN} --remote-port 443"
   # Leading newline so this always starts on its own YAML list line.
   CADDY_PKG_LINE=$'\n'"  - debian-keyring"$'\n'"  - debian-archive-keyring"$'\n'"  - apt-transport-https"
 
@@ -869,6 +874,28 @@ ${GIT_SSH_KEY_WRITEFILE}${WHEREVER_CONFIG_WRITEFILE}${MODELS_WRITEFILE}${SETTING
         printf '\n# fnm (Node version manager) - added by wherever cloud-init\n' >> "\${BRC}"
         printf 'export PATH="%s:\$PATH"\n' "\${FNM_BIN_DIR}" >> "\${BRC}"
         printf 'command -v fnm >/dev/null && eval "\$(fnm env --use-on-cd)"\n' >> "\${BRC}"
+        chown "\${RUN_USER}:\${RUN_USER}" "\${BRC}"
+      fi
+
+      # Convenience: a 'wherever-pi' wrapper that bridges into the local server
+      # without remembering flags. A wrapper SCRIPT (not a .bashrc alias) avoids
+      # quoting hell; it reads the token from wherever.env at run time. The
+      # connection flags (${PI_BRIDGE_ARGS}) were chosen at generation time
+      # (Caddy WSS when a domain is set, else plain-ws loopback). ~/.local/bin is
+      # put on PATH via .bashrc below.
+      install -d -o "\${RUN_USER}" -g "\${RUN_USER}" "\${RUN_HOME}/.local/bin"
+      cat > "\${RUN_HOME}/.local/bin/wherever-pi" <<'PIW'
+      #!/usr/bin/env bash
+      # Bridge pi into the local wherever server. Extra args are passed through.
+      TOKEN="\$(sed -n 's/^PI_REMOTE_TOKEN=//p' /etc/wherever/wherever.env 2>/dev/null | tr -d "'\"")"
+      exec pi __PI_BRIDGE_ARGS__ --remote-token "\${TOKEN}" "\$@"
+      PIW
+      sed -i "s|__PI_BRIDGE_ARGS__|${PI_BRIDGE_ARGS}|" "\${RUN_HOME}/.local/bin/wherever-pi"
+      chmod 0755 "\${RUN_HOME}/.local/bin/wherever-pi"
+      chown "\${RUN_USER}:\${RUN_USER}" "\${RUN_HOME}/.local/bin/wherever-pi"
+      if ! grep -q 'HOME/.local/bin' "\${BRC}" 2>/dev/null; then
+        printf '\n# ~/.local/bin (wherever-pi bridge wrapper) - added by wherever cloud-init\n' >> "\${BRC}"
+        printf 'export PATH="\$HOME/.local/bin:\$PATH"\n' >> "\${BRC}"
         chown "\${RUN_USER}:\${RUN_USER}" "\${BRC}"
       fi
 
