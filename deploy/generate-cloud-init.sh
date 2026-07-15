@@ -512,7 +512,9 @@ SEARXNG_WRITEFILES=""
 SEARXNG_RUNCMD=""
 WEBVEIL_INSTALL=""
 if [ -n "$WITH_SEARXNG" ]; then
-  SEARXNG_PKG_LINES=$'  - python3-dev\n  - python3-babel\n  - python3-venv\n  - uwsgi\n  - uwsgi-plugin-python3\n  - libxslt-dev\n  - zlib1g-dev\n  - libffi-dev\n  - libssl-dev\n  - build-essential'
+  # Leading newline so this always starts on its own YAML list line, even when
+  # a preceding optional package fragment (Caddy) was emitted without one.
+  SEARXNG_PKG_LINES=$'\n  - python3-dev\n  - python3-babel\n  - python3-venv\n  - uwsgi\n  - uwsgi-plugin-python3\n  - libxslt-dev\n  - zlib1g-dev\n  - libffi-dev\n  - libssl-dev\n  - build-essential'
 
   # SearXNG install + uWSGI wiring script (root, runcmd). Mirrors the layout of
   # the upstream bare install: /usr/local/searxng, searx-pyenv venv, uwsgi app
@@ -546,7 +548,17 @@ if [ -n "$WITH_SEARXNG" ]; then
         runuser -u "$SEARXNG_UID" -- git clone --depth 1 https://github.com/searxng/searxng "$SRC"
       fi
       runuser -u "$SEARXNG_UID" -- python3 -m venv "$VENV"
-      runuser -u "$SEARXNG_UID" -- bash -c "source '$VENV/bin/activate'; pip install -U pip setuptools wheel pyyaml; pip install -e '$SRC'"
+      # Install runtime requirements BEFORE `pip install -e`. searx/__init__.py
+      # imports deps (e.g. msgspec) at module load, and setuptools imports the
+      # package while computing build requirements, so `pip install -e` alone
+      # fails with ModuleNotFoundError unless requirements.txt is installed first.
+      # --no-build-isolation on the editable install: pip's isolated build env
+      # runs searx/__init__.py (which imports msgspec et al.) to compute build
+      # requirements, and that isolated env cannot see the venv's packages, so a
+      # plain `pip install -e` fails with ModuleNotFoundError even after the deps
+      # are installed. Installing requirements first + reusing the venv for the
+      # build (no isolation) resolves it.
+      runuser -u "$SEARXNG_UID" -- bash -c "source '$VENV/bin/activate'; pip install -U pip setuptools wheel pyyaml msgspec; pip install -r '$SRC/requirements.txt'; pip install -e '$SRC' --no-build-isolation"
 
       echo "[searxng-setup] writing /etc/searxng/settings.yml"
       install -d -o "$SEARXNG_UID" -g "$SEARXNG_UID" /etc/searxng
@@ -645,7 +657,8 @@ if [ -n "$DOMAIN" ]; then
   UFW_PORT_RULES=$'  - ufw allow 80/tcp\n  - ufw allow 443/tcp'
   CLOUD_INIT_NET_NOTE="behind Caddy at https://${DOMAIN} (wherever HTTP on 127.0.0.1:${PI_REMOTE_PORT})"
   FINAL_URL="https://${DOMAIN}"
-  CADDY_PKG_LINE="  - debian-keyring"$'\n'"  - debian-archive-keyring"$'\n'"  - apt-transport-https"
+  # Leading newline so this always starts on its own YAML list line.
+  CADDY_PKG_LINE=$'\n'"  - debian-keyring"$'\n'"  - debian-archive-keyring"$'\n'"  - apt-transport-https"
 
   # Per-site Caddyfile using an import dir, so future services drop in cleanly:
   #   add /etc/caddy/sites/<svc>.caddy and `systemctl reload caddy`.
@@ -687,7 +700,7 @@ WF
       echo "[caddy-setup] installing Caddy from official apt repo"
       install -d -m 0755 /usr/share/keyrings
       curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/gpg.key \
-        | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+        | gpg --batch --yes --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
       curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt \
         -o /etc/apt/sources.list.d/caddy-stable.list
       apt-get update
@@ -746,8 +759,7 @@ packages:
   - openssl
   - ca-certificates
   - gnupg
-  - ufw
-${CADDY_PKG_LINE}${SEARXNG_PKG_LINES}
+  - ufw${CADDY_PKG_LINE}${SEARXNG_PKG_LINES}
 
 write_files:
   # NOTE: owner is root:root here on purpose. write_files runs in cloud-init's
