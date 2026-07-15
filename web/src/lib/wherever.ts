@@ -38,6 +38,25 @@ function saveConfig(config: {
 	localStorage.setItem('wherever-config', JSON.stringify(config));
 }
 
+// The port to use when the user has NOT explicitly configured one. When the
+// dashboard is served from a real origin (e.g. behind a reverse proxy like
+// Caddy on 443, or any host:port), connect back to THAT origin's port instead
+// of assuming the dev default 31415. This makes reverse-proxy deployments
+// (https://host with no port in the URL) work without the user having to know
+// to type "443" into the port field. A direct LAN setup on http://ip:31415
+// still resolves to 31415 because that is the page's own port. Falls back to
+// 31415 only when there is no window (SSR) or no usable location port.
+function defaultPort(): number {
+	if (typeof window !== 'undefined' && window.location) {
+		const loc = window.location;
+		if (loc.port) return Number(loc.port);
+		// No explicit port in the URL => standard port for the scheme.
+		if (loc.protocol === 'https:') return 443;
+		if (loc.protocol === 'http:') return 80;
+	}
+	return 31415;
+}
+
 export function getConfig() {
 	const defaultHost =
 		typeof window !== 'undefined' && window.location && window.location.hostname
@@ -46,6 +65,18 @@ export function getConfig() {
 
 	const stored = getStoredConfig();
 	if (stored) {
+		// Legacy port healing: a config stored before reverse-proxy support has
+		// port 31415 baked in. If the dashboard is actually served from a
+		// different origin port (e.g. 443 behind Caddy), that stale 31415 makes
+		// the client dial a closed port and hang on "Connecting...". When the
+		// stored port is the legacy default AND the page's own port differs,
+		// adopt the page's port so proxied deployments just work.
+		if (
+			(stored.port === 31415 || stored.port === undefined) &&
+			defaultPort() !== 31415
+		) {
+			stored.port = defaultPort();
+		}
 		if (
 			!stored.host ||
 			stored.host === 'localhost' ||
@@ -77,7 +108,7 @@ export function getConfig() {
 	}
 	return {
 		host: defaultHost,
-		port: 31415,
+		port: defaultPort(),
 		token: '',
 		hideThinking: false,
 		hideTools: false,

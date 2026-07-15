@@ -67,6 +67,20 @@ export const readOnlySessionFolders = writable<SessionStoreData>({
 	loading: false,
 });
 
+// Default port when none is explicitly configured: prefer the page's own
+// origin port so reverse-proxy deployments (e.g. https://host behind Caddy on
+// 443, no port in the URL) work without the user configuring a port. Falls
+// back to the dev default 31415 only when no usable location port exists.
+function defaultPort(): number {
+	if (typeof window !== 'undefined' && window.location) {
+		const loc = window.location;
+		if (loc.port) return Number(loc.port);
+		if (loc.protocol === 'https:') return 443;
+		if (loc.protocol === 'http:') return 80;
+	}
+	return 31415;
+}
+
 export function getBaseUrl(): string {
 	const config = localStorage.getItem('wherever-config');
 	const defaultHost =
@@ -88,7 +102,14 @@ export function getBaseUrl(): string {
 			}
 		}
 		host = host.startsWith('http') ? host.replace(/^wss?:\/\//, '') : host;
-		return `${protocol}//${host}:${parsed.port || 31415}`;
+		// Heal a legacy stored 31415 when actually served from another origin
+		// port (matches getConfig() in wherever.ts), so proxied setups don't
+		// dial a closed 31415.
+		let port = parsed.port;
+		if ((port === 31415 || port === undefined) && defaultPort() !== 31415) {
+			port = defaultPort();
+		}
+		return `${protocol}//${host}:${port || defaultPort()}`;
 	}
 	return `${window.location.protocol}//${window.location.host}`;
 }
