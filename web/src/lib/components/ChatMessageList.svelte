@@ -672,29 +672,65 @@
 	let moreHistory = $derived($hasMoreHistory);
 	let loadingMore = $derived($isLoadingMoreHistory);
 
-	// Scroll anchoring: when older messages are prepended, keep the viewport on
-	// the same content by preserving the distance from the bottom.
+	// Scroll anchoring: when older messages are prepended, keep the viewport
+	// anchored on the message that was previously first, and reveal the newly
+	// loaded messages as a gap above it.
+	//
+	// We record the id of the first message before the load. After the older
+	// window is prepended, we scroll so that anchor message sits just below the
+	// top of the viewport, leaving REVEAL_GAP_PX of the newly loaded messages
+	// visible above it as a hint that more history was inserted. If the anchor
+	// element can't be found (e.g. it was filtered out), we fall back to
+	// preserving the distance from the bottom so the content at least doesn't
+	// jump.
+	const REVEAL_GAP_PX = 64;
+	let pendingAnchorId = $state<string | null>(null);
 	let pendingAnchorFromBottom = $state<number | null>(null);
 
 	function handleLoadMore() {
 		if (!messageList || loadingMore || !moreHistory) return;
-		// Record how far we are from the bottom so we can restore it after the
-		// older window is prepended and the list grows upward.
+		// Anchor on the first currently-rendered message so we can bring it back
+		// to (near) the top after the older window is prepended.
+		pendingAnchorId = msgList[0]?.id ?? null;
+		// Fallback anchor: distance from the bottom, in case the id can't be found.
 		pendingAnchorFromBottom = messageList.scrollHeight - messageList.scrollTop;
 		loadMoreHistory();
 	}
 
 	$effect(() => {
 		// When messages change and we have a pending anchor (older history was
-		// just prepended), restore the scroll position relative to the bottom.
+		// just prepended), restore the scroll position.
 		const _len = $messages.length;
-		if (pendingAnchorFromBottom !== null && messageList) {
-			const anchor = pendingAnchorFromBottom;
+		if (
+			(pendingAnchorId !== null || pendingAnchorFromBottom !== null) &&
+			messageList
+		) {
+			const anchorId = pendingAnchorId;
+			const anchorFromBottom = pendingAnchorFromBottom;
+			pendingAnchorId = null;
 			pendingAnchorFromBottom = null;
 			// Defer until after DOM paints the prepended nodes.
 			requestAnimationFrame(() => {
-				if (messageList) {
-					messageList.scrollTop = messageList.scrollHeight - anchor;
+				if (!messageList) return;
+				const anchorEl = anchorId
+					? messageList.querySelector<HTMLElement>(
+							`[data-msg-id="${CSS.escape(anchorId)}"]`,
+						)
+					: null;
+				if (anchorEl) {
+					// Position the previously-first message just below the top, leaving
+					// a gap that reveals the newly loaded messages above it. Using
+					// rects (instead of offsetTop) keeps this correct regardless of the
+					// element's offset parent.
+					const delta =
+						anchorEl.getBoundingClientRect().top -
+						messageList.getBoundingClientRect().top;
+					messageList.scrollTop = Math.max(
+						0,
+						messageList.scrollTop + delta - REVEAL_GAP_PX,
+					);
+				} else if (anchorFromBottom !== null) {
+					messageList.scrollTop = messageList.scrollHeight - anchorFromBottom;
 				}
 			});
 		}
@@ -1008,6 +1044,7 @@
 			{/if}
 			{#each msgList as msg (msg.id)}
 				<div
+					data-msg-id={msg.id}
 					class="flex {msg.role === 'user' ? 'justify-end' : 'justify-start'}"
 				>
 					<div
