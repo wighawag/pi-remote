@@ -25,6 +25,7 @@
 		gitInitDefaultStore,
 		checkPath,
 		autocompletePath,
+		checkRemoteRepo,
 	} from '$lib/session-store';
 	import type {ChatMessage} from '$lib/wherever';
 	import {onMount} from 'svelte';
@@ -116,6 +117,24 @@
 	let createRemoteRepo = $state(true);
 	let repoVisibility = $state<'private' | 'public'>('private');
 	let showGitInitConfirmModal = $state(false);
+	// Clone-existing-remote flow. When creating a session in a non-existing folder
+	// that matches a remote rule, we probe (at submit time) whether the remote
+	// repo already exists. If it does, we ask the user whether to CLONE it (SSH)
+	// instead of creating a fresh empty remote.
+	let showCloneConfirmModal = $state(false);
+	let checkingRemote = $state(false);
+	let cloneRemoteInfo = $state<{provider?: string; sshUrl?: string} | null>(null);
+
+	function submitCreateSession(cloneRemote: boolean) {
+		createSession(
+			newFolderCwd.trim(),
+			newFolderModel || undefined,
+			cloneRemote ? false : newFolderGitInit,
+			cloneRemote ? false : pathStatus.matchingRule ? createRemoteRepo : undefined,
+			cloneRemote ? undefined : pathStatus.matchingRule ? repoVisibility : undefined,
+			cloneRemote || undefined,
+		);
+	}
 
 	let appState = $derived($piState);
 	let modelsData = $derived($availableModels);
@@ -228,7 +247,7 @@
 		}
 	});
 
-	function handleFormCreateSession() {
+	async function handleFormCreateSession() {
 		if (!newFolderCwd.trim()) return;
 		if (pathStatus.exists === true) {
 			newFolderGitInit = false; // toggled off by default in modal
@@ -239,15 +258,30 @@
 					| 'public';
 			}
 			showGitInitConfirmModal = true;
-		} else {
-			createSession(
-				newFolderCwd.trim(),
-				newFolderModel || undefined,
-				newFolderGitInit,
-				pathStatus.matchingRule ? createRemoteRepo : undefined,
-				pathStatus.matchingRule ? repoVisibility : undefined,
-			);
+			return;
 		}
+
+		// Non-existing folder. If it matches a remote rule AND the user still
+		// wants a remote, probe (at submit time) whether that remote repo already
+		// exists. If so, offer to CLONE it instead of failing on create.
+		if (pathStatus.matchingRule && createRemoteRepo) {
+			checkingRemote = true;
+			try {
+				const probe = await checkRemoteRepo(newFolderCwd.trim());
+				if (probe && probe.matched && probe.exists) {
+					cloneRemoteInfo = {
+						provider: probe.provider,
+						sshUrl: probe.sshUrl,
+					};
+					showCloneConfirmModal = true;
+					return;
+				}
+			} finally {
+				checkingRemote = false;
+			}
+		}
+
+		submitCreateSession(false);
 	}
 
 	let messageList = $state<HTMLDivElement>();
@@ -999,10 +1033,10 @@
 
 					<button
 						type="submit"
-						disabled={!newFolderCwd.trim()}
+						disabled={!newFolderCwd.trim() || checkingRemote}
 						class="w-full rounded bg-gradient-to-r from-brand-cyan to-brand-blue py-2.5 text-sm font-semibold text-brand-text transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
 					>
-						Create & Start Session
+						{checkingRemote ? 'Checking remote...' : 'Create & Start Session'}
 					</button>
 				</form>
 			</div>
@@ -1769,6 +1803,60 @@
 						class="rounded bg-gradient-to-r from-brand-cyan to-brand-blue px-3.5 py-1.5 text-xs font-semibold text-brand-text transition-all hover:opacity-90"
 					>
 						Confirm & Create
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Clone Existing Remote Repository -->
+	{#if showCloneConfirmModal}
+		<div
+			class="fixed inset-0 z-50 flex items-center justify-center bg-brand-dark/65 p-4"
+			role="dialog"
+			aria-modal="true"
+		>
+			<div
+				class="w-full max-w-sm rounded-lg border border-brand-border bg-brand-surface-2 p-6 text-brand-text"
+			>
+				<h3 class="mb-2 text-base font-bold text-brand-text">
+					Remote Repository Already Exists
+				</h3>
+				<p class="mb-3 text-sm text-brand-text-muted">
+					A {cloneRemoteInfo?.provider ?? 'remote'} repository matching
+					<span class="font-mono text-xs text-brand-text">{newFolderCwd}</span>
+					already exists. Do you want to clone it instead of creating a new one?
+				</p>
+				{#if cloneRemoteInfo?.sshUrl}
+					<p
+						class="mb-4 rounded bg-brand-surface-3 px-2.5 py-1.5 font-mono text-xs break-all text-brand-text-muted"
+					>
+						{cloneRemoteInfo.sshUrl}
+					</p>
+				{/if}
+
+				<div class="flex justify-end gap-2.5">
+					<button
+						type="button"
+						onclick={() => {
+							showCloneConfirmModal = false;
+							cloneRemoteInfo = null;
+							submitCreateSession(false);
+						}}
+						class="rounded bg-brand-surface-3 px-3.5 py-1.5 text-xs font-semibold text-brand-text transition-colors hover:bg-brand-surface-2"
+					>
+						Create New Instead
+					</button>
+					<button
+						type="button"
+						onclick={() => {
+							showCloneConfirmModal = false;
+							cloneRemoteInfo = null;
+							submitCreateSession(true);
+						}}
+						class="rounded bg-gradient-to-r from-brand-cyan to-brand-blue px-3.5 py-1.5 text-xs font-semibold text-brand-text transition-all hover:opacity-90"
+					>
+						Clone Repository
 					</button>
 				</div>
 			</div>

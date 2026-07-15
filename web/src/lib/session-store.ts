@@ -290,6 +290,35 @@ export async function checkPath(
 	}
 }
 
+export interface RemoteRepoCheckResult {
+	matched: boolean;
+	provider?: string;
+	exists: boolean;
+	sshUrl?: string;
+}
+
+/**
+ * Submit-time probe: ask the server whether the remote repo that would be
+ * created for `pathStr` already exists. Runs a provider CLI on the server, so
+ * this is called ON DEMAND at create time, never on every keystroke.
+ */
+export async function checkRemoteRepo(
+	pathStr: string,
+): Promise<RemoteRepoCheckResult | null> {
+	if (!pathStr.trim()) return null;
+	try {
+		const baseUrl = getBaseUrl();
+		const token = getToken();
+		const url = `${baseUrl}/check-remote-repo?path=${encodeURIComponent(pathStr)}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
+		const res = await fetch(url);
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		return (await res.json()) as RemoteRepoCheckResult;
+	} catch (err) {
+		console.error('Failed to check remote repo:', err);
+		return null;
+	}
+}
+
 export interface PathAutocompleteResult {
 	completions: string[];
 }

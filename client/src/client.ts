@@ -1816,6 +1816,7 @@ export class WhereverClient {
     gitInit?: boolean,
     createRemote?: boolean,
     repoVisibility?: 'private' | 'public',
+    cloneRemote?: boolean,
   ) {
     this.stateStore.update((s: WhereverState) => ({
       ...s,
@@ -1831,6 +1832,7 @@ export class WhereverClient {
       gitInit,
       createRemote,
       repoVisibility,
+      cloneRemote,
     });
     // Never let the blocking "Creating session..." overlay hang if the reply is
     // lost. Symmetrical with armLoadWatchdog for session_load.

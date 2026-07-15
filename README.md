@@ -377,6 +377,14 @@ When a new session folder is created and matches a rule:
    - For **Codeberg/Gitea/Forgejo**, it executes `tea repo create --name "<repo-name>" --private` or `cb repo create --name "<repo-name>" --private` (requires `tea` or `cb` CLI tools, automatically adding the corresponding remote URL under `origin`).
 3. This sets up the local repo to point directly to your remote origin, allowing your Wherever agent to push directly when asked!
 
+#### Cloning an Existing Remote Instead of Creating One
+
+If the remote repository the rule would create **already exists** (for example, you are continuing a project on a new machine and have not cloned it yet), Wherever detects this at session-creation time instead of silently failing to wire up `origin`. When you create a session in a **non-existing** folder that matches a rule and the "Create remote repository" option is left on:
+
+1. At submit time (not on every keystroke), the server probes the provider using the same authenticated CLI and owner it would use to create the repo (`gh repo view "<repo-name>"` for GitHub, or the `tea`/`cb` listing for Codeberg/Gitea/Forgejo).
+2. If the repository is **not** found, nothing changes: the folder is created and the normal auto-create flow above runs (`git init` + `gh repo create` / `tea`/`cb repo create`).
+3. If the repository **is** found, the dashboard asks whether you want to **clone it** (preferring the SSH remote) or create a new one anyway. Choosing to clone runs `git clone <ssh-url> <folder>` into the target folder (its parent is created if needed, and the leaf must be empty), then pre-configures upstream tracking. Any probe/CLI failure (missing CLI, not authenticated, offline) is treated as "does not exist", so it always falls back to the normal create path.
+
 ---
 
 ## Remote Access & Security (Tailscale, Headscale, & Outside Access)

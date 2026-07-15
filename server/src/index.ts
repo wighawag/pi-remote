@@ -3,7 +3,7 @@ import { createServer as createHttpServer, type IncomingMessage, type ServerResp
 import { createServer as createHttpsServer, request as httpRequest } from 'node:https';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent';
-import { SessionPool, getWhereverConfig, type WhereverConfig } from './session-pool.js';
+import { SessionPool, getWhereverConfig, detectRemoteRepo, type WhereverConfig } from './session-pool.js';
 import type { ClientMessage, ServerMessage, ToolImage } from './protocol.js';
 import { INITIAL_HISTORY_LIMIT, HISTORY_PAGE_SIZE } from './protocol.js';
 import fs from 'node:fs';
@@ -656,6 +656,45 @@ async function main(): Promise<void> {
       return;
     }
 
+    // Submit-time probe: does the remote repo that WOULD be created for this
+    // folder already exist? Only meaningful when the folder does not exist and
+    // matches a remoteRepoRule. Runs a provider CLI (gh/tea/cb) so it is called
+    // on demand at create time, NOT on every keystroke.
+    if (pathname === '/check-remote-repo' && req.method === 'GET') {
+      const qPath = url.searchParams.get('path');
+      if (!qPath) {
+        sendJSON(res, 400, { error: 'Missing path' });
+        return;
+      }
+      let resolved = qPath;
+      if (qPath.startsWith('~')) {
+        resolved = path.join(os.homedir(), qPath.slice(1));
+      } else if (!path.isAbsolute(qPath)) {
+        resolved = path.join(os.homedir(), qPath);
+      } else {
+        resolved = path.resolve(qPath);
+      }
+
+      const config = getWhereverConfig();
+      const rule = (config.remoteRepoRules && Array.isArray(config.remoteRepoRules))
+        ? config.remoteRepoRules.find(r => new RegExp(r.pattern).test(resolved))
+        : undefined;
+
+      if (!rule) {
+        sendJSON(res, 200, { exists: false, matched: false });
+        return;
+      }
+
+      const probe = detectRemoteRepo(rule, path.basename(resolved));
+      sendJSON(res, 200, {
+        matched: true,
+        provider: rule.provider,
+        exists: probe.exists,
+        sshUrl: probe.exists ? probe.sshUrl : undefined,
+      });
+      return;
+    }
+
     if (pathname === '/autocomplete-path' && req.method === 'GET') {
       const qPath = url.searchParams.get('path') || '';
       let parentPath = '';
@@ -925,12 +964,12 @@ async function main(): Promise<void> {
     if (pathname === '/session/new' && req.method === 'POST') {
       try {
         const body = await readBody(req);
-        const { cwd, model, gitInit, createRemote, repoVisibility } = JSON.parse(body) as { cwd: string; model?: string; gitInit?: boolean; createRemote?: boolean; repoVisibility?: 'private' | 'public' };
+        const { cwd, model, gitInit, createRemote, repoVisibility, cloneRemote } = JSON.parse(body) as { cwd: string; model?: string; gitInit?: boolean; createRemote?: boolean; repoVisibility?: 'private' | 'public'; cloneRemote?: boolean };
         if (!cwd) {
           sendJSON(res, 400, { error: 'Missing cwd' });
           return;
         }
-        const result = await sessionPool.createNewSession(cwd, model, gitInit, createRemote, repoVisibility);
+        const result = await sessionPool.createNewSession(cwd, model, gitInit, createRemote, repoVisibility, cloneRemote);
         if (result.error) {
           sendJSON(res, 500, { error: result.error });
         } else {
@@ -1586,7 +1625,7 @@ async function handleWSMessage(
         switchClientSession(client, null, pool, onSessionsUpdated);
       }
 
-      const result = await pool.createNewSession(msg.cwd, msg.model, msg.gitInit, msg.createRemote, msg.repoVisibility);
+      const result = await pool.createNewSession(msg.cwd, msg.model, msg.gitInit, msg.createRemote, msg.repoVisibility, msg.cloneRemote);
       if (result.error) {
         sendWS(client.ws, { type: 'session_error', error: result.error });
         return;

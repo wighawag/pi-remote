@@ -431,8 +431,9 @@ export function createSession(
 	gitInit?: boolean,
 	createRemote?: boolean,
 	repoVisibility?: 'private' | 'public',
+	cloneRemote?: boolean,
 ) {
-	client.createSession(cwd, model, gitInit, createRemote, repoVisibility);
+	client.createSession(cwd, model, gitInit, createRemote, repoVisibility, cloneRemote);
 }
 
 /**

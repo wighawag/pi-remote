@@ -435,6 +435,115 @@ export function setupUpstreamTracking(resolvedCwd: string) {
   }
 }
 
+/**
+ * Resolve the authenticated user for a Codeberg/Gitea/Forgejo provider using the
+ * same `tea`/`cb` CLIs the create path uses. Returns '' when it cannot be
+ * determined (callers fall back to a placeholder or skip).
+ */
+function resolveGiteaUser(): string {
+  try {
+    return execSync('tea whoami').toString().trim().split(/\s+/).pop() || '';
+  } catch (e) {
+    try {
+      return execSync('cb auth whoami').toString().trim().split(/\s+/).pop() || '';
+    } catch (e2) {
+      return '';
+    }
+  }
+}
+
+export type RemoteRepoProbe =
+  | { exists: true; sshUrl: string }
+  | { exists: false; sshUrl?: undefined };
+
+/**
+ * Probe whether the remote repository that WOULD be created for `resolvedCwd`
+ * under `rule` already exists, mirroring the owner-resolution used by the create
+ * path (gh's authenticated user for GitHub; `tea`/`cb` whoami for Gitea-family).
+ * On success returns the SSH clone URL (preferred for cloning). Network/CLI
+ * failures are treated as "does not exist" so the caller falls back to creation.
+ */
+export function detectRemoteRepo(rule: RemoteRepoRule, repoName: string): RemoteRepoProbe {
+  const provider = rule.provider;
+  try {
+    if (provider === 'github') {
+      // `gh repo view` resolves the owner to the authenticated user just like
+      // `gh repo create "<name>"` does. --json sshUrl gives us the SSH remote.
+      const out = execSync(`gh repo view "${repoName}" --json sshUrl -q .sshUrl`, {
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).toString().trim();
+      if (out) return { exists: true, sshUrl: out };
+      return { exists: false };
+    }
+
+    if (provider === 'codeberg' || provider === 'gitea' || provider === 'forgejo') {
+      const domain = provider === 'codeberg' ? 'codeberg.org' : 'gitea.com';
+      const user = resolveGiteaUser();
+      if (!user) return { exists: false };
+      // `tea repo` / `cb repo` existence check. If either lists the repo, it
+      // exists; construct the SSH URL the same way the create path does.
+      let exists = false;
+      try {
+        execSync(`tea repo ls --output simple 2>/dev/null | grep -qi "${user}/${repoName}$"`, {
+          stdio: 'ignore',
+          shell: '/bin/bash',
+        });
+        exists = true;
+      } catch (e) {
+        try {
+          execSync(`cb repo list 2>/dev/null | grep -qi "${user}/${repoName}"`, {
+            stdio: 'ignore',
+            shell: '/bin/bash',
+          });
+          exists = true;
+        } catch (e2) {}
+      }
+      if (exists) {
+        return { exists: true, sshUrl: `git@${domain}:${user}/${repoName}.git` };
+      }
+      return { exists: false };
+    }
+  } catch (e) {
+    // Not found / not authenticated / CLI missing: treat as non-existent.
+  }
+  return { exists: false };
+}
+
+/**
+ * Clone an existing remote repository into `resolvedCwd` using its SSH URL. The
+ * parent directory is created if needed and the leaf must be empty/absent. Adds
+ * `origin` (git clone does this) and pre-configures upstream tracking. Returns
+ * an error string on failure, or undefined on success.
+ */
+export function cloneRemoteRepo(resolvedCwd: string, sshUrl: string): string | undefined {
+  try {
+    // git clone refuses a non-empty target. If the folder was pre-created
+    // (mkdir above), only clone when it is empty.
+    if (fs.existsSync(resolvedCwd)) {
+      const entries = fs.readdirSync(resolvedCwd);
+      if (entries.length > 0) {
+        return `Cannot clone into ${resolvedCwd}: directory is not empty`;
+      }
+      fs.rmdirSync(resolvedCwd);
+    }
+    const parent = path.dirname(resolvedCwd);
+    if (!fs.existsSync(parent)) {
+      fs.mkdirSync(parent, { recursive: true });
+    }
+    console.log(`Cloning existing repository ${sshUrl} into ${resolvedCwd}...`);
+    execSync(`git clone "${sshUrl}" "${path.basename(resolvedCwd)}"`, {
+      cwd: parent,
+      stdio: 'ignore',
+    });
+    console.log(`Successfully cloned ${sshUrl}`);
+    setupUpstreamTracking(resolvedCwd);
+    return undefined;
+  } catch (err: any) {
+    console.error('Failed to clone remote repository:', err);
+    return `Failed to clone remote repository ${sshUrl}: ${err?.message || err}`;
+  }
+}
+
 import { createAgentSession, AuthStorage, ModelRegistry, DefaultResourceLoader, SettingsManager, getAgentDir, SessionManager } from '@earendil-works/pi-coding-agent';
 import type { BashOperations } from '@earendil-works/pi-coding-agent';
 import { spawn } from 'node:child_process';
@@ -772,7 +881,7 @@ export class SessionPool {
     return loadPromise;
   }
 
-  async createNewSession(cwd: string, modelStr?: string, gitInit?: boolean, createRemote?: boolean, repoVisibility?: 'private' | 'public'): Promise<{ tracked: TrackedSession; error?: string; sessionFile?: string }> {
+  async createNewSession(cwd: string, modelStr?: string, gitInit?: boolean, createRemote?: boolean, repoVisibility?: 'private' | 'public', cloneRemote?: boolean): Promise<{ tracked: TrackedSession; error?: string; sessionFile?: string }> {
     let resolvedCwd = cwd;
     if (cwd.startsWith('~')) {
       resolvedCwd = path.join(os.homedir(), cwd.slice(1));
@@ -795,7 +904,28 @@ export class SessionPool {
 
     const createPromise = (async () => {
       try {
-        if (!fs.existsSync(resolvedCwd)) {
+        // Clone path: when the caller asked to clone an existing remote repo
+        // (folder did not exist, matched a rule, and the remote was found), do
+        // the clone FIRST and skip the git-init / remote-create machinery below.
+        // git clone creates the folder itself, so we do NOT pre-mkdir here.
+        let cloned = false;
+        if (cloneRemote) {
+          const cfg = getWhereverConfig();
+          const rule = cfg.remoteRepoRules?.find(r => new RegExp(r.pattern).test(resolvedCwd));
+          if (rule) {
+            const repoName = path.basename(resolvedCwd);
+            const probe = detectRemoteRepo(rule, repoName);
+            if (probe.exists) {
+              const cloneErr = cloneRemoteRepo(resolvedCwd, probe.sshUrl);
+              if (cloneErr) {
+                throw new Error(cloneErr);
+              }
+              cloned = true;
+            }
+          }
+        }
+
+        if (!cloned && !fs.existsSync(resolvedCwd)) {
           fs.mkdirSync(resolvedCwd, { recursive: true });
         }
 
@@ -805,8 +935,8 @@ export class SessionPool {
         // re-created if the folder was deleted. Never clobbers an existing file.
         maybeSeedSearchWorkspace(resolvedCwd);
 
-        // Git initialization if requested
-        if (gitInit) {
+        // Git initialization if requested (never needed after a clone)
+        if (gitInit && !cloned) {
           try {
             if (!fs.existsSync(path.join(resolvedCwd, '.git'))) {
               execSync('git init', { cwd: resolvedCwd, stdio: 'ignore' });
@@ -817,9 +947,10 @@ export class SessionPool {
           }
         }
 
-        // Check if we should create a remote repo (GitHub/Codeberg etc) based on config patterns
+        // Check if we should create a remote repo (GitHub/Codeberg etc) based on config patterns.
+        // Skipped entirely when we just cloned an existing remote.
         const config = getWhereverConfig();
-        if (createRemote !== false && config.remoteRepoRules && Array.isArray(config.remoteRepoRules)) {
+        if (!cloned && createRemote !== false && config.remoteRepoRules && Array.isArray(config.remoteRepoRules)) {
           const rule = config.remoteRepoRules.find(r => new RegExp(r.pattern).test(resolvedCwd));
           if (rule) {
             const provider = rule.provider;
