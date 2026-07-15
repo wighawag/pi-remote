@@ -737,6 +737,14 @@ export default async function (pi: ExtensionAPI) {
           model: ctxVal?.model ? `${ctxVal.model.provider}:${ctxVal.model.id}` : "",
           isStreaming: streaming,
         });
+        // Push the current context-window usage right after registering. Usage
+        // is otherwise only forwarded on agent_end / model_select, so an idle
+        // CLI session (no new turn since the bridge connected) would leave the
+        // web "11.3% / 1.0M" indicator blank until the next turn. Sending it on
+        // (re)connect populates it immediately for a viewer joining an idle
+        // session. Best-effort: undefined usage (no model / no turn yet) is
+        // still sent as null, which is a no-op for the indicator.
+        sendContextUsage();
       } else if (!s.connected) {
         wasConnected = false;
       }

@@ -1382,6 +1382,11 @@ async function handleWSMessage(
           cwd: msg.cwd,
           model: msg.model || '',
           isStreaming: pool.isStreaming(msg.sessionFile),
+          // Include any context-usage the CLI bridge already reported (cached
+          // from a prior turn) so a web viewer joining an idle CLI session gets
+          // the "11.3% / 1.0M" indicator in the initial payload instead of a
+          // blank until the next turn. undefined -> omitted -> client keeps null.
+          contextUsage: pool.getContextUsage(msg.sessionFile) ?? null,
         };
         for (const c of clients.values()) {
           if (c.sessionId === msg.sessionFile && !c.isCliBridge) {
