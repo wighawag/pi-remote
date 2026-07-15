@@ -456,8 +456,13 @@ async function main(): Promise<void> {
         };
         break;
       }
+      case 'bash_sudo_prompt' as any: {
+        const evt = event as any;
+        msg = { type: 'bash_sudo_prompt', sessionId, promptId: evt.promptId, command: evt.command };
+        break;
+      }
       case 'tool_execution_start':
-        msg = { type: 'tool_start', sessionId, toolName: event.toolName, args: event.args };
+        msg = { type: 'tool_start', sessionId, toolName: event.toolName, args: event.args, ...((event as any).forceCommand ? { forceCommand: true } : {}) };
         break;
       case 'tool_execution_update': {
         const evt = event as any;
@@ -474,6 +479,7 @@ async function main(): Promise<void> {
           isError: event.isError,
           result: toolResult,
           ...(toolImages.length > 0 ? { images: toolImages } : {}),
+          ...((event as any).forceCommand ? { forceCommand: true } : {}),
         };
         break;
       }
@@ -1756,6 +1762,25 @@ async function handleWSMessage(
       const target = msg.sessionId ? pool.getSession(msg.sessionId) : attached;
       if (!attached || !target || target !== attached) break;
       await pool.abortSession(client.sessionId);
+      break;
+    }
+
+    case 'bash_sudo_password': {
+      if (!client.sessionId) return;
+      if (client.readOnly) return;
+      // Same authority guard as 'message': the password (and the command it
+      // unlocks) must only ever run against the session this connection is
+      // actually attached to and looking at.
+      const attached = pool.getSession(client.sessionId);
+      const target = msg.sessionId ? pool.getSession(msg.sessionId) : attached;
+      if (!attached || !target || target !== attached) break;
+      await pool.submitSudoPassword(msg.promptId, msg.password);
+      break;
+    }
+
+    case 'bash_sudo_cancel': {
+      if (!client.sessionId) return;
+      pool.cancelSudoPrompt(msg.promptId);
       break;
     }
 

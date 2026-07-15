@@ -590,6 +590,7 @@ export default async function (pi: ExtensionAPI) {
               type: "tool_execution_start",
               toolName: "bash",
               args: { command },
+              forceCommand: true,
             });
 
             const shell = process.platform === "win32" ? "cmd.exe" : "bash";
@@ -623,9 +624,100 @@ export default async function (pi: ExtensionAPI) {
                 toolName: "bash",
                 result: output,
                 isError: code !== 0,
+                forceCommand: true,
               });
 
               // Record bash result locally
+              const bashMessage = {
+                role: "bashExecution",
+                command,
+                output,
+                exitCode: code,
+                timestamp: Date.now(),
+                excludeFromContext,
+              };
+
+              try {
+                if (ctxVal?.sessionManager) {
+                  (ctxVal.sessionManager as any).appendMessage(bashMessage);
+                }
+              } catch (err) {
+                console.error("[Wherever] Failed to append bash message locally:", err);
+              }
+            });
+
+            child.on("error", (err: any) => {
+              const errMsg = err.message || String(err);
+              sendCliEvent({
+                type: "tool_execution_end",
+                toolName: "bash",
+                result: errMsg,
+                isError: true,
+              });
+            });
+            break;
+          }
+          case "cli_bash_sudo": {
+            // A `!sudo ...` command whose password the web user just supplied.
+            // Runs exactly like cli_bash, except the leading `sudo` is rewritten
+            // to read the password from stdin (`sudo -S`), we ignore any cached
+            // credential (`-k`) so it always asks, and suppress the prompt text
+            // (`-p ''`) so it does not leak into output. The password is written
+            // once then stdin is closed; it is never recorded, streamed, or
+            // logged (only the password-free `command` is recorded).
+            const { command, password, excludeFromContext } = msg as any;
+            ctxVal?.ui.notify(`[Wherever] Executing remote sudo command: ${command.slice(0, 40)}...`, "info");
+
+            sendCliEvent({
+              type: "tool_execution_start",
+              toolName: "bash",
+              args: { command },
+              forceCommand: true,
+            });
+
+            const rewritten = (command as string).replace(/(^|\n)(\s*)sudo(\s|$)/, `$1$2sudo -S -k -p '' $3`);
+            const child = spawn("bash", ["-c", rewritten], {
+              cwd: ctxVal?.cwd,
+              stdio: ["pipe", "pipe", "pipe"],
+            });
+            let output = "";
+
+            // Feed the password first, then close stdin so sudo (and the command)
+            // see EOF and do not hang waiting for more input.
+            child.stdin?.on("error", () => {});
+            child.stdin?.write(password + "\n");
+            child.stdin?.end();
+
+            child.stdout?.on("data", (data: any) => {
+              const chunk = data.toString();
+              output += chunk;
+              sendCliEvent({
+                type: "tool_execution_update",
+                toolName: "bash",
+                delta: chunk,
+              });
+            });
+
+            child.stderr?.on("data", (data: any) => {
+              const chunk = data.toString();
+              output += chunk;
+              sendCliEvent({
+                type: "tool_execution_update",
+                toolName: "bash",
+                delta: chunk,
+              });
+            });
+
+            child.on("close", (code: number) => {
+              sendCliEvent({
+                type: "tool_execution_end",
+                toolName: "bash",
+                result: output,
+                isError: code !== 0,
+                forceCommand: true,
+              });
+
+              // Record the password-free command locally, same as cli_bash.
               const bashMessage = {
                 role: "bashExecution",
                 command,

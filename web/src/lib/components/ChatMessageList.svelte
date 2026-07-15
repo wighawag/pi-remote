@@ -645,19 +645,14 @@
 		});
 	}
 
+	// True when `msg` is a bash tool call produced by a user `!command` /
+	// `!!command` (a "force command"), as opposed to one the agent issued. The
+	// server marks these explicitly (`forceCommand`) both live (tool_start) and in
+	// reloaded history (the bashExecution -> tool_call mapping), so this is an
+	// unambiguous per-message flag: no structural inference, and it works
+	// correctly for back-to-back `!command`s and after a reload.
 	function isAssociatedWithForceCommand(msg: ChatMessage): boolean {
-		const list = $messages;
-		const idx = list.findIndex((m) => m.id === msg.id);
-		if (idx === -1) return false;
-
-		// Look back for the closest user message
-		for (let i = idx - 1; i >= 0; i--) {
-			if (list[i].role === 'user') {
-				const content = list[i].content ? list[i].content.trim() : '';
-				return content.startsWith('!') || content.startsWith('!!');
-			}
-		}
-		return false;
+		return msg.role === 'tool' && msg.forceCommand === true;
 	}
 
 	function shouldAutoExpand(msg: ChatMessage, list: ChatMessage[]): boolean {

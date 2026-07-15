@@ -26,6 +26,11 @@ export interface ChatMessage {
 	// error tick (it was not an error, it just never finished). Only meaningful
 	// for role: 'tool'; mutually exclusive with a live isStreaming tool.
 	interrupted?: boolean;
+	// True when this bash tool call came from a user `!command` / `!!command` (a
+	// "force command"), rather than one the agent issued. Set from the tool_start
+	// frame (live) or the history tool_call (reload). The web UI auto-expands
+	// force-command bash output. Only meaningful for role: 'tool', toolName 'bash'.
+	forceCommand?: boolean;
 	// Wall-clock start of a tool call (ms epoch), set when the tool_start frame
 	// arrives. `timestamp` also carries this, but startedAt is kept explicit so
 	// the elapsed/took duration is unambiguous and survives content rewrites.
@@ -51,6 +56,16 @@ export interface ChatMessage {
 export interface SessionNotice {
 	level: 'info' | 'warning';
 	message: string;
+}
+
+// A pending `!sudo ...` command waiting for the user to supply a password. The
+// password itself is never stored in state: the UI collects it in a masked
+// field and hands it straight to sendSudoPassword(). `command` is the sudo
+// command line WITHOUT any password, safe to display in the prompt.
+export interface SudoPrompt {
+	promptId: string;
+	command: string;
+	sessionId: string;
 }
 
 export interface ConflictInfo {
@@ -94,6 +109,10 @@ export interface WhereverState {
 	// on leaving the session, or when a fresh notice replaces it. null when there
 	// is nothing to show.
 	notice: SessionNotice | null;
+	// A pending sudo password prompt for the active session, or null when there is
+	// nothing to ask. Set on a server bash_sudo_prompt and cleared when the user
+	// submits/cancels, when the session changes, or when the connection drops.
+	sudoPrompt: SudoPrompt | null;
 	sessionError: string | null;
 	readOnly: boolean;
 	activeSessionFile: string | null;

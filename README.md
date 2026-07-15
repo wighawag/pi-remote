@@ -45,7 +45,7 @@ It allows you to manage multiple pi sessions concurrently across your workspace 
 
 ### 💻 Direct Bash Execution (`!` and `!!`)
 
-- **Terminal Power:** Execute bash commands directly from the Svelte web frontend by prefixing them with `!` or `!!` (e.g., `!ls`, `!!git status`), matching the pi CLI's interactive behavior.
+- **Terminal Power:** Execute bash commands directly from the Svelte web frontend by prefixing them with `!` or `!!` (e.g., `!ls`, `!!git status`), matching the pi CLI's interactive behavior. A `!sudo ...` command pops a one-shot, masked password prompt (the password is used once to run the command and is never stored or logged); a fresh password is required every time.
 - **Real-Time Streaming:** Streams tool execution stdout/stderr chunks back to the dashboard in real-time, capturing output and exit codes directly into the session history.
 
 ### 📁 Multi-Modal File & Image Uploads

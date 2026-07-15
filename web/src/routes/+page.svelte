@@ -5,6 +5,7 @@
 	import ChatInput from '$lib/components/ChatInput.svelte';
 	import SessionBrowser from '$lib/components/SessionBrowser.svelte';
 	import SessionConflictDialog from '$lib/components/SessionConflictDialog.svelte';
+	import SudoPasswordDialog from '$lib/components/SudoPasswordDialog.svelte';
 	import {
 		piState,
 		isConnected,
@@ -768,6 +769,9 @@
 
 	<!-- Session Conflict Dialog -->
 	<SessionConflictDialog />
+
+	<!-- Sudo password prompt for `!sudo ...` commands -->
+	<SudoPasswordDialog />
 
 	<!-- Overlay for mobile sidebar -->
 	{#if sidebarOpen}

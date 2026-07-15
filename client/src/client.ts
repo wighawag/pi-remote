@@ -27,6 +27,7 @@ const defaultState: WhereverState = {
 	conflict: null,
 	isInterrupted: false,
 	notice: null,
+	sudoPrompt: null,
 	sessionError: null,
 	readOnly: false,
 	activeSessionFile: null,
@@ -860,6 +861,7 @@ export class WhereverClient {
             toolArgs: toolArgs,
             toolOutput: '',
             startedAt,
+            ...((msg as any).forceCommand ? { forceCommand: true } : {}),
           };
           return {
             ...s,
@@ -1068,6 +1070,23 @@ export class WhereverClient {
         });
         break;
 
+      case 'bash_sudo_prompt':
+        // A `!sudo ...` command on the server needs a password before it can
+        // run. Surface a masked prompt for the active session only; ignore a
+        // prompt for a session we already switched away from.
+        this.stateStore.update((s: WhereverState) => {
+          if (s.sessionId && msg.sessionId && s.sessionId !== msg.sessionId) return s;
+          return {
+            ...s,
+            sudoPrompt: {
+              promptId: msg.promptId,
+              command: msg.command,
+              sessionId: msg.sessionId,
+            },
+          };
+        });
+        break;
+
       case 'session_destroyed':
         this.stateStore.update((s: WhereverState) => {
           if (s.sessionId === msg.sessionId) {
@@ -1082,6 +1101,7 @@ export class WhereverClient {
               loadingSession: false,
               agentPending: false,
               notice: null,
+              sudoPrompt: null,
             };
           }
           return s;
@@ -1133,6 +1153,7 @@ export class WhereverClient {
           loadingSession: false,
           agentPending: false,
           notice: null,
+          sudoPrompt: null,
         }));
         break;
 
@@ -1292,6 +1313,9 @@ export class WhereverClient {
           // Keep the start so a matched result (or a still-running streaming
           // tail) can show a coherent duration / "Elapsed".
           ...(Number.isFinite(m.timestamp) ? {startedAt: m.timestamp} : {}),
+          // Carry the force-command marker from history so a `!command` bash
+          // tool call auto-expands on reload just like it does live.
+          ...((m as any).forceCommand ? {forceCommand: true} : {}),
         });
         if (!openCalls[tName]) openCalls[tName] = [];
         openCalls[tName].push(idx);
@@ -1509,6 +1533,19 @@ export class WhereverClient {
           'Message failed to send (connection dropped). Please resend once reconnected.',
       }));
       return false;
+    }
+
+    // A `!command` / `!!command` is intercepted by the server and run as a bash
+    // tool call, NOT delivered to the agent. The server never echoes it back as a
+    // user message, and the bash tool_start/tool_end events are the real, durable
+    // feedback (and are recorded in history). So do NOT add any local user echo
+    // for it: a bubble here would be a transient duplicate that vanishes on
+    // reload (bash runs are not part of the user-message transcript) and, if
+    // delivery-tracked, would wrongly time out into a retry/discard banner. Just
+    // clear any prior error and let the tool-call render carry the feedback.
+    if (text.trimStart().startsWith('!')) {
+      this.stateStore.update((st: WhereverState) => ({...st, sessionError: null}));
+      return true;
     }
 
     // The frame was handed to an OPEN socket, but that is NOT proof of delivery:
@@ -1756,6 +1793,7 @@ export class WhereverClient {
       conflict: null,
       sessionError: null,
       notice: null,
+      sudoPrompt: null,
       creatingSession: false,
       resyncing: false,
       agentPending: false,
@@ -1824,6 +1862,7 @@ export class WhereverClient {
       activeModel: null,
       readOnly: false,
       notice: null,
+      sudoPrompt: null,
       creatingSession: false,
       loadingSession: false,
       resyncing: false,
@@ -1868,6 +1907,36 @@ export class WhereverClient {
 
   public dismissNotice() {
     this.stateStore.update((s: WhereverState) => ({...s, notice: null}));
+  }
+
+  // Answer a pending `!sudo ...` prompt with the password the user typed. The
+  // password is sent straight to the server (never stored in client state) and
+  // the prompt is cleared. No-op if there is no matching pending prompt.
+  public sendSudoPassword(password: string) {
+    const s = get(this.stateStore);
+    const prompt = s.sudoPrompt;
+    if (!prompt) return;
+    this.send({
+      type: 'bash_sudo_password',
+      sessionId: prompt.sessionId,
+      promptId: prompt.promptId,
+      password,
+    });
+    this.stateStore.update((st: WhereverState) => ({...st, sudoPrompt: null}));
+  }
+
+  // Dismiss a pending `!sudo ...` prompt without running the command. Tells the
+  // server to drop the deferred command and clears the local prompt.
+  public cancelSudoPrompt() {
+    const s = get(this.stateStore);
+    const prompt = s.sudoPrompt;
+    this.stateStore.update((st: WhereverState) => ({...st, sudoPrompt: null}));
+    if (!prompt) return;
+    this.send({
+      type: 'bash_sudo_cancel',
+      sessionId: prompt.sessionId,
+      promptId: prompt.promptId,
+    });
   }
 
   public changeModel(model: string) {

@@ -436,6 +436,9 @@ export function setupUpstreamTracking(resolvedCwd: string) {
 }
 
 import { createAgentSession, AuthStorage, ModelRegistry, DefaultResourceLoader, SettingsManager, getAgentDir, SessionManager } from '@earendil-works/pi-coding-agent';
+import type { BashOperations } from '@earendil-works/pi-coding-agent';
+import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { createAttachFileTool } from './attach-file-tool.js';
 import type { AgentSession, AgentSessionEvent } from '@earendil-works/pi-coding-agent';
 import type { Model, Api } from '@earendil-works/pi-ai';
@@ -493,6 +496,15 @@ export class SessionPool {
   private modelRegistry: ModelRegistry;
   private agentDir: string;
   private idleTimeoutMs: number;
+
+  // Pending `!sudo ...` commands awaiting a password from the client, keyed by a
+  // one-shot promptId. The password never lives here: only the (password-free)
+  // command and enough context to run it once the client replies. Entries are
+  // removed as soon as the password arrives or the prompt is cancelled.
+  private pendingSudo = new Map<
+    string,
+    { sessionFileOrId: string; command: string; excludeFromContext: boolean }
+  >();
 
   onEvent?: (sessionFile: string, event: AgentSessionEvent) => void;
 
@@ -1098,6 +1110,10 @@ export class SessionPool {
             content: bashMsg.command || '',
             timestamp: ts,
             toolName: 'bash',
+            // A bashExecution entry is, by definition, a user `!command` (force
+            // command), never an agent tool call. Mark it so the web can
+            // auto-expand it on reload, mirroring the live tool_start flag.
+            forceCommand: true,
           });
           if (bashMsg.output) {
             messages.push({
@@ -1371,44 +1387,32 @@ export class SessionPool {
       const command = isExcluded ? text.trimStart().slice(2).trim() : text.trimStart().slice(1).trim();
 
       if (command) {
-        if (tracked.type === 'server') {
+        // A `!sudo ...` command cannot run unattended: sudo needs a password on a
+        // tty/stdin that neither the server executor nor the extension's plain
+        // spawn provides, so it would otherwise hang or fail. For BOTH session
+        // types, defer it: ask the web client for the password (masked, one-shot)
+        // via bash_sudo_prompt, then finish in submitSudoPassword once the reply
+        // arrives (server runs it locally; CLI forwards it to the extension).
+        // Everything else about the `!command` UX is unchanged.
+        if (this.isSudoCommand(command)) {
+          const promptId = randomUUID();
+          this.pendingSudo.set(promptId, {
+            sessionFileOrId: tracked.sessionFile,
+            command,
+            excludeFromContext: isExcluded,
+          });
           if (this.onEvent) {
             this.onEvent(tracked.sessionFile, {
-              type: 'tool_execution_start',
-              toolName: 'bash',
-              args: { command },
+              type: 'bash_sudo_prompt',
+              promptId,
+              command,
             } as any);
           }
+          return;
+        }
 
-          try {
-            const result = await tracked.agentSession.executeBash(command, (chunk) => {
-              if (this.onEvent) {
-                this.onEvent(tracked.sessionFile, {
-                  type: 'tool_execution_update',
-                  toolName: 'bash',
-                  delta: chunk,
-                } as any);
-              }
-            }, { excludeFromContext: isExcluded });
-
-            if (this.onEvent) {
-              this.onEvent(tracked.sessionFile, {
-                type: 'tool_execution_end',
-                toolName: 'bash',
-                result: result.output,
-                isError: result.exitCode !== 0,
-              } as any);
-            }
-          } catch (err) {
-            if (this.onEvent) {
-              this.onEvent(tracked.sessionFile, {
-                type: 'tool_execution_end',
-                toolName: 'bash',
-                result: (err as Error).message,
-                isError: true,
-              } as any);
-            }
-          }
+        if (tracked.type === 'server') {
+          await this.runServerBash(tracked, command, isExcluded);
         } else if (tracked.type === 'cli') {
           tracked.cliWs.send(JSON.stringify({
             type: 'cli_bash',
@@ -1429,6 +1433,161 @@ export class SessionPool {
         streamingBehavior,
       }));
     }
+  }
+
+  // True when a `!command` invokes sudo as its leading program. We only special-
+  // case the leading token so ordinary commands that merely mention "sudo"
+  // somewhere (e.g. `grep sudo /var/log/auth.log`) are unaffected.
+  private isSudoCommand(command: string): boolean {
+    return /^sudo(\s|$)/.test(command.trimStart());
+  }
+
+  // Run a server-side bash command, streaming output and recording history
+  // exactly like a plain `!command`. `operations` lets the sudo path inject a
+  // custom executor that feeds the password over stdin; when omitted the agent
+  // uses its default local shell backend.
+  private async runServerBash(
+    tracked: ServerTrackedSession,
+    command: string,
+    excludeFromContext: boolean,
+    operations?: BashOperations,
+  ): Promise<void> {
+    if (this.onEvent) {
+      this.onEvent(tracked.sessionFile, {
+        type: 'tool_execution_start',
+        toolName: 'bash',
+        args: { command },
+        forceCommand: true,
+      } as any);
+    }
+
+    try {
+      const result = await tracked.agentSession.executeBash(command, (chunk) => {
+        if (this.onEvent) {
+          this.onEvent(tracked.sessionFile, {
+            type: 'tool_execution_update',
+            toolName: 'bash',
+            delta: chunk,
+          } as any);
+        }
+      }, { excludeFromContext, operations });
+
+      if (this.onEvent) {
+        this.onEvent(tracked.sessionFile, {
+          type: 'tool_execution_end',
+          toolName: 'bash',
+          result: result.output,
+          isError: result.exitCode !== 0,
+          forceCommand: true,
+        } as any);
+      }
+    } catch (err) {
+      if (this.onEvent) {
+        this.onEvent(tracked.sessionFile, {
+          type: 'tool_execution_end',
+          toolName: 'bash',
+          result: (err as Error).message,
+          isError: true,
+          forceCommand: true,
+        } as any);
+      }
+    }
+  }
+
+  // Build BashOperations that run a leading-`sudo` command non-interactively by
+  // passing the supplied password on the child's stdin. Uses `sudo -S` (read the
+  // password from stdin), `-k` (ignore any cached credential so it always asks),
+  // and `-p ''` (suppress the prompt text so it does not leak into output). The
+  // password is written once and stdin is closed; it is never logged, streamed,
+  // or persisted. The recorded/displayed command remains the password-free
+  // string passed to executeBash.
+  private buildSudoOperations(password: string): BashOperations {
+    return {
+      exec: async (command, cwd, { onData, signal, env }) => {
+        if (signal?.aborted) throw new Error('aborted');
+
+        // executeBash hands us the display command (possibly with a settings
+        // command-prefix prepended). Rewrite the leading `sudo` so it reads the
+        // password from stdin. We run the whole thing through a shell so any
+        // arguments/pipes after sudo behave as the user typed them.
+        const rewritten = command.replace(/(^|\n)(\s*)sudo(\s|$)/, `$1$2sudo -S -k -p '' $3`);
+
+        const child = spawn('bash', ['-c', rewritten], {
+          cwd,
+          env: env ?? process.env,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          windowsHide: true,
+        });
+
+        // Feed the password first, then close stdin so sudo (and the command)
+        // see EOF and do not hang waiting for more input.
+        child.stdin?.on('error', () => {});
+        child.stdin?.write(password + '\n');
+        child.stdin?.end();
+
+        const onAbort = () => {
+          try { child.kill('SIGKILL'); } catch {}
+        };
+        if (signal) {
+          if (signal.aborted) onAbort();
+          else signal.addEventListener('abort', onAbort, { once: true });
+        }
+
+        child.stdout?.on('data', onData);
+        child.stderr?.on('data', onData);
+
+        try {
+          const exitCode: number | null = await new Promise((resolve) => {
+            child.on('error', () => resolve(null));
+            child.on('close', (code) => resolve(code));
+          });
+          if (signal?.aborted) throw new Error('aborted');
+          return { exitCode };
+        } finally {
+          if (signal) signal.removeEventListener('abort', onAbort);
+        }
+      },
+    };
+  }
+
+  // Resolve a pending sudo prompt with the password the client supplied and run
+  // the deferred command. Returns false if the promptId is unknown (already
+  // consumed, cancelled, or the session went away) so the caller can ignore it.
+  async submitSudoPassword(promptId: string, password: string): Promise<boolean> {
+    const pending = this.pendingSudo.get(promptId);
+    if (!pending) return false;
+    this.pendingSudo.delete(promptId);
+
+    const tracked = this.getSession(pending.sessionFileOrId);
+    if (!tracked) return false;
+
+    tracked.lastActivity = Date.now();
+    this.cancelIdleCheck(tracked.sessionFile);
+
+    if (tracked.type === 'server') {
+      await this.runServerBash(
+        tracked,
+        pending.command,
+        pending.excludeFromContext,
+        this.buildSudoOperations(password),
+      );
+    } else if (tracked.type === 'cli') {
+      // The command runs in the extension process, so hand it the password to
+      // feed sudo's stdin. The password crosses the socket once and is not
+      // stored server-side beyond this send.
+      tracked.cliWs.send(JSON.stringify({
+        type: 'cli_bash_sudo',
+        command: pending.command,
+        password,
+        excludeFromContext: pending.excludeFromContext,
+      }));
+    }
+    return true;
+  }
+
+  // Drop a pending sudo prompt without running anything (user dismissed it).
+  cancelSudoPrompt(promptId: string): void {
+    this.pendingSudo.delete(promptId);
   }
 
   async abortSession(sessionFileOrId: string): Promise<void> {

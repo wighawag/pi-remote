@@ -494,6 +494,17 @@ export function dismissNotice() {
 	client.dismissNotice();
 }
 
+// Submit the password for a pending `!sudo ...` command. The password is sent
+// straight to the server and never kept in client state.
+export function sendSudoPassword(password: string) {
+	client.sendSudoPassword(password);
+}
+
+// Dismiss the pending sudo prompt without running the command.
+export function cancelSudoPrompt() {
+	client.cancelSudoPrompt();
+}
+
 export function changeModel(model: string) {
 	client.changeModel(model);
 }
@@ -511,6 +522,9 @@ export const sessionError = derived(piState, ($s) => $s.sessionError);
 // while it was mid-turn here, discarding the in-flight tool call or streaming
 // reply). Rendered as a banner.
 export const sessionNotice = derived(piState, ($s) => $s.notice);
+// A pending `!sudo ...` password prompt for the active session (or null). Drives
+// the masked SudoPasswordDialog.
+export const sudoPrompt = derived(piState, ($s) => $s.sudoPrompt);
 export const isReadOnly = derived(piState, ($s) => $s.readOnly);
 export const activeSessionInfo = derived(piState, ($s) => ({
 	sessionFile: $s.activeSessionFile,

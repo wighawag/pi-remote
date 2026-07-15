@@ -76,6 +76,13 @@ export interface HistoryMessage {
   toolCallId?: string;
   /** Image attachments extracted from a tool_result (base64), if any. */
   images?: ToolImage[];
+  /**
+   * True on a `tool_call` that came from a user `!command` / `!!command` (a
+   * "force command", persisted as a `bashExecution` entry), as opposed to a tool
+   * call the agent issued. The web UI uses this to auto-expand force-command bash
+   * output. Set only on the bash tool_call; agent tool calls leave it unset.
+   */
+  forceCommand?: boolean;
 }
 
 export interface ModelInfo {

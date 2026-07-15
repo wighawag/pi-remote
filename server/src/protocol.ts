@@ -24,7 +24,14 @@ export type ClientMessage =
   | { type: 'cli_message'; message: string; streamingBehavior?: 'steer' | 'followUp' }
   | { type: 'cli_abort' }
   | { type: 'cli_bash'; command: string; excludeFromContext?: boolean }
-  | { type: 'cli_model_change'; model: string };
+  | { type: 'cli_model_change'; model: string }
+  // Client -> server: the user supplied the sudo password for a pending sudo
+  // bash prompt (identified by promptId). The password is used once to feed the
+  // sudo child's stdin and is never persisted or logged.
+  | { type: 'bash_sudo_password'; sessionId: string; promptId: string; password: string }
+  // Client -> server: the user dismissed the sudo password prompt without
+  // supplying a password. The pending command is dropped, nothing runs.
+  | { type: 'bash_sudo_cancel'; sessionId: string; promptId: string };
 
 export type ServerMessage =
   | { type: 'connected'; clientId: string }
@@ -33,10 +40,20 @@ export type ServerMessage =
  | { type: 'message_update'; sessionId: string; delta: string }
   | { type: 'message_end'; sessionId: string; content: string; role?: 'user' | 'assistant' }
   | { type: 'agent_end'; sessionId: string }
-  | { type: 'tool_start'; sessionId: string; toolName: string; args: unknown }
+  | { type: 'tool_start'; sessionId: string; toolName: string; args: unknown; forceCommand?: boolean }
   | { type: 'tool_update'; sessionId: string; toolName: string; delta: string }
-  | { type: 'tool_end'; sessionId: string; toolName: string; isError: boolean; result?: string; images?: ToolImage[] }
+  | { type: 'tool_end'; sessionId: string; toolName: string; isError: boolean; result?: string; images?: ToolImage[]; forceCommand?: boolean }
   | { type: 'cli_bash'; command: string; excludeFromContext?: boolean }
+  // Server -> CLI bridge: run a `!sudo ...` command whose password the web user
+  // just supplied. Like cli_bash but the extension must feed `password` to the
+  // sudo child's stdin (sudo -S). The password is used once by the extension and
+  // is never persisted or logged; only the password-free `command` is recorded.
+  | { type: 'cli_bash_sudo'; command: string; password: string; excludeFromContext?: boolean }
+  // Server -> client: a `!sudo ...` bash command needs a password before it can
+  // run. The client should prompt (masked) and reply with bash_sudo_password or
+  // bash_sudo_cancel carrying the same promptId. `command` is the sudo command
+  // line WITHOUT any password, safe to display.
+  | { type: 'bash_sudo_prompt'; sessionId: string; promptId: string; command: string }
   | { type: 'session_created'; sessionId: string; sessionFile: string; cwd: string; model: string; isStreaming?: boolean; readOnly?: boolean; contextUsage?: ContextUsageInfo | null; pending?: boolean }
   // Sent after a `pending` session_created once the live agent has finished
   // building (createAgentSession). Until it arrives, the UI can render the
