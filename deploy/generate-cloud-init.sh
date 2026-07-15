@@ -32,7 +32,7 @@
 #                                PWA-installable). wherever then runs HTTP on
 #                                127.0.0.1 only; public 31415 is NOT opened.
 #        --acme-email <email>    Contact email for Let's Encrypt (default: git email)
-#        --models-file <path>    pi models.json to install at ~/.pi/models.json
+#        --models-file <path>    pi models.json to install at ~/.pi/agent/models.json
 #                                (provider API keys; SECRET). Prompted if omitted.
 #        --no-models             Do not install a models.json
 #        --settings-file <path>  pi settings.json to install at ~/.pi/agent/settings.json
@@ -51,7 +51,7 @@
 # Examples:
 #   ./deploy/generate-cloud-init.sh --username svcuser --ssh-key-file ~/.ssh/id_ed25519.pub \
 #     --git-email you@example.com --domain wherever.example.com \
-#     --git-ssh-key-file ~/.ssh/box_git_ed25519 --models-file ~/.pi/models.json \
+#     --git-ssh-key-file ~/.ssh/box_git_ed25519 --models-file ~/.pi/agent/models.json \
 #     --settings-file ~/.pi/agent/settings.json --with-searxng
 #   USERNAME=svcuser GH_TOKEN=ghp_xxx WHEREVER_TOKEN=... SSH_KEY="ssh-ed25519 ..." \
 #     ./deploy/generate-cloud-init.sh -y -o out.yaml
@@ -238,14 +238,14 @@ if [ -n "$DOMAIN" ]; then
   echo "        Make sure an A record ${DOMAIN} -> <box public IP> exists so Let's Encrypt can issue the cert."
 fi
 
-# --- pi models (~/.pi/models.json) ------------------------------------------
+# --- pi models (~/.pi/agent/models.json) ------------------------------------
 # The pi agent reads its provider/model config (with API keys) from
-# ~/.pi/models.json. SECRET file, handled like the git SSH key: base64-embedded
+# ~/.pi/agent/models.json. SECRET file, handled like the git SSH key: base64-embedded
 # and installed by the gh-setup script with the run user's ownership.
 MODELS_JSON=""
 if [ -z "$NO_MODELS" ]; then
   if [ -z "$MODELS_FILE" ] && is_tty; then
-    read -r -p "Path to a pi models.json to install at ~/.pi/models.json (blank = skip): " MODELS_FILE || true
+    read -r -p "Path to a pi models.json to install at ~/.pi/agent/models.json (blank = skip): " MODELS_FILE || true
   fi
   if [ -n "$MODELS_FILE" ]; then
     MODELS_FILE="${MODELS_FILE/#\~/$HOME}"
@@ -453,7 +453,7 @@ WF
 fi
 
 # pi models.json: staged base64 at /etc/wherever/models.b64, decoded into
-# ~/.pi/models.json by the gh-setup script with the run user's ownership.
+# ~/.pi/agent/models.json by the gh-setup script with the run user's ownership.
 MODELS_WRITEFILE=""
 MODELS_INSTALL=""
 if [ -n "$MODELS_JSON" ]; then
@@ -467,11 +467,11 @@ if [ -n "$MODELS_JSON" ]; then
 WF
 )
   MODELS_INSTALL=$(cat <<'WF'
-      echo "[gh-setup] installing ~/.pi/models.json for ${RUN_USER}"
-      install -d -m 0700 -o "${RUN_USER}" -g "${RUN_USER}" "${RUN_HOME}/.pi"
-      base64 -d /etc/wherever/models.b64 > "${RUN_HOME}/.pi/models.json"
-      chmod 0600 "${RUN_HOME}/.pi/models.json"
-      chown "${RUN_USER}:${RUN_USER}" "${RUN_HOME}/.pi/models.json"
+      echo "[gh-setup] installing ~/.pi/agent/models.json for ${RUN_USER}"
+      install -d -m 0700 -o "${RUN_USER}" -g "${RUN_USER}" "${RUN_HOME}/.pi/agent"
+      base64 -d /etc/wherever/models.b64 > "${RUN_HOME}/.pi/agent/models.json"
+      chmod 0600 "${RUN_HOME}/.pi/agent/models.json"
+      chown "${RUN_USER}:${RUN_USER}" "${RUN_HOME}/.pi/agent/models.json"
       rm -f /etc/wherever/models.b64
 WF
 )
