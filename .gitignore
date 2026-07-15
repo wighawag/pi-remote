@@ -23,3 +23,4 @@ tmp/
 # Generated cloud-init (contains secrets: wherever token, GitHub PAT, SSH key)
 /wherever-cloud-init.yaml
 deploy/out/
+.pi-subagents
