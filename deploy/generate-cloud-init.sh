@@ -40,6 +40,10 @@
 #                                npm:@wherever-dev/pi is ensured in packages.
 #        --pi-package <spec>     Extra pi extension to add to packages (repeatable),
 #                                e.g. --pi-package npm:pi-webveil
+#        --with-pi               Also install the `pi` CLI globally (@earendil-works/
+#                                pi-coding-agent) for terminal/bridge use. The
+#                                server itself does NOT need it (it runs pi via
+#                                the SDK); use this if you want to run `pi` on the box.
 #        --with-searxng          Install SearXNG (bare, via the upstream installer)
 #                                served by uWSGI over a unix HTTP socket, and write
 #                                ~/.config/webveil/config.json pointing pi-webveil
@@ -72,6 +76,7 @@ NO_MODELS=""
 SETTINGS_FILE=""
 PI_PACKAGES_EXTRA=""
 WITH_SEARXNG=""
+WITH_PI=""
 USERNAME_FROM_ARG=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -83,6 +88,7 @@ while [ $# -gt 0 ]; do
     --settings-file)      SETTINGS_FILE="$2"; shift 2 ;;
     --pi-package)         PI_PACKAGES_EXTRA="${PI_PACKAGES_EXTRA}${PI_PACKAGES_EXTRA:+,}$2"; shift 2 ;;
     --with-searxng)       WITH_SEARXNG=1; shift ;;
+    --with-pi)            WITH_PI=1; shift ;;
     --username)           USERNAME="$2"; USERNAME_FROM_ARG=1; shift 2 ;;
     --ssh-key)            SSH_KEY="$2"; shift 2 ;;
     --ssh-key-file)       SSH_KEY_FILE="$2"; shift 2 ;;
@@ -479,6 +485,20 @@ fi
 
 # pi settings.json: staged base64 at /etc/wherever/settings.b64, decoded into
 # ~/.pi/agent/settings.json by the gh-setup script (run user's ownership).
+# Optional: install the `pi` CLI globally (provides the `pi` binary from
+# @earendil-works/pi-coding-agent) for terminal/bridge use on the box. Injected
+# into the bootstrap script right after the wherever-dev install (same PATH).
+PI_INSTALL_LINE=""
+if [ -n "$WITH_PI" ]; then
+  PI_INSTALL_LINE=$(cat <<'WF'
+
+      echo "[wherever-bootstrap] installing pi CLI globally"
+      runuser -u "${RUN_USER}" -- env HOME="${RUN_HOME}" PATH="${NODE_BIN_DIR}:${PATH}" \
+        npm install -g @earendil-works/pi-coding-agent@latest
+WF
+)
+fi
+
 SETTINGS_WRITEFILE=""
 SETTINGS_INSTALL=""
 if [ -n "$SETTINGS_JSON" ]; then
@@ -862,6 +882,7 @@ ${GIT_SSH_KEY_WRITEFILE}${WHEREVER_CONFIG_WRITEFILE}${MODELS_WRITEFILE}${SETTING
       echo "[wherever-bootstrap] installing wherever-dev globally"
       runuser -u "\${RUN_USER}" -- env HOME="\${RUN_HOME}" PATH="\${NODE_BIN_DIR}:\${PATH}" \\
         npm install -g wherever-dev@latest
+${PI_INSTALL_LINE}
 
       echo "[wherever-bootstrap] writing systemd unit"
       cat > /etc/systemd/system/wherever.service <<UNIT
