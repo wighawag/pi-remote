@@ -152,6 +152,19 @@ gen_token() {
 
 require() { [ -n "${!1:-}" ] || { echo "ERROR: $1 is required" >&2; exit 1; }; }
 
+# Single-quote a value for safe embedding in a shell-`source`d env file, so an
+# ordinary space (e.g. a git author name "Jane Q. Public") or other metachar
+# cannot break `source` under set -e. Wraps in '...' and escapes embedded '.
+shq() { local s=${1//\'/\'\\\'\'}; printf "'%s'" "$s"; }
+
+# Reject values that would break the unquoted YAML heredoc (newline / CR). These
+# are operator inputs; fail loudly rather than emit an invalid cloud-init doc.
+no_newline() {
+  case "${!1:-}" in
+    *$'\n'*|*$'\r'*) echo "ERROR: $1 must not contain a newline" >&2; exit 1 ;;
+  esac
+}
+
 # --- collect values ---------------------------------------------------------
 echo "== wherever cloud-init generator =="
 echo
@@ -530,10 +543,10 @@ if [ -n "$WITH_SEARXNG" ]; then
 
       echo "[searxng-setup] fetching + installing SearXNG into venv"
       if [ ! -d "$SRC/.git" ]; then
-        sudo -H -u "$SEARXNG_UID" git clone --depth 1 https://github.com/searxng/searxng "$SRC"
+        runuser -u "$SEARXNG_UID" -- git clone --depth 1 https://github.com/searxng/searxng "$SRC"
       fi
-      sudo -H -u "$SEARXNG_UID" python3 -m venv "$VENV"
-      sudo -H -u "$SEARXNG_UID" bash -c "source '$VENV/bin/activate'; pip install -U pip setuptools wheel pyyaml; pip install -e '$SRC'"
+      runuser -u "$SEARXNG_UID" -- python3 -m venv "$VENV"
+      runuser -u "$SEARXNG_UID" -- bash -c "source '$VENV/bin/activate'; pip install -U pip setuptools wheel pyyaml; pip install -e '$SRC'"
 
       echo "[searxng-setup] writing /etc/searxng/settings.yml"
       install -d -o "$SEARXNG_UID" -g "$SEARXNG_UID" /etc/searxng
@@ -569,7 +582,7 @@ if [ -n "$WITH_SEARXNG" ]; then
       single-interpreter = true
       master = true
       lazy-apps = true
-      plugin = python3,http
+      plugin = python3
       enable-threads = true
       workers = %k
       threads = 4
@@ -689,6 +702,19 @@ fi
 
 # --- emit -------------------------------------------------------------------
 # Everything below is a heredoc; ${...} placeholders are expanded by the shell.
+
+# Guard: operator scalars that land in the unquoted YAML heredoc must not carry
+# a newline (would silently produce an invalid cloud-init document).
+for __v in USERNAME SSH_KEY HOSTNAME_VAL GIT_USER_NAME GIT_USER_EMAIL WHEREVER_TOKEN GH_TOKEN DOMAIN ACME_EMAIL PI_REMOTE_PORT; do
+  no_newline "$__v"
+done
+
+# Shell-quote the values that go into the `source`d github.env, so a space or
+# metachar in the git author name/email/token cannot break `source` under set -e.
+GH_TOKEN_Q="$(shq "${GH_TOKEN}")"
+GIT_USER_NAME_Q="$(shq "${GIT_USER_NAME}")"
+GIT_USER_EMAIL_Q="$(shq "${GIT_USER_EMAIL}")"
+
 mkdir -p "$(dirname "$OUT")"
 cat > "$OUT" <<YAML
 #cloud-config
@@ -705,7 +731,7 @@ users:
     shell: /bin/bash
     sudo: ["ALL=(ALL) NOPASSWD:ALL"]
     # Key-only account. lock_passwd keeps it passwordless WITHOUT marking the
-    # password 'expired' (which would make PAM block `runuser`/`sudo -u` on a
+    # password 'expired' (which would make PAM block runuser / sudo -u on a
     # non-interactive tty). The bootstrap also clears any password aging.
     lock_passwd: true
     ssh_authorized_keys:
@@ -746,9 +772,9 @@ write_files:
     permissions: "0600"
     owner: root:root
     content: |
-      GH_TOKEN=${GH_TOKEN}
-      GIT_USER_NAME=${GIT_USER_NAME}
-      GIT_USER_EMAIL=${GIT_USER_EMAIL}
+      GH_TOKEN=${GH_TOKEN_Q}
+      GIT_USER_NAME=${GIT_USER_NAME_Q}
+      GIT_USER_EMAIL=${GIT_USER_EMAIL_Q}
 ${GIT_SSH_KEY_WRITEFILE}${WHEREVER_CONFIG_WRITEFILE}${MODELS_WRITEFILE}${SETTINGS_WRITEFILE}${CADDY_WRITEFILES}${SEARXNG_WRITEFILES}
 
   - path: /usr/local/sbin/wherever-bootstrap.sh
