@@ -99,6 +99,20 @@ export async function startHarness(opts?: HarnessOptions): Promise<Harness> {
       cwd: serverDir,
       env: {
         ...process.env,
+        // Isolation: the harness runs the server with NO token/SSL (see the doc
+        // comment above). But when these tests are run inside a wherever-managed
+        // shell, the ambient environment carries PI_REMOTE_* (a token, host,
+        // port, SSL paths) which the server reads at startup (index.ts parseArgs).
+        // An inherited PI_REMOTE_TOKEN would make the server enforce auth and
+        // reject the token-less TestClient WS upgrade with 401. Neutralize every
+        // PI_REMOTE_* here so the harness's intent holds regardless of ambient env.
+        PI_REMOTE_TOKEN: '',
+        PI_REMOTE_HOST: '',
+        PI_REMOTE_PORT: '',
+        PI_REMOTE_SSL_KEY: '',
+        PI_REMOTE_SSL_CERT: '',
+        PI_REMOTE_HTTP: '',
+        PI_REMOTE_HTTP_LOCALHOST_FALLBACK: '',
         PI_CODING_AGENT_DIR: agentDir,
         PI_REMOTE_NO_SSL: 'true',
         ...(opts?.idleTimeoutMs != null ? { PI_IDLE_TIMEOUT: String(opts.idleTimeoutMs) } : {}),
