@@ -34,6 +34,27 @@ Generate the cloud-init:
 
 Anything omitted is prompted interactively (secrets are read hidden); pass `-y` to never prompt and rely on flags/env/defaults. Run `./generate-cloud-init.sh --help` for the full option list.
 
+### Password-gated sudo for the server (`--sudo-password`)
+
+By default the wherever **service** cannot run `sudo` at all: the systemd unit sets `NoNewPrivileges=true`, so even though the login user has passwordless sudo, the running server process is sandboxed out of privilege escalation. This is the safe default.
+
+If you want the server (and the pi agent it runs) to be able to run `sudo`, but only after the user supplies a password in the frontend, pass `--sudo-password`:
+
+```bash
+./generate-cloud-init.sh ... --sudo-password        # prompted hidden
+./generate-cloud-init.sh ... --sudo-password 'S3cret'  # inline (or SUDO_PASSWORD env)
+```
+
+This makes three coordinated changes so password-gated escalation actually works:
+
+- gives the account a real login password (the hash, not the plaintext, goes into the cloud-init);
+- changes the sudoers rule from `NOPASSWD:ALL` to `ALL=(ALL) ALL`, so `sudo` prompts for that password;
+- relaxes the service sandbox (`NoNewPrivileges=false`, `ProtectSystem=off`) so the setuid `sudo` binary can escalate and write system paths.
+
+The frontend collects the password from the user and pipes it to `sudo -S` (read password from stdin), e.g. `sudo -S -p '' <cmd>`.
+
+> **Security:** this lets the agent process become root given the password. The password transits the wherever server process. Only enable this if you trust that flow and your transport is authenticated/encrypted.
+
 Then create the server with the generated file as user-data, e.g. on Hetzner:
 
 ```bash

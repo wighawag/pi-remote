@@ -44,6 +44,15 @@
 #                                pi-coding-agent) for terminal/bridge use. The
 #                                server itself does NOT need it (it runs pi via
 #                                the SDK); use this if you want to run `pi` on the box.
+#        --sudo-password [pw]    Allow the wherever SERVICE to run sudo, but require
+#                                the user's password (collected by the frontend and
+#                                piped to `sudo -S`). This sets a real login password
+#                                on the account, changes sudo to ALL=(ALL) ALL, and
+#                                relaxes the service sandbox (NoNewPrivileges off,
+#                                ProtectSystem off) so sudo can escalate. Pass the
+#                                password inline, via SUDO_PASSWORD env, or omit the
+#                                value to be prompted hidden. SECURITY: the agent
+#                                process can then become root given the password.
 #        --with-searxng          Install SearXNG (bare, via the upstream installer)
 #                                served by uWSGI over a unix HTTP socket, and write
 #                                ~/.config/webveil/config.json pointing pi-webveil
@@ -77,6 +86,7 @@ SETTINGS_FILE=""
 PI_PACKAGES_EXTRA=""
 WITH_SEARXNG=""
 WITH_PI=""
+SUDO_PASSWORD_MODE=""
 USERNAME_FROM_ARG=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -89,6 +99,10 @@ while [ $# -gt 0 ]; do
     --pi-package)         PI_PACKAGES_EXTRA="${PI_PACKAGES_EXTRA}${PI_PACKAGES_EXTRA:+,}$2"; shift 2 ;;
     --with-searxng)       WITH_SEARXNG=1; shift ;;
     --with-pi)            WITH_PI=1; shift ;;
+    --sudo-password)      SUDO_PASSWORD_MODE=1
+                          # Optional inline value; a following token that is not
+                          # another flag is taken as the password.
+                          if [ $# -ge 2 ] && [ "${2#-}" = "$2" ]; then SUDO_PASSWORD="$2"; shift 2; else shift; fi ;;
     --username)           USERNAME="$2"; USERNAME_FROM_ARG=1; shift 2 ;;
     --ssh-key)            SSH_KEY="$2"; shift 2 ;;
     --ssh-key-file)       SSH_KEY_FILE="$2"; shift 2 ;;
@@ -197,6 +211,32 @@ if [ -z "${WHEREVER_TOKEN:-}" ]; then
     read -r -p "wherever auth token (blank = auto-generate a strong one): " WHEREVER_TOKEN || true
   fi
   if [ -z "${WHEREVER_TOKEN:-}" ]; then WHEREVER_TOKEN="$(gen_token)"; echo "  -> generated token: $WHEREVER_TOKEN"; fi
+fi
+
+# --- optional: password-gated sudo for the wherever service -----------------
+# When --sudo-password is set, the service is allowed to run sudo but PAM will
+# demand the account password (which the frontend collects and pipes to
+# `sudo -S`). We need: (1) a usable login password on the account, (2) sudo set
+# to require a password, and (3) the systemd sandbox relaxed so sudo can
+# actually escalate (NoNewPrivileges/ProtectSystem block setuid otherwise).
+SUDO_PASSWORD_HASH=""
+if [ -n "$SUDO_PASSWORD_MODE" ]; then
+  prompt_secret SUDO_PASSWORD "Sudo password for the wherever account (frontend will prompt users for this)"
+  require SUDO_PASSWORD
+  no_newline SUDO_PASSWORD
+  # Hash it so the plaintext never lands in the cloud-init YAML. Prefer
+  # mkpasswd (yescrypt/sha512); fall back to openssl (sha512-crypt).
+  if command -v mkpasswd >/dev/null 2>&1; then
+    SUDO_PASSWORD_HASH="$(printf '%s' "$SUDO_PASSWORD" | mkpasswd -m sha512crypt -s)"
+  elif command -v openssl >/dev/null 2>&1; then
+    SUDO_PASSWORD_HASH="$(openssl passwd -6 "$SUDO_PASSWORD")"
+  else
+    echo "ERROR: need mkpasswd or openssl to hash the sudo password" >&2; exit 1
+  fi
+  [ -n "$SUDO_PASSWORD_HASH" ] || { echo "ERROR: failed to hash the sudo password" >&2; exit 1; }
+  no_newline SUDO_PASSWORD_HASH
+  echo "[sudo] wherever service may run sudo, password required (frontend collects it)."
+  echo "       SECURITY: the agent process can escalate to root given this password."
 fi
 
 # Git SSH private key: used so the box can push/pull/clone git SSH remotes
@@ -775,6 +815,28 @@ for __v in USERNAME SSH_KEY HOSTNAME_VAL GIT_USER_NAME GIT_USER_EMAIL WHEREVER_T
   no_newline "$__v"
 done
 
+# Build the user account + sudo lines and the service hardening lines. Default
+# (no --sudo-password): key-only, passwordless NOPASSWD sudo, fully sandboxed
+# service that CANNOT sudo. With --sudo-password: real login password, sudo
+# requires a password, and the service sandbox is relaxed so sudo can escalate.
+if [ -n "$SUDO_PASSWORD_MODE" ]; then
+  USER_SUDO_LINE='sudo: ["ALL=(ALL) ALL"]'
+  USER_PASSWD_LINES="lock_passwd: false
+    passwd: ${SUDO_PASSWORD_HASH}"
+  # NoNewPrivileges must be off or sudo (setuid) can never escalate; ProtectSystem
+  # off so sudo'd admin commands can write /usr,/etc,/boot.
+  SERVICE_NNP_LINE='NoNewPrivileges=false'
+  SERVICE_PROTECT_LINE='ProtectSystem=off'
+else
+  USER_SUDO_LINE='sudo: ["ALL=(ALL) NOPASSWD:ALL"]'
+  USER_PASSWD_LINES="# Key-only account. lock_passwd keeps it passwordless WITHOUT marking the
+    # password 'expired' (which would make PAM block runuser / sudo -u on a
+    # non-interactive tty). The bootstrap also clears any password aging.
+    lock_passwd: true"
+  SERVICE_NNP_LINE='NoNewPrivileges=true'
+  SERVICE_PROTECT_LINE='ProtectSystem=full'
+fi
+
 # Shell-quote the values that go into the `source`d github.env, so a space or
 # metachar in the git author name/email/token cannot break `source` under set -e.
 GH_TOKEN_Q="$(shq "${GH_TOKEN}")"
@@ -795,11 +857,8 @@ users:
   - name: ${USERNAME}
     groups: [sudo]
     shell: /bin/bash
-    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
-    # Key-only account. lock_passwd keeps it passwordless WITHOUT marking the
-    # password 'expired' (which would make PAM block runuser / sudo -u on a
-    # non-interactive tty). The bootstrap also clears any password aging.
-    lock_passwd: true
+    ${USER_SUDO_LINE}
+    ${USER_PASSWD_LINES}
     ssh_authorized_keys:
       - ${SSH_KEY}
 
@@ -950,8 +1009,8 @@ ${PI_INSTALL_LINE}
       ExecStart=\${NODE_BIN_DIR}/wherever ${WHEREVER_START_FLAGS}
       Restart=on-failure
       RestartSec=3
-      NoNewPrivileges=true
-      ProtectSystem=full
+      ${SERVICE_NNP_LINE}
+      ${SERVICE_PROTECT_LINE}
       ProtectHome=false
 
       [Install]
