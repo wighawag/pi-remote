@@ -300,6 +300,43 @@ Potential additions:
 - License: MIT
 - Contributions welcome!
 
+## Conventions
+
+Standing per-change rules agents must follow in this repo.
+
+- **Always create a changeset when done** (`pnpm changeset`, or a hand-written
+  `.changeset/*.md`). See `AGENTS.md` §1 for the full rule. Package-mapping:
+  - **web** and **server** changes → `"wherever-dev": <bump>`.
+  - **extension** changes (`extension/`) → `"@wherever-dev/pi": <bump>`.
+  - Never use `"@wherever-dev/web"` — the `web` package is private and its built
+    artifacts ship inside `wherever-dev`.
+- **Never stage/commit** unless explicitly asked; leave changes unstaged.
+- **Never revert / do destructive git ops** without explicit confirmation.
+- Enforcement, if wanted, belongs in the `dorfl.json` `verify` gate (e.g.
+  `changeset status --since=main`) — not injected automatically.
+
+## The work/ contract
+
+This repo is onboarded onto the file-based **`work/` contract** (defined by the
+docs in `work/protocol/`, synced by the `setup` skill; `dorfl.json` carries the
+`verify` gate and `harness`). Layout — status is the FOLDER an item lives in,
+never a frontmatter field; the folder is the index (no hand-maintained lists):
+
+- `work/notes/{observations,ideas,findings}/` — capture buckets. `observations`
+  = spotted/unverified; `ideas` = proposed; `findings` = verified **external**
+  ground-truth, each with a `source:` (our own architecture goes in this
+  `CONTEXT.md` / `docs/`, never in `findings/`).
+- `work/tasks/{backlog,ready,…}/` — the build board (`backlog` = staging,
+  `ready` = the pool).
+- `work/specs/{proposed,ready,…}/` — the spec lifecycle (`proposed` = staging,
+  `ready` = the pool). The three specs in `specs/ready/` were migrated here from
+  the old `work/briefs/ready/`.
+- `work/questions/` — the "what needs me?" queue. `work/protocol/` — the synced
+  contract reference docs (protocol-owned; re-synced, never hand-edited).
+
+Architectural rationale lives in `docs/adr/` (decisions); product framing in
+`work/specs/`.
+
 ---
 
 **Note:** This document is meant to provide full context when moving to a new conversation/session. All essential project information should be here.

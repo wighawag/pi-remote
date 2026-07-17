@@ -4,7 +4,7 @@ slug: wherever-test-first-hardening
 ---
 
 > Launch snapshot - records intent at creation, NOT maintained. Current truth:
-> the code + `docs/adr/`; remaining work: the tasks sliced from this brief.
+> the code + `docs/adr/`; remaining work: the tasks sliced from this spec.
 > The durable decisions are recorded as ADRs: `docs/adr/0001-fake-llm-server-as-deterministic-test-substrate.md`
 > and `docs/adr/0002-drain-queue-on-pi-queue-state-not-isstreaming.md`.
 > Evidence backing the technical claims lives in
@@ -218,7 +218,7 @@ They are recorded here so the brief is self-contained and sliceable.
    The goal is confidence, not a rewrite. Manual verification is retired per-area
    only once that area has gate coverage; no big-bang cutover.
 5. **Adopt the agent-runner contract - DECIDED: yes, as the FIRST task.** Scaffold
-   `work/{tasks,briefs,...}` and register pi-remote with dorfl before any fix is
+   `work/{tasks,specs,...}` and register pi-remote with dorfl before any fix is
    sliced, so every subsequent fix lands behind the gate. (Until then, the
    foundation task below can be done by hand.)
 6. **Playwright gate cost - DECIDED: two-tier gate.** `vitest` (unit + fake-LLM

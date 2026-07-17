@@ -2,10 +2,10 @@
 title: Full-text session search (index, CLI, endpoint, frontend, deep-linking)
 slug: session-search-index
 needsAnswers: true
-briefAfter: [better-sqlite3-adapter]
+taskedAfter: [better-sqlite3-adapter]
 ---
 
-> Launch snapshot — records intent at creation, NOT maintained. Current truth: `CONTEXT.md` + `docs/` (decisions) + the code; remaining work: the tasks sliced from this brief.
+> Launch snapshot — records intent at creation, NOT maintained. Current truth: `CONTEXT.md` + `docs/` (decisions) + the code; remaining work: the tasks sliced from this spec.
 
 ## Problem Statement
 
@@ -79,7 +79,7 @@ A server-side **full-text search index** over all sessions, with a **shared inde
 These were raised and consciously deferred; resolve before slicing the affected tasks:
 
 1. **Index location:** `~/.pi/agent/sessions/.search-index.db` vs `~/.wherever/sessions-index.db`? (Author leans `~/.wherever/` to keep pi's dir clean and align with wherever's config home.)
-2. **better-sqlite3 adapter placement:** the adapter is being added to `~/dev/github/wighawag/remote-sql` as `remote-sql-better-sqlite3` (decided). Confirm this brief's index core depends on that published/workspace package rather than vendoring a local adapter.
+2. **better-sqlite3 adapter placement:** the adapter is being added to `~/dev/github/wighawag/remote-sql` as `remote-sql-better-sqlite3` (decided). Confirm this spec's index core depends on that published/workspace package rather than vendoring a local adapter.
 3. **CLI name and packaging:** `pi-sessions`? `wherever search`? Where does the bin live (the `server` package?) and how is it exposed to the user?
 4. **Index scope default confirmation:** default to user+assistant only, thinking/tools opt-in (assumed in stories 7/18/19) — confirm.
 5. **Refresh trigger:** re-index on the existing `sessions_updated`/session-write path, on a debounce timer, on first search after a staleness check, or a combination? (Affects how "live" search feels vs. cost.)
@@ -109,7 +109,7 @@ These were raised and consciously deferred; resolve before slicing the affected 
 
 ## Out of Scope
 
-- The `better-sqlite3` adapter itself (separate brief in `remote-sql`: `better-sqlite3-adapter`; this feature depends on it — see `briefAfter`).
+- The `better-sqlite3` adapter itself (separate spec in `remote-sql`: `better-sqlite3-adapter`; this feature depends on it — see `taskedAfter`).
 - D1 / remote backends (D1 unsupported; LibSQL/Turso remote is a future possibility, not built here).
 - Semantic / embedding-based search; this is lexical FTS5 only.
 - Cross-machine index sync.

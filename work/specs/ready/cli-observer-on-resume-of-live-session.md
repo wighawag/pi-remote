@@ -5,7 +5,7 @@ needsAnswers: true
 ---
 
 > Launch snapshot - records intent at creation, NOT maintained. Current truth:
-> the code + `docs/adr/`; remaining work: the tasks sliced from this brief.
+> the code + `docs/adr/`; remaining work: the tasks sliced from this spec.
 > Backing analysis: `work/notes/observations/cli-resume-of-live-session-treats-inflight-tool-call-as-done.md`
 > and the multi-client/HEAD-coherence work in
 > `work/ideas/use-pi-server-side-queue-and-recover-on-reload.md`.
@@ -69,7 +69,7 @@ of going idle.
   the session, and how to switch.
 
 This sits directly on top of the test-first hardening foundation
-(`work/briefs/ready/wherever-test-first-hardening.md`): the same fake-LLM gate
+(`work/specs/ready/wherever-test-first-hardening.md`): the same fake-LLM gate
 substrate is what makes the multi-process behaviour testable deterministically.
 
 ## User Stories
@@ -141,7 +141,7 @@ substrate is what makes the multi-process behaviour testable deterministically.
 ## Out of Scope
 
 - Full multi-client HEAD reconciliation / branch-aware rendering and the
-  intentional `/fork` feature (`docs/FORK_ANALYSIS.md`). This brief is the
+  intentional `/fork` feature (`docs/FORK_ANALYSIS.md`). This spec is the
   narrower "don't kill the live run on join; observe it" slice. It MUST NOT
   manufacture forks (story 10), but it does not deliver general HEAD
   reconciliation.
@@ -149,7 +149,7 @@ substrate is what makes the multi-process behaviour testable deterministically.
   "cannot continue from a dangling tool_use" is a fixed constraint we design
   around, not something we patch here.
 - The web frontend's own queue/stop-midway behaviour (covered by the hardening
-  brief + ADR 0002).
+  spec + ADR 0002).
 
 ## Open Questions
 
@@ -180,7 +180,7 @@ substrate is what makes the multi-process behaviour testable deterministically.
 
 ## Sequencing (dependency order for the slicer)
 
-1. **Foundation:** depends on the hardening brief's fake-LLM gate being in place
+1. **Foundation:** depends on the hardening spec's fake-LLM gate being in place
    (so the multi-process behaviour is testable). If that is not yet landed, the
    first task wires the minimal gate needed to drive a "join mid-tool-call"
    scenario.

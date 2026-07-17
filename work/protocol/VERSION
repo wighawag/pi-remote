@@ -1,0 +1,9 @@
+work-contract protocol docs synced from the `setup` skill.
+
+synced-at: 2026-05-20
+source: ~/.agents/skills/setup/protocol/
+docs: WORK-CONTRACT.md, CLAIM-PROTOCOL.md, REVIEW-PROTOCOL.md, SURFACE-PROTOCOL.md,
+      TASKING-PROTOCOL.md, ADR-FORMAT.md, task-template.md, spec-template.md
+
+These are protocol-owned copies: re-running `setup` (or `dorfl sync`) overwrites them
+with the current canonical docs. Never hand-edit them here — edit the skill's source.

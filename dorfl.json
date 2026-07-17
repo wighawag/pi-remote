@@ -1,0 +1,8 @@
+{
+	"prepare": "pnpm install --frozen-lockfile",
+	"verify": "pnpm format:check && pnpm build:all && pnpm run -r test",
+	"harness": "pi",
+	"autoBuild": false,
+	"autoTask": false,
+	"promptGuidance": {"testFirst": true}
+}
