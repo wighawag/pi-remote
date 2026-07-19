@@ -24,7 +24,7 @@ const defaultState: WhereverState = {
 	isStreaming: false,
 	messages: [],
 	clientId: null,
-	conflict: null,
+	folderConflict: null,
 	isInterrupted: false,
 	notice: null,
 	sudoPrompt: null,
@@ -59,7 +59,7 @@ export class WhereverClient {
   // Watchdog for an in-flight session_new. Symmetrical to loadWatchdog: creating
   // a session sets creatingSession=true and shows a BLOCKING full-screen overlay,
   // and the only things that clear it are session_created/session_error/
-  // session_conflict/session_interrupted (or a socket close). If none of those
+  // session_interrupted (or a socket close). If none of those
   // ever arrives (a slow git init / remote-repo creation, an error thrown before
   // the reply is sent, or a half-open socket the liveness watchdog has not yet
   // reaped), the overlay spins forever and the only recovery is a reload. This
@@ -544,7 +544,7 @@ export class WhereverClient {
   }
 
   // Clear the load watchdog. Called at every point the load resolves
-  // (message_history, session_error, session_conflict, disconnect, leave).
+  // (message_history, session_error, disconnect, leave).
   private clearLoadWatchdog() {
     if (this.loadWatchdog) {
       clearTimeout(this.loadWatchdog);
@@ -574,7 +574,7 @@ export class WhereverClient {
   }
 
   // Clear the create watchdog. Called at every point a create resolves
-  // (session_created, session_error, session_conflict, session_interrupted,
+  // (session_created, session_error, session_interrupted,
   // disconnect, leave).
   private clearCreateWatchdog() {
     if (this.createWatchdog) {
@@ -642,11 +642,10 @@ export class WhereverClient {
 
     // Any message that resolves an in-flight session_load disarms the watchdog.
     // session_created arrives just before message_history; message_history is the
-    // real completion, but an error/conflict/destroy/interrupt also resolves it.
+    // real completion, but an error/destroy/interrupt also resolves it.
     switch (msg.type) {
       case 'message_history':
       case 'session_error':
-      case 'session_conflict':
       case 'session_destroyed':
       case 'session_interrupted':
         this.clearLoadWatchdog();
@@ -654,12 +653,10 @@ export class WhereverClient {
     }
 
     // Any message that resolves an in-flight session_new disarms the create
-    // watchdog. session_created is the success path; error/conflict/interrupt end
-    // it too.
+    // watchdog. session_created is the success path; error/interrupt end it too.
     switch (msg.type) {
       case 'session_created':
       case 'session_error':
-      case 'session_conflict':
       case 'session_interrupted':
         this.clearCreateWatchdog();
         break;
@@ -1051,8 +1048,16 @@ export class WhereverClient {
           isStreaming: msg.isStreaming ?? false,
           creatingSession: false,
           // The server forces read-only for sessions in a configured
-          // sessions.readOnly folder (observe-only fleet view).
+          // sessions.readOnly folder (observe-only fleet view) AND, transiently,
+          // for a folder conflict until the user clicks "Continue anyway".
           readOnly: msg.readOnly ?? false,
+          // Folder-conflict warning banner. Set when attaching to a session in a
+          // folder that already has another active session. `continued` starts
+          // false (composer stays read-only, banner offers "Continue anyway");
+          // `active` is refreshed by live folder_conflict updates.
+          folderConflict: msg.folderConflict
+            ? {cwd: msg.cwd, active: true, continued: false}
+            : null,
           // pending -> the history is painted now but the live agent is still
           // building; keep the composer disabled (agentPending) until
           // session_ready. A non-pending create (new session, warm reload) is
@@ -1153,19 +1158,35 @@ export class WhereverClient {
         }));
         break;
 
-      case 'session_conflict':
-        this.stateStore.update((s: WhereverState) => ({
-          ...s,
-          conflict: {
-            targetSessionId: msg.sessionId,
-            conflictingSessionId: msg.conflictingSession,
-            conflictingCwd: msg.conflictingCwd,
-          },
-          creatingSession: false,
-          loadingSession: false,
-          resyncing: false,
-          agentPending: false,
-        }));
+      case 'folder_conflict':
+        // Live update of whether another active session still exists in this
+        // client's folder. The banner appears when a second session shows up in
+        // the folder and disappears once it is gone. Applies only to the client's
+        // OWN folder; a stale update for a different cwd is ignored.
+        this.stateStore.update((s: WhereverState) => {
+          if (!s.sessionId) return s;
+          if (s.activeCwd && msg.cwd !== s.activeCwd) return s;
+          if (!msg.active) {
+            // No other session remains: fully resolved, drop the banner.
+            return s.folderConflict ? {...s, folderConflict: null} : s;
+          }
+          if (s.folderConflict) {
+            // Already showing: just refresh, preserving the user's `continued`
+            // choice (so we don't re-disable a composer they already enabled).
+            return {
+              ...s,
+              folderConflict: {...s.folderConflict, cwd: msg.cwd, active: true},
+            };
+          }
+          // A conflict appeared AFTER we were already attached (another client
+          // opened a second session in our folder). Raise the banner. We were
+          // sending fine until now, so treat it as already-`continued` rather
+          // than yanking the composer into read-only underneath the user.
+          return {
+            ...s,
+            folderConflict: {cwd: msg.cwd, active: true, continued: true},
+          };
+        });
         break;
 
       case 'session_interrupted':
@@ -1782,7 +1803,7 @@ export class WhereverClient {
   public joinSession(sessionFile: string, cwd?: string, model?: string) {
     this.stateStore.update((s: WhereverState) => ({
       ...s,
-      conflict: null,
+      folderConflict: null,
       sessionError: null,
       loadingSession: true,
       agentPending: false,
@@ -1820,7 +1841,7 @@ export class WhereverClient {
       activeCwd: null,
       activeModel: null,
       readOnly: false,
-      conflict: null,
+      folderConflict: null,
       sessionError: null,
       notice: null,
       sudoPrompt: null,
@@ -1850,7 +1871,7 @@ export class WhereverClient {
   ) {
     this.stateStore.update((s: WhereverState) => ({
       ...s,
-      conflict: null,
+      folderConflict: null,
       sessionError: null,
       creatingSession: true,
       loadingSession: false,
@@ -1907,21 +1928,26 @@ export class WhereverClient {
     this.resumeModel = undefined;
   }
 
-  public resolveConflict(action: 'take_over' | 'read_only', cwd?: string) {
+  // "Continue anyway" on the folder-conflict warning banner: ask the server to
+  // lift read-only for this client's current session (both sessions in the
+  // folder then run concurrently; the other is NOT aborted). Optimistically
+  // enable the composer and mark the banner `continued` so it drops its button
+  // but stays as a passive warning until the other session leaves the folder.
+  public continueFolderConflict() {
     const s = get(this.stateStore);
-    if (!s.conflict) return;
+    if (!s.folderConflict || !s.sessionId) return;
 
     this.send({
-      type: 'session_resolve_conflict',
-      action,
-      sessionId: s.conflict.targetSessionId,
-      cwd: cwd || s.conflict.conflictingCwd,
+      type: 'folder_conflict_continue',
+      sessionId: s.sessionId,
     });
 
     this.stateStore.update((s: WhereverState) => ({
       ...s,
-      conflict: null,
-      readOnly: action === 'read_only',
+      readOnly: false,
+      folderConflict: s.folderConflict
+        ? {...s.folderConflict, continued: true}
+        : null,
     }));
   }
 

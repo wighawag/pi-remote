@@ -68,10 +68,16 @@ export interface SudoPrompt {
 	sessionId: string;
 }
 
-export interface ConflictInfo {
-	targetSessionId: string;
-	conflictingSessionId: string;
-	conflictingCwd: string;
+// State for the folder-conflict warning banner. Set when this client attaches
+// to a session in a folder that already has ANOTHER active session. There is no
+// take-over/read-only protection anymore: `active` reflects whether another
+// session is still live in the folder (the banner shows while true), and
+// `continued` is true once the user clicked "Continue anyway" (so the composer
+// is enabled and the banner drops its button, staying only as a passive notice).
+export interface FolderConflictInfo {
+	cwd: string;
+	active: boolean;
+	continued: boolean;
 }
 
 export interface WhereverState {
@@ -101,7 +107,7 @@ export interface WhereverState {
 	isStreaming: boolean;
 	messages: ChatMessage[];
 	clientId: string | null;
-	conflict: ConflictInfo | null;
+	folderConflict: FolderConflictInfo | null;
 	isInterrupted: boolean;
 	// A dismissible, non-fatal notice about the active session (e.g. a CLI bridge
 	// took over while this session was mid-turn here, discarding the in-flight

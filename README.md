@@ -71,10 +71,10 @@ It allows you to manage multiple pi sessions concurrently across your workspace 
 - **Inline Deletion:** Support for direct session deletion with an inline double-confirmation step, syncing deletions across all connected clients.
 - **Unified Search:** Search and filter active or archived sessions by title, first message, or workspace folder names.
 
-### 🛑 Collision & Conflict Resolution
+### 🛑 Folder Overlap Warning
 
-- **Directory Overlap Protection:** If you open a workspace in one browser tab while another tab (or device) is actively driving it, the server triggers a **Conflict Resolution Dialog**.
-- **Take Over / Read-Only:** Choose to **Take Over** control (which places the other client into Read-Only Observer Mode) or join as **Read-Only** (to view agent steps, logs, and inputs safely in real-time without interfering).
+- **Non-blocking warning banner:** If you open (or start) a session in a folder where **another** session is already active, you are **not** blocked by a dialog. You attach as a **read-only observer** and a dismissible-style **warning banner** appears at the top.
+- **Continue anyway:** Click **Continue anyway** to enable the composer and work alongside the other session (it is **not** interrupted or taken over — both run concurrently, so changes may conflict). After continuing, the banner stays as a passive warning and disappears automatically once no other session is active in that folder.
 
 ### 📱 Mobile-Optimized UX & Layout Locks
 

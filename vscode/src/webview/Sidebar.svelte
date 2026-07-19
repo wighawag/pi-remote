@@ -204,16 +204,23 @@
       </div>
     {/if}
 
-    {#if $stateStore.conflict}
-      <div class="conflict-resolution">
-        <h3>Session Conflict Detected</h3>
-        <p>This directory has an active session from another client.</p>
-        <div class="actions">
-          <button class="btn-primary" on:click={() => client.resolveConflict('take_over')}>Take Over</button>
-          <button class="btn-secondary" on:click={() => client.resolveConflict('read_only')}>Read-Only</button>
+    {#if $stateStore.folderConflict?.active}
+      <div class="banner conflict-banner">
+        <div class="banner-text">
+          ⚠️ Another client is active in this folder.
+          {#if $stateStore.folderConflict.continued}
+            You are both working in it — changes may conflict.
+          {:else}
+            You are observing (read-only) to avoid clashing.
+          {/if}
         </div>
+        {#if !$stateStore.folderConflict.continued}
+          <button class="btn-secondary" on:click={() => client.continueFolderConflict()}>Continue anyway</button>
+        {/if}
       </div>
-    {:else if !$stateStore.sessionId}
+    {/if}
+
+    {#if !$stateStore.sessionId}
       <!-- Setup and Start Session -->
       <div class="setup-container">
         <h2>Start Wherever Session</h2>
@@ -447,21 +454,12 @@
     margin-left: 8px;
   }
 
-  .conflict-resolution {
-    text-align: center;
-    padding: 16px;
-    border: 1px solid var(--vscode-sideBar-border, rgba(128,128,128,0.2));
-    border-radius: 6px;
-    margin-top: 20px;
-  }
-  .conflict-resolution h3 {
-    margin-top: 0;
-    font-size: 15px;
-  }
-  .conflict-resolution .actions {
-    display: flex;
+  .conflict-banner {
+    align-items: center;
     gap: 8px;
-    margin-top: 12px;
+    background-color: var(--vscode-inputValidation-warningBackground, rgba(234, 179, 8, 0.15));
+    border: 1px solid var(--vscode-inputValidation-warningBorder, #eab308);
+    color: var(--vscode-inputValidation-warningForeground, var(--vscode-sideBar-foreground));
   }
 
   .setup-container {

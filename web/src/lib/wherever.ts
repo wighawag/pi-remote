@@ -4,7 +4,6 @@ import {
 	WhereverClient,
 	type ChatMessage,
 	type WhereverState,
-	type ConflictInfo,
 } from '@wherever-dev/client';
 import {
 	setCurrentSession,
@@ -478,11 +477,11 @@ export function loadMoreHistory() {
 	client.loadMoreHistory();
 }
 
-export function resolveConflict(
-	action: 'take_over' | 'read_only',
-	cwd?: string,
-) {
-	client.resolveConflict(action, cwd);
+// "Continue anyway" on the folder-conflict warning banner: enable the composer
+// for this session even though another session in the same folder is active. It
+// does NOT abort the other session.
+export function continueFolderConflict() {
+	client.continueFolderConflict();
 }
 
 export function ping() {
@@ -554,7 +553,8 @@ export const isStreaming = derived(piState, ($s) => $s.isStreaming);
 export const messages = derived(piState, ($s) => $s.messages);
 export const connectionError = derived(piState, ($s) => $s.error);
 export const currentSession = derived(piState, ($s) => $s.session);
-export const conflict = derived(piState, ($s) => $s.conflict);
+// Folder-conflict warning-banner state (null when there is no conflict).
+export const folderConflict = derived(piState, ($s) => $s.folderConflict);
 export const isInterrupted = derived(piState, ($s) => $s.isInterrupted);
 export const sessionError = derived(piState, ($s) => $s.sessionError);
 // A dismissible, non-fatal session notice (e.g. a CLI took over this session

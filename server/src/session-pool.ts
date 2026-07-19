@@ -1135,6 +1135,12 @@ export class SessionPool {
     return null;
   }
 
+  /** All currently tracked (resident) sessions. Used for cross-session scans
+   *  such as per-folder conflict detection. */
+  getAllSessions(): TrackedSession[] {
+    return Array.from(this.sessions.values());
+  }
+
   findActiveSessionByCwd(cwd: string): TrackedSession | null {
     const normalizedCwd = normalizePath(cwd);
     for (const s of this.sessions.values()) {

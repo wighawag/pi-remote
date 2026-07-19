@@ -16,7 +16,11 @@ export type ClientMessage =
   | { type: 'history_load_more'; sessionId: string; beforeOffset: number }
   | { type: 'session_new'; cwd: string; model?: string; gitInit?: boolean; createRemote?: boolean; repoVisibility?: 'private' | 'public'; cloneRemote?: boolean }
   | { type: 'session_leave'; sessionId: string }
-  | { type: 'session_resolve_conflict'; action: 'take_over' | 'read_only'; sessionId: string; cwd?: string }
+  // Client -> server: the user clicked "Continue anyway" on the folder-conflict
+  // warning banner. The server lifts this client's read-only flag so it can send
+  // into its session even though another session in the same folder is active.
+  // It does NOT abort or take over the other session; both run concurrently.
+  | { type: 'folder_conflict_continue'; sessionId: string }
   | { type: 'model_change'; model: string }
   | { type: 'file_upload'; uploadId: string; sessionId: string; filename: string; data: string }
   | { type: 'cli_register'; sessionFile: string; cwd: string; model?: string; isStreaming?: boolean }
@@ -54,7 +58,7 @@ export type ServerMessage =
   // bash_sudo_cancel carrying the same promptId. `command` is the sudo command
   // line WITHOUT any password, safe to display.
   | { type: 'bash_sudo_prompt'; sessionId: string; promptId: string; command: string }
-  | { type: 'session_created'; sessionId: string; sessionFile: string; cwd: string; model: string; isStreaming?: boolean; readOnly?: boolean; contextUsage?: ContextUsageInfo | null; pending?: boolean }
+  | { type: 'session_created'; sessionId: string; sessionFile: string; cwd: string; model: string; isStreaming?: boolean; readOnly?: boolean; contextUsage?: ContextUsageInfo | null; pending?: boolean; folderConflict?: boolean }
   // Sent after a `pending` session_created once the live agent has finished
   // building (createAgentSession). Until it arrives, the UI can render the
   // conversation (from message_history) but must keep the composer disabled:
@@ -64,7 +68,13 @@ export type ServerMessage =
   | { type: 'context_usage'; sessionId: string; contextUsage: ContextUsageInfo | null }
   | { type: 'session_destroyed'; sessionId: string; reason: string }
   | { type: 'session_error'; sessionId?: string; error: string; detail?: string }
-  | { type: 'session_conflict'; sessionId: string; conflictingSession: string; conflictingCwd: string }
+  // Server -> client: whether ANOTHER active session exists in the same folder
+  // as this client's current session. Sent as a live update (on top of the
+  // initial `folderConflict` flag in session_created) so the warning banner can
+  // appear/disappear as other clients open or leave sessions in the folder.
+  // There is no take-over/read-only protection: this is purely a heads-up that
+  // two sessions in one folder are (or are no longer) live simultaneously.
+  | { type: 'folder_conflict'; cwd: string; active: boolean }
   | { type: 'session_interrupted'; sessionId: string; reason: string }
   // A non-fatal, dismissible notice about the active session that the UI should
   // surface as a banner (e.g. a CLI bridge took over a mid-run session and its

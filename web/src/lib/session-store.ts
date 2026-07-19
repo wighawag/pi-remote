@@ -20,12 +20,6 @@ export interface FolderWithSessions {
 	readOnly?: boolean;
 }
 
-export interface ConflictInfo {
-	targetSessionId: string;
-	conflictingSessionId: string;
-	conflictingCwd: string;
-}
-
 export interface ModelInfo {
 	provider: string;
 	modelId: string;

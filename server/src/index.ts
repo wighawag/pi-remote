@@ -378,6 +378,30 @@ async function main(): Promise<void> {
     for (const c of clients.values()) {
       sendWS(c.ws, updateMsg);
     }
+    broadcastFolderConflicts();
+  }
+
+  // Tell each attached client whether ANOTHER active session currently exists in
+  // the same folder as its session. Drives the warning banner: it appears when a
+  // second session shows up in the folder and disappears once the other one is
+  // gone. Sent on every session-set change (open/leave/create/destroy). CLI
+  // bridge connections are skipped (they have no banner UI).
+  function broadcastFolderConflicts(): void {
+    for (const c of clients.values()) {
+      if (c.isCliBridge) continue;
+      if (!c.sessionId) continue;
+      const mine = sessionPool.getSession(c.sessionId);
+      if (!mine) continue;
+      let active = false;
+      for (const s of sessionPool.getAllSessions()) {
+        if (s.sessionFile === mine.sessionFile) continue;
+        if (s.cwd === mine.cwd && s.clients.size > 0) {
+          active = true;
+          break;
+        }
+      }
+      sendWS(c.ws, { type: 'folder_conflict', cwd: mine.cwd, active });
+    }
   }
 
   function broadcastAgentEvent(sessionFile: string, event: AgentSessionEvent): void {
@@ -1512,21 +1536,18 @@ async function handleWSMessage(
         return;
       }
 
-      // Conflict detection is cheap (in-memory pool scan) and must happen before
-      // we claim the session for this client.
+      // Folder conflict detection is cheap (in-memory pool scan). We no longer
+      // block with a protection dialog: opening a session in a folder that
+      // already has ANOTHER active session just surfaces a warning banner. The
+      // client starts read-only (observing) until the user clicks "Continue
+      // anyway" (folder_conflict_continue), which lifts read-only WITHOUT
+      // aborting the other session -- both then run concurrently.
       const conflict = pool.detectConflict(meta.sessionFile, meta.cwd);
-      if (conflict.conflict && conflict.otherSessionId) {
-        sendWS(client.ws, {
-          type: 'session_conflict',
-          sessionId: meta.sessionId,
-          conflictingSession: conflict.otherSessionId!,
-          conflictingCwd: conflict.otherCwd!,
-        });
-        return;
-      }
+      const folderConflict = conflict.conflict && !!conflict.otherSessionId;
 
       // A session whose cwd matches a sessions.readOnly glob is forced read-only.
-      const forcedReadOnly = meta.readOnly;
+      // A folder conflict also starts the client read-only until they continue.
+      const forcedReadOnly = meta.readOnly || folderConflict;
       client.readOnly = forcedReadOnly;
 
       // Paint immediately. `pending` is true when the live agent is not resident
@@ -1540,6 +1561,7 @@ async function handleWSMessage(
         model: meta.model,
         isStreaming: meta.resident ? pool.isStreaming(meta.sessionFile) : false,
         readOnly: forcedReadOnly,
+        folderConflict,
         contextUsage: meta.resident ? (pool.getContextUsage(meta.sessionFile) ?? null) : null,
         pending: !meta.resident,
       });
@@ -1583,7 +1605,10 @@ async function handleWSMessage(
         }
         pool.addClient(result.tracked.sessionFile, client.id);
         switchClientSession(client, result.tracked.sessionFile, pool, onSessionsUpdated);
-        client.readOnly = pool.isReadOnlyCwd(result.tracked.cwd);
+        // Preserve the folder-conflict read-only: a forced-read-only (config or
+        // folder conflict) client must stay read-only until it explicitly
+        // continues, so don't clobber it with the cwd-glob check alone.
+        client.readOnly = forcedReadOnly || pool.isReadOnlyCwd(result.tracked.cwd);
         sendWS(client.ws, {
           type: 'session_ready',
           sessionId: result.tracked.sessionId,
@@ -1623,11 +1648,34 @@ async function handleWSMessage(
         (existing.clients.size === 1 && !existing.clients.has(client.id))
       );
       if (hasOtherClients && existing) {
+        // Another client already holds a live session in this folder. We no
+        // longer block or take over: a brand-new session cannot be created while
+        // the folder is occupied (createNewSession would just hand back the
+        // existing one), so attach to that existing session as a read-only
+        // observer and raise the warning banner. "Continue anyway"
+        // (folder_conflict_continue) lifts read-only so both can send.
+        client.readOnly = true;
+        pool.addClient(existing.sessionFile, client.id);
+        switchClientSession(client, existing.sessionFile, pool, onSessionsUpdated);
+
         sendWS(client.ws, {
-          type: 'session_conflict',
-          sessionId: '',
-          conflictingSession: existing.sessionId,
-          conflictingCwd: existing.cwd,
+          type: 'session_created',
+          sessionId: existing.sessionId,
+          sessionFile: existing.sessionFile,
+          cwd: existing.cwd,
+          model: existing.model,
+          isStreaming: pool.isStreaming(existing.sessionFile),
+          readOnly: true,
+          folderConflict: true,
+        });
+
+        const history = pool.getSessionHistoryWindow(existing.sessionFile, INITIAL_HISTORY_LIMIT);
+        sendWS(client.ws, {
+          type: 'message_history',
+          sessionId: existing.sessionId,
+          messages: history.messages,
+          totalCount: history.totalCount,
+          offset: history.offset,
         });
         return;
       }
@@ -1674,108 +1722,18 @@ async function handleWSMessage(
       break;
     }
 
-    case 'session_resolve_conflict': {
-      let tracked = pool.getSession(msg.sessionId);
-      const isNewSessionConflict = !msg.sessionId;
-
-      // For new sessions, targetSessionId is empty; find by cwd
-      const existingTracked = tracked || (msg.cwd ? pool.findActiveSessionByCwd(msg.cwd) : null);
-
-      if (existingTracked) {
-        if (msg.action === 'take_over') {
-          const interrupted = await pool.takeOver(existingTracked.cwd, msg.sessionId);
-          for (const intClientId of interrupted) {
-            // Do not interrupt the current client itself if we are creating a new session
-            if (isNewSessionConflict && intClientId === client.id) continue;
-
-            const intClient = clients.get(intClientId);
-            if (intClient) {
-              sendWS(intClient.ws, {
-                type: 'session_interrupted',
-                sessionId: intClient.sessionId || '',
-                reason: isNewSessionConflict
-                  ? 'Another client started a new session in this folder'
-                  : 'Another client took over this folder',
-              });
-              switchClientSession(intClient, null, pool, onSessionsUpdated);
-            }
-          }
-
-          if (isNewSessionConflict) {
-            // Create a brand-new session as requested!
-            const result = await pool.createNewSession(msg.cwd!, undefined);
-            if (result.error) {
-              sendWS(client.ws, { type: 'session_error', error: result.error });
-              return;
-            }
-
-            pool.addClient(result.tracked.sessionFile, client.id);
-            switchClientSession(client, result.tracked.sessionFile, pool, onSessionsUpdated);
-            client.readOnly = false;
-
-            sendWS(client.ws, {
-              type: 'session_created',
-              sessionId: result.tracked.sessionId,
-              sessionFile: result.tracked.sessionFile,
-              cwd: result.tracked.cwd,
-              model: result.tracked.model,
-              isStreaming: pool.isStreaming(result.tracked.sessionFile),
-            });
-
-            sendWS(client.ws, {
-              type: 'message_history',
-              sessionId: result.tracked.sessionId,
-              messages: [],
-            });
-          } else if (tracked) {
-            // Join the existing session
-            pool.addClient(tracked.sessionFile, client.id);
-            switchClientSession(client, tracked.sessionFile, pool, onSessionsUpdated);
-            client.readOnly = false;
-
-            sendWS(client.ws, {
-              type: 'session_created',
-              sessionId: tracked.sessionId,
-              sessionFile: tracked.sessionFile,
-              cwd: tracked.cwd,
-              model: tracked.model,
-              isStreaming: pool.isStreaming(tracked.sessionFile),
-            });
-
-            const history = pool.getSessionHistoryWindow(tracked.sessionFile, INITIAL_HISTORY_LIMIT);
-            sendWS(client.ws, {
-              type: 'message_history',
-              sessionId: tracked.sessionId,
-              messages: history.messages,
-              totalCount: history.totalCount,
-              offset: history.offset,
-            });
-          }
-        } else {
-          // Join the existing session as read-only
-          pool.addClient(existingTracked.sessionFile, client.id);
-          switchClientSession(client, existingTracked.sessionFile, pool, onSessionsUpdated);
-          client.readOnly = true;
-
-          sendWS(client.ws, {
-            type: 'session_created',
-            sessionId: existingTracked.sessionId,
-            sessionFile: existingTracked.sessionFile,
-            cwd: existingTracked.cwd,
-            model: existingTracked.model,
-            isStreaming: pool.isStreaming(existingTracked.sessionFile),
-          });
-
-          const history = pool.getSessionHistoryWindow(existingTracked.sessionFile, INITIAL_HISTORY_LIMIT);
-          sendWS(client.ws, {
-            type: 'message_history',
-            sessionId: existingTracked.sessionId,
-            messages: history.messages,
-            totalCount: history.totalCount,
-            offset: history.offset,
-          });
-        }
-      }
+    case 'folder_conflict_continue': {
+      // The user acknowledged the folder-conflict warning banner and chose to
+      // "Continue anyway". Lift this client's read-only flag so it can send into
+      // its (already-attached) session even though another session in the same
+      // folder is active. We do NOT abort or take over the other session -- both
+      // run concurrently from here on. Guard: never lift read-only for a session
+      // whose cwd is a configured sessions.readOnly folder (that is a hard
+      // observe-only rule, not a dismissible warning).
+      const tracked = client.sessionId ? pool.getSession(client.sessionId) : null;
+      if (!tracked) return;
+      if (pool.isReadOnlyCwd(tracked.cwd)) return;
+      client.readOnly = false;
       break;
     }
 

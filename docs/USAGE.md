@@ -280,10 +280,11 @@ Establish a connection via `ws://127.0.0.1:31415/ws?token=YOUR_TOKEN`.
   "data": "data:image/png;base64,iVBORw0KGgoAAA..."
 }
 
-// Resolve directory collision conflict
+// "Continue anyway" on the folder-conflict warning banner: lift read-only for
+// the current session so it can send even though another session in the same
+// folder is active. Does NOT abort/take over the other session.
 {
-  "type": "session_resolve_conflict",
-  "action": "take_over", // or "read_only"
+  "type": "folder_conflict_continue",
   "sessionId": "abc123xyz"
 }
 ```
@@ -381,10 +382,12 @@ Establish a connection via `ws://127.0.0.1:31415/ws?token=YOUR_TOKEN`.
 
 ## 4. Troubleshooting and Security
 
-### Workspace Conflict Dialog
-If you try to load a session in `/project-a` while another browser client has an active session open in that same directory, the Standalone Server detects the directory overlap and presents a **Conflict Resolution Dialog**:
-* **Take Over:** Swaps the active workspace controller to your session, sending a `session_interrupted` notice to the other client (re-routing them into Read-Only Mode).
-* **Read-Only:** Places you in standard observer mode. You can view all agent updates, tool executions, and logs in real-time, but your message inputs are disabled.
+### Folder Overlap Warning Banner
+If you load or start a session in `/project-a` while another client already has an active session in that same directory, the Standalone Server does **not** block you with a dialog. Instead it attaches you as a **read-only observer** and shows a non-blocking **warning banner**:
+* **Observing (default):** You see all agent updates, tool executions, and logs in real-time, but message input is disabled while you observe.
+* **Continue anyway:** Lifts read-only so you can send into the session. The other session is **not** interrupted or taken over — both run concurrently (changes may conflict). The banner then remains as a passive warning and disappears automatically once no other session is active in the folder.
+
+There is no longer any take-over / abort protection: the server sends a live `folder_conflict` update as sessions open and leave the folder, driving the banner's appearance and dismissal.
 
 ### Security Reminders
 * **Bind Binding:** By default, the Standalone Server binds only to `127.0.0.1`. Never expose to `0.0.0.0` unless you set a highly secure `--token` in your startup configuration.

@@ -4,7 +4,6 @@
 	import ChatMessageList from '$lib/components/ChatMessageList.svelte';
 	import ChatInput from '$lib/components/ChatInput.svelte';
 	import SessionBrowser from '$lib/components/SessionBrowser.svelte';
-	import SessionConflictDialog from '$lib/components/SessionConflictDialog.svelte';
 	import SudoPasswordDialog from '$lib/components/SudoPasswordDialog.svelte';
 	import {
 		piState,
@@ -12,6 +11,8 @@
 		isInterrupted,
 		sessionError,
 		sessionNotice,
+		folderConflict,
+		continueFolderConflict,
 		isReadOnly,
 		activeSessionInfo,
 		connect,
@@ -193,6 +194,7 @@
 	let interrupted = $derived($isInterrupted);
 	let sError = $derived($sessionError);
 	let notice = $derived($sessionNotice);
+	let fConflict = $derived($folderConflict);
 	let readOnly = $derived($isReadOnly);
 	let sessionInfo = $derived($activeSessionInfo);
 	let appState = $derived($piState);
@@ -676,6 +678,34 @@
 			</div>
 		{/if}
 
+		<!-- Folder-conflict warning banner. Shown while ANOTHER active session
+		     exists in this session's folder. Before the user continues, the
+		     composer is read-only and the banner offers "Continue anyway" (which
+		     enables sending WITHOUT aborting the other session). After continuing,
+		     the button is gone but the banner stays as a passive warning until the
+		     other session leaves the folder (folderConflict cleared by the server). -->
+		{#if fConflict?.active}
+			<div
+				class="flex items-center justify-between gap-3 border border-yellow-500/30 bg-yellow-500/10 px-4 py-2 text-sm text-yellow-400"
+			>
+				<span class="min-w-0 flex-1 break-words">
+					⚠️ Another client is active in this folder.
+					{#if fConflict.continued}
+						You are both working in it &mdash; changes may conflict.
+					{:else}
+						You are observing (read-only) to avoid clashing.
+					{/if}
+				</span>
+				{#if !fConflict.continued}
+					<button
+						onclick={() => continueFolderConflict()}
+						class="flex-shrink-0 rounded-md border border-yellow-500/40 bg-yellow-500/20 px-3 py-1 text-xs font-medium text-yellow-300 transition-colors hover:bg-yellow-500/30"
+						>Continue anyway</button
+					>
+				{/if}
+			</div>
+		{/if}
+
 		<!-- Session error notification. The message can be long, so it scrolls
 		     within a bounded, wrapping area while the close button stays pinned and
 		     never gets pushed off-screen. -->
@@ -766,9 +796,6 @@
 			/>
 		{/if}
 	</div>
-
-	<!-- Session Conflict Dialog -->
-	<SessionConflictDialog />
 
 	<!-- Sudo password prompt for `!sudo ...` commands -->
 	<SudoPasswordDialog />
