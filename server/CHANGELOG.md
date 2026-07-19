@@ -1,5 +1,68 @@
 # wherever-dev
 
+## 0.9.0
+
+### Minor Changes
+
+- 9e4e6e0: Replace the blocking session take-over / conflict-resolution dialog with a
+  non-blocking folder-overlap **warning banner**, and drop the take-over and
+  read-only _choices_ entirely.
+
+  Previously, loading or starting a session in a folder that already had another
+  active session popped a modal offering **Take Over** (interrupt the other
+  client) or **Read-Only** (observe). This had two problems: the modal blocked the
+  flow, and **Read-Only** was broken for a brand-new session (there was nothing to
+  observe, so it fell back to the existing session).
+
+  Now the server never blocks:
+  - On a folder conflict it attaches the client to the folder's session as a
+    **read-only observer** and flags `folderConflict` on `session_created`.
+  - The client renders a persistent **warning banner** with a single **Continue
+    anyway** button. Clicking it sends the new `folder_conflict_continue` message,
+    which lifts read-only for that client so it can send. It does **NOT** abort or
+    take over the other session — both run concurrently (changes may conflict).
+  - After continuing, the banner stays as a passive warning (no button) and
+    **disappears automatically** once no other session is active in the folder,
+    driven by a new live `folder_conflict` server→client update broadcast on every
+    session-set change.
+  - A `sessions.readOnly`-configured folder stays hard read-only (Continue anyway
+    is a no-op there).
+
+  Removed the `session_conflict` / `session_resolve_conflict` protocol messages,
+  `resolveConflict` / `takeOver`-driven UI, and the `SessionConflictDialog`
+  component. The web frontend and the VS Code sidebar both use the new banner.
+
+### Patch Changes
+
+- 81b5e26: Fix server test isolation: the integration harness spawns the real server with
+  `...process.env`, so an ambient `PI_REMOTE_TOKEN` (present when tests run inside a
+  wherever-managed shell) made the server enforce auth and reject the token-less
+  test WS client with `401`, failing all 13 server tests. The harness now
+  neutralizes every leaking `PI_REMOTE_*` var (token, host, port, SSL, HTTP
+  fallback) so its documented "no token / no SSL" intent holds regardless of the
+  ambient environment.
+- faa9f4e: Onboard the repo onto the file-based `work/` contract: add the contract skeleton
+  (`work/tasks`, `work/specs`, `work/questions`, synced `work/protocol/` docs),
+  migrate the bespoke `work/briefs/ready/` specs to `work/specs/ready/` and
+  `work/ideas/` to `work/notes/ideas/` (history-preserving renames), add a
+  `dorfl.json` gate (`verify` = `pnpm format:check && pnpm build:all && pnpm run -r test`,
+  `prepare` = `pnpm install --frozen-lockfile`, `promptGuidance.testFirst`), and
+  document the conventions + contract layout in `CONTEXT.md`. No runtime code changed.
+- 23e30fe: Add `work/specs/proposed/conversation-mode.md`: a spoken back-and-forth "conversation
+  mode" that is a PRESET over individually-configurable speech knobs (reusing the
+  existing `directSend` send-on-speech-end), plus a self-contained `say` tool (the
+  `attach_file` pattern) so the agent emits a SHORT spoken reply — read aloud via
+  browser `SpeechSynthesis` — IN ADDITION to its full written answer, letting the
+  human hear something concise and spot when it misrepresents the detail. Staged in
+  `specs/proposed/` with `needsAnswers: true` (three open questions: `say` registration
+  surface, `say` UI treatment, hands-free/engine interaction). No runtime code changed.
+- 3fe9369: Migrate the ad-hoc `docs/plan-inline-media-attachments.md` plan into the `work/`
+  spec lifecycle as `work/specs/proposed/inline-media-attachments.md`, reshaped to
+  the repo's `spec-template` (Problem / Solution / User Stories / Out of Scope /
+  Implementation & Testing Decisions) and staged in `specs/proposed/` for review-first
+  admission. No runtime code changed.
+- 3fe9369: deploy: add `--sudo-password` option to the cloud-init generator that lets the wherever service run `sudo` but requires the user's password (collected by the frontend and piped to `sudo -S`). It sets a real login password on the account, switches sudoers to `ALL=(ALL) ALL`, and relaxes the systemd sandbox (`NoNewPrivileges=false`, `ProtectSystem=off`) so escalation actually works. The default (passwordless, fully-sandboxed, sudo-blocked service) is unchanged.
+
 ## 0.8.4
 
 ### Patch Changes
