@@ -7,9 +7,11 @@ slug: inline-media-attachments
 
 ## Problem Statement
 
-The web UI already turns file-oriented tool calls (`attach_file`, `read`, `write`, `edit`) into a token-gated `GET /session/download` link (`downloadFileUrl()` in `web/src/lib/wherever.ts`, wired in `ChatMessageList.svelte`). Today an attached image is only offered as a **download chip** — the user must tap and leave the chat to see it. The user wants media to render **inline** in the chat, driven by the same tool CALL that already produces the download URL, so images/audio/video are previewable without leaving the conversation.
+The web UI already turns file-oriented tool calls into a token-gated `GET /session/download` link (`downloadFileUrl()` in `web/src/lib/wherever.ts`, wired in `ChatMessageList.svelte`). Today an attached image is only offered as a **download chip** — the user must tap and leave the chat to see it. The user wants media to render **inline** in the chat, driven by the same tool CALL that already produces the download URL, so images/audio/video are previewable without leaving the conversation.
 
-Scope is `web/` only (rendering), plus one small server-side range-handling hardening for video/audio seeking. No protocol change, no server-side model-input change.
+The download affordance is also currently OVER-BROAD: `extractDownloadablePath()` in `ChatMessageList.svelte` offers the button for `attach_file`, `read`, `write`, AND `edit`. This spec NARROWS it to `read` + `attach_file` only — the two tools where a download/preview is meaningful (an intentional attachment, or a file the agent read). `write`/`edit` are write-side operations where offering the user a download of what the agent just wrote is noise, so they are dropped from the download/preview tool set.
+
+Scope is `web/` only (rendering + the tool-set narrowing), plus one small server-side range-handling hardening for video/audio seeking. No protocol change, no server-side model-input change.
 
 ## Solution
 
@@ -36,6 +38,7 @@ There are already TWO ways an image can show up; this spec adds to the second:
 8. As a maintainer, I want inline previews rendered OUTSIDE the collapsible details section (same as the existing `msg.images` block), so that a preview stays visible when the tool card is collapsed.
 9. As a maintainer, I want the server's `GET /session/download` to honor HTTP `Range` requests (`206 Partial Content` + `Accept-Ranges: bytes` + `Content-Range`), so that `<video>`/`<audio>` seeking works, while keeping the existing deny-by-default path resolution and size cap.
 10. As a web user, I want unsupported codecs/formats to degrade gracefully to the download chip (which always remains), so that a browser that cannot play a file still lets me save it.
+11. As a web user, I want the download/preview affordance to appear ONLY for `read` and `attach_file` — NOT for `write` or `edit` — so that I am not offered a download of a file the agent just wrote (which is noise), keeping the affordance to files I meaningfully want (an attachment, or a file that was read).
 
 ## Out of Scope
 
@@ -54,15 +57,16 @@ There are already TWO ways an image can show up; this spec adds to the second:
   - **image** → `<img src={dlUrl}>` capped at `max-h-96 max-w-full object-contain`, wrapped in `<a href={dlUrl} target="_blank">`, `loading="lazy"`. Mirror the styling used for `msg.images` thumbnails so both image paths look identical.
   - **audio** → `<audio controls preload="metadata" src={dlUrl}>`.
   - **video** → `<video controls preload="metadata" playsinline src={dlUrl}>` capped at `max-h-96 max-w-full`.
-- **Which tools.** Same tool set that already gets a download chip: `attach_file` (intentional) and `read` (opportunistic). `write`/`edit` may reuse it for free if they carry a media path; `ls`/`grep`/`find` are excluded as today.
+- **Which tools (NARROWED).** The download chip AND the inline preview apply to `attach_file` (intentional) and `read` (opportunistic) ONLY. Drop `write` and `edit` from `extractDownloadablePath()` in `ChatMessageList.svelte` (currently `['attach_file', 'read', 'write', 'edit']` → `['attach_file', 'read']`); `ls`/`grep`/`find` remain excluded as today. This narrowing removes a pre-existing over-broad download button on write-side tool cards, and by construction the inline preview (built on the same `dlPath`) never appears on `write`/`edit` either.
 - **De-dup rule.** For the generic file-tool card (`read` etc.), render the inline `<img>` from `dlUrl` only when the message does NOT already carry `msg.images` (avoid a duplicate with the model-facing path).
 - **Server range handling (video/audio seeking).** `GET /session/download` in `server/src/index.ts` must parse `Range: bytes=start-end`, respond `206` with `Content-Range` + `Accept-Ranges: bytes` + a sliced stream, and fall back to full `200` when no `Range` header — keeping the existing deny-by-default path resolution + size cap.
-- **Staging (each slice independently shippable):** (1) images inline; (2) audio inline; (3) video inline + HTTP Range.
+- **Staging (each slice independently shippable):** (1) narrow the download tool set to `read` + `attach_file` AND render images inline; (2) audio inline; (3) video inline + HTTP Range. The tool-set narrowing rides slice 1 because both edit the same `extractDownloadablePath()` / preview seam in `ChatMessageList.svelte`.
 
 ## Testing Decisions
 
 - **`mediaKindForPath()`** — unit test the extension → kind mapping (case-insensitive, each kind, and `null` for non-media / `ls`-style paths).
 - **Rendering** — component-level test in `ChatMessageList.svelte`: an `attach_file` image path renders one inline `<img>` outside the collapsible section with the download link intact; a `read`-on-image with `msg.images` present renders exactly one preview (no dup); an audio/video path renders the corresponding `<audio>`/`<video controls>`.
+- **Tool-set narrowing** — unit/component: `extractDownloadablePath()` returns a path for `read` and `attach_file` but `null` for `write` and `edit` (and stays `null` for `ls`/`grep`/`find`); a `write`/`edit` tool card renders neither a download chip nor an inline preview.
 - **Server range** — request `GET /session/download` with a `Range` header and assert `206` + `Content-Range` + `Accept-Ranges: bytes` and a correctly-sliced body; a request with no `Range` still returns full `200`; the deny-by-default path resolution and size cap are unaffected.
 
 ## Further Notes
