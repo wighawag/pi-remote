@@ -149,6 +149,17 @@ describe('GET /session/download — HTTP Range + media Content-Type', () => {
     const txtRes = await fetch(downloadUrl(h.port, sessionId, txt));
     expect((txtRes.headers.get('content-disposition') || '').startsWith('attachment;')).toBe(true);
     await txtRes.arrayBuffer();
+
+    // SECURITY: an SVG is image/svg+xml but MUST stay `attachment`, never inline.
+    // Serving it inline from the server origin would let a tap-to-open navigation
+    // execute embedded <script> in the app's origin (stored XSS). It still gets
+    // the correct media Content-Type; only the disposition is forced to attachment.
+    const svg = path.join(cwd, 'icon.svg');
+    fs.writeFileSync(svg, Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>'));
+    const svgRes = await fetch(downloadUrl(h.port, sessionId, svg));
+    expect(svgRes.headers.get('content-type')).toBe('image/svg+xml');
+    expect((svgRes.headers.get('content-disposition') || '').startsWith('attachment;')).toBe(true);
+    await svgRes.arrayBuffer();
   }, 60_000);
 
   it('replies 416 for an unsatisfiable range (start beyond EOF)', async () => {

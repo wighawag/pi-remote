@@ -73,7 +73,18 @@ function mimeTypeFor(filePath: string): string {
 // user previews in-chat) rather than force a save dialog. An `attachment`
 // disposition can suppress inline <video>/<audio>/<img> rendering, so media
 // gets `inline`; everything else keeps `attachment` (the safe save default).
+//
+// SECURITY: image/svg+xml is DELIBERATELY EXCLUDED from the inline set. An SVG
+// can embed <script>, and serving it `Content-Disposition: inline` from the
+// server origin lets a tap-to-open navigation to the download URL execute that
+// script in the app's origin (stored XSS). SVG is not needed for <video>/<audio>
+// seeking, and raster/vector images preview fine via <img src> regardless of
+// disposition, so SVG keeps the safe `attachment` default — preserving the
+// pre-media-feature security posture the inline-video task required be unchanged.
 function dispositionTypeFor(contentType: string): 'inline' | 'attachment' {
+  if (contentType === 'image/svg+xml') {
+    return 'attachment';
+  }
   if (
     contentType.startsWith('audio/') ||
     contentType.startsWith('video/') ||
