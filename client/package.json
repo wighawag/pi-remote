@@ -1,6 +1,6 @@
 {
   "name": "@wherever-dev/client",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Framework-agnostic isomorphic TypeScript client for Wherever standalone server",
   "repository": {
     "type": "git",
