@@ -47,27 +47,7 @@ There are already TWO ways an image can show up; this spec adds to the second:
 - No new WS message type, no new chat role, no side channel — everything is driven by the existing tool call + `/session/download`.
 - Client-side MIME sniffing — detection is by extension only (the path is already server-validated).
 
-## Implementation Decisions
-
-- **Media-kind helper.** Add `mediaKindForPath(path)` returning `'image' | 'audio' | 'video' | null` (in `web/src/lib/wherever.ts` alongside `downloadFileUrl`, or a small `web/src/lib/core/media.ts`). Extension → kind mapping (case-insensitive):
-  - **image**: `png jpg jpeg gif webp bmp svg avif`
-  - **audio**: `mp3 wav oga ogg m4a aac flac opus`
-  - **video**: `mp4 webm mov m4v ogv`
-- **Where it renders.** For any tool card that has a `dlPath`/`dlUrl` (the existing `parsed.downloadPath`), compute `mediaKindForPath(dlPath)` and, when non-null, render a preview block adjacent to the existing chip, OUTSIDE the collapsible details section:
-  - **image** → `<img src={dlUrl}>` capped at `max-h-96 max-w-full object-contain`, wrapped in `<a href={dlUrl} target="_blank">`, `loading="lazy"`. Mirror the styling used for `msg.images` thumbnails so both image paths look identical.
-  - **audio** → `<audio controls preload="metadata" src={dlUrl}>`.
-  - **video** → `<video controls preload="metadata" playsinline src={dlUrl}>` capped at `max-h-96 max-w-full`.
-- **Which tools (NARROWED).** The download chip AND the inline preview apply to `attach_file` (intentional) and `read` (opportunistic) ONLY. Drop `write` and `edit` from `extractDownloadablePath()` in `ChatMessageList.svelte` (currently `['attach_file', 'read', 'write', 'edit']` → `['attach_file', 'read']`); `ls`/`grep`/`find` remain excluded as today. This narrowing removes a pre-existing over-broad download button on write-side tool cards, and by construction the inline preview (built on the same `dlPath`) never appears on `write`/`edit` either.
-- **De-dup rule.** For the generic file-tool card (`read` etc.), render the inline `<img>` from `dlUrl` only when the message does NOT already carry `msg.images` (avoid a duplicate with the model-facing path).
-- **Server range handling (video/audio seeking).** `GET /session/download` in `server/src/index.ts` must parse `Range: bytes=start-end`, respond `206` with `Content-Range` + `Accept-Ranges: bytes` + a sliced stream, and fall back to full `200` when no `Range` header — keeping the existing deny-by-default path resolution + size cap.
-- **Staging (each slice independently shippable):** (1) narrow the download tool set to `read` + `attach_file` AND render images inline; (2) audio inline; (3) video inline + HTTP Range. The tool-set narrowing rides slice 1 because both edit the same `extractDownloadablePath()` / preview seam in `ChatMessageList.svelte`.
-
-## Testing Decisions
-
-- **`mediaKindForPath()`** — unit test the extension → kind mapping (case-insensitive, each kind, and `null` for non-media / `ls`-style paths).
-- **Rendering** — component-level test in `ChatMessageList.svelte`: an `attach_file` image path renders one inline `<img>` outside the collapsible section with the download link intact; a `read`-on-image with `msg.images` present renders exactly one preview (no dup); an audio/video path renders the corresponding `<audio>`/`<video controls>`.
-- **Tool-set narrowing** — unit/component: `extractDownloadablePath()` returns a path for `read` and `attach_file` but `null` for `write` and `edit` (and stays `null` for `ls`/`grep`/`find`); a `write`/`edit` tool card renders neither a download chip nor an inline preview.
-- **Server range** — request `GET /session/download` with a `Range` header and assert `206` + `Content-Range` + `Accept-Ranges: bytes` and a correctly-sliced body; a request with no `Range` still returns full `200`; the deny-by-default path resolution and size cap are unaffected.
+> Tasked 2026-07-20 into `work/tasks/backlog/` (3 vertical slices: `inline-images-and-narrow-download-tools` → `inline-audio-player` → `inline-video-player-and-range`). The Implementation/Testing detail that used to live here now lives in those tasks (what to build) — this spec keeps only its durable framing.
 
 ## Further Notes
 
