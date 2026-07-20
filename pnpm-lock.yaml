@@ -68,10 +68,10 @@ importers:
   server:
     dependencies:
       '@earendil-works/pi-ai':
-        specifier: ^0.80.3
+        specifier: 0.80.6
         version: 0.80.6(ws@8.20.1)(zod@4.4.3)
       '@earendil-works/pi-coding-agent':
-        specifier: ^0.80.3
+        specifier: 0.80.6
         version: 0.80.6(ws@8.20.1)(zod@4.4.3)
       typebox:
         specifier: ^1.1.38
