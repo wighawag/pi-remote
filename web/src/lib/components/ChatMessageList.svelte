@@ -1338,6 +1338,23 @@
 												/>
 											</a>
 										{/if}
+
+										<!-- Inline AUDIO player for an attached audio file, sourced
+										     from the SAME token-gated download URL as the chip above (NOT
+										     from embedded bytes). Additive: the download chip stays; this
+										     lets the user listen without leaving the chat. `preload`
+										     metadata only, and an unsupported format degrades to the chip
+										     (the browser renders the empty player; the chip above always
+										     remains for save/share). -->
+										{#if !msg.isStreaming && !parsed.isError && dlUrl && dlKind === 'audio'}
+											<audio
+												controls
+												preload="metadata"
+												src={dlUrl}
+												title={dlPath}
+												class="mt-2 block w-full max-w-full"
+											></audio>
+										{/if}
 									</div>
 								{:else}
 									<div
@@ -1466,6 +1483,21 @@
 													class="max-h-96 max-w-full rounded border border-brand-border/40 bg-brand-dark/60 object-contain"
 												/>
 											</a>
+										{/if}
+
+										<!-- Inline AUDIO player from the DOWNLOAD URL (not embedded
+									     bytes), for a file-oriented tool (now only `read`) whose path
+									     is audio. Rendered OUTSIDE the collapsible section so it
+									     survives collapse; `preload` metadata only. The download chip
+									     stays, so an unsupported format degrades gracefully to it. -->
+										{#if dlUrl && dlKind === 'audio'}
+											<audio
+												controls
+												preload="metadata"
+												src={dlUrl}
+												title={dlPath}
+												class="mt-2 block w-full max-w-full"
+											></audio>
 										{/if}
 
 										<!-- Tool image attachments (e.g. read on an image file) that
