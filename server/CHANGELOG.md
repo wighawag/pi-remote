@@ -1,5 +1,41 @@
 # wherever-dev
 
+## 0.9.3
+
+### Patch Changes
+
+- bc44497: Web dashboard: play audio attachments inline in tool cards.
+  - A downloadable path (now `read` + `attach_file`) whose extension is audio (`mp3 wav oga ogg m4a aac flac opus`) renders an inline `<audio controls preload="metadata">` player, sourced from the SAME token-gated `downloadFileUrl(path)` as the image preview (not embedded bytes), OUTSIDE the collapsible section so it survives collapse.
+  - The download chip stays, so an unsupported audio format degrades gracefully to the chip.
+  - Images/video and non-media paths are unaffected — the audio branch keys purely off `mediaKind(path) === 'audio'`, beside the existing `image` branch, in both the `attach_file` attachment card and the generic tool card.
+
+- b8b8d41: Web dashboard: preview images inline in tool cards and narrow the download/preview affordance to `read` + `attach_file`.
+  - Narrowed `extractDownloadablePath()` from `attach_file`/`read`/`write`/`edit` to `read` + `attach_file` only — a `write`/`edit` card no longer renders a download chip (a download of a just-written file is noise).
+  - Added a `mediaKind()` helper (`web/src/lib/core/media-kind.ts`) classifying a path by extension (case-insensitive) into `image`/`audio`/`video`/`null`; only `image` is used now (audio/video are pure additions later).
+  - A downloadable image path now renders an inline `<img>` preview from the SAME token-gated `downloadFileUrl(path)` (not embedded bytes), OUTSIDE the collapsible section, tap-to-open and lazy-loaded, with the download chip still present.
+  - De-duped against the model-facing `msg.images` `data:` path (left as-is): a `read`-on-image shows exactly one preview.
+
+- 747b968: Play video attachments inline in the web dashboard, backed by server-side HTTP Range support so media can seek/scrub.
+  - Web: a downloadable path (`read` + `attach_file`) whose extension is video (`mp4 webm mov m4v ogv`) renders an inline `<video controls playsinline preload="metadata">` player sourced from the SAME token-gated `downloadFileUrl(path)` (not embedded bytes), OUTSIDE the collapsible section, with the download chip still present. The branch keys purely off `mediaKind(path) === 'video'`, beside the existing `image`/`audio` branches, in both the `attach_file` attachment card and the generic tool card.
+  - Server: `GET /session/download` now honours a single `Range: bytes=start-end` header — `206 Partial Content` with `Content-Range` + `Accept-Ranges: bytes` + a byte-exact sliced stream, a suffix range (`bytes=-N`), `416` for an unsatisfiable range, and a full `200` (advertising `Accept-Ranges: bytes`) when there is no `Range` header. A multi-range header serves only its first range (no multipart body).
+  - Server: the MIME map gained audio/video types (mp3/wav/oga/ogg/m4a/aac/flac/opus, mp4/webm/mov/m4v/ogv) so media is served with a playable `Content-Type` instead of `application/octet-stream`, and media (audio/video/image) is served with an `inline` `Content-Disposition` (non-media stays `attachment`) — both keeping the existing ASCII + RFC 5987 filename encoding — so browsers render it in-chat.
+  - The deny-by-default path resolution (out-of-root → `404`), the size cap (`413`), and the `downloads.enabled: false` gate (`403`) are unchanged and re-asserted by tests on the Range code path.
+
+  ## Decisions
+  - **Inline disposition for media.** Media (`audio/`, `video/`, `image/`) is served `Content-Disposition: inline` because an `attachment` disposition can suppress inline `<video>`/`<audio>` playback; non-media keeps `attachment` (the safe save default). The ASCII + RFC 5987 filename is preserved on both.
+  - **Single-range only.** Only the first range of a (possibly multi-range) header is honoured; the server never emits a `multipart/byteranges` body — a single contiguous slice is all a media element needs to seek. An unsatisfiable range → `416` with `Content-Range: bytes */<size>`.
+  - Observation captured: the default `uploads.type: 'tmp'` makes all of `os.tmpdir()` an allowed download root (`work/notes/observations/download-tmp-upload-dir-is-an-allowed-root.md`) — out of scope here, flagged for the deny-by-default posture.
+
+- dd6a55c: Security fix (Gate-3 follow-up to inline-video-player-and-range): serve
+  `image/svg+xml` downloads with `Content-Disposition: attachment` again instead
+  of `inline`. The inline-media disposition change flipped every `image/*` type to
+  `inline`, which for SVG (which can embed `<script>`) turned a tap-to-open of the
+  same-origin download URL into a stored-XSS vector. SVG is not needed for inline
+  `<video>`/`<audio>` seeking and previews fine via `<img src>` regardless of
+  disposition, so it keeps the safe `attachment` default — preserving the
+  pre-media-feature security posture. Adds a server test asserting SVG stays
+  `attachment` while audio/video keep their inline disposition.
+
 ## 0.9.2
 
 ### Patch Changes
