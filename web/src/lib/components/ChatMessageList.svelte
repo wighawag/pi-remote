@@ -20,6 +20,7 @@
 		isReadOnly,
 		downloadFileUrl,
 	} from '$lib/wherever';
+	import {mediaKind, extractDownloadablePath} from '$lib/core/media-kind';
 	import {
 		availableModels,
 		gitInitDefaultStore,
@@ -493,31 +494,17 @@
 			// Outcome unknown: render a neutral "interrupted" state, not success.
 			interrupted: !!msg.interrupted,
 			// The path of a single file this tool operated on, when it is a
-			// file-oriented tool. Drives the per-tool download button. Two groups:
+			// file-oriented tool. Drives the per-tool download button + inline
+			// preview. Narrowed to two tools (see extractDownloadablePath):
 			//   - `attach_file`: the agent EXPLICITLY offered this file for download
 			//     (the intended, agent-driven path, e.g. "give me the gpx").
-			//   - `read`/`write`/`edit`: the card already carries the exact path the
-			//     agent touched, so we offer it opportunistically too.
-			// `ls`/`grep`/`find` are excluded (their path arg is a directory or
-			// search scope, not a downloadable file). Suppressed on errors.
+			//   - `read`: the card already carries the exact path the agent read,
+			//     so we offer it opportunistically too.
+			// `write`/`edit` (a download of a just-written file is noise) and
+			// `ls`/`grep`/`find` (directory/search scope) are excluded. Suppressed
+			// on errors.
 			downloadPath: extractDownloadablePath(toolName, argsObj, isError),
 		};
-	}
-
-	// Return the single file path a file-oriented tool operated on, or null. Kept
-	// deliberately narrow so the button never appears on a directory (ls) or a
-	// search scope (grep/find).
-	function extractDownloadablePath(
-		toolName: string,
-		argsObj: Record<string, any> | null,
-		isError: boolean,
-	): string | null {
-		if (isError || !argsObj) return null;
-		const name = (toolName || '').toLowerCase();
-		if (!['attach_file', 'read', 'write', 'edit'].includes(name)) return null;
-		const pathVal = argsObj.path || argsObj.filepath || argsObj.file;
-		if (!pathVal || typeof pathVal !== 'string') return null;
-		return pathVal.trim() || null;
 	}
 
 	function isScrolledToBottom(el: HTMLDivElement): boolean {
@@ -1253,6 +1240,7 @@
 										: shouldAutoExpand(msg, msgList)}
 								{@const dlPath = parsed.downloadPath}
 								{@const dlUrl = dlPath ? downloadFileUrl(dlPath) : null}
+								{@const dlKind = dlPath ? mediaKind(dlPath) : null}
 								{@const isAttachTool = parsed.toolName === 'attach_file'}
 								{#if isAttachTool}
 									<!-- attach_file rendered as a first-class ATTACHMENT, not a
@@ -1327,6 +1315,28 @@
 													>
 												</span>
 											</div>
+										{/if}
+
+										<!-- Inline image preview for an attached image, sourced from the
+										     SAME token-gated download URL as the chip above (NOT from
+										     embedded bytes). Additive: the download chip stays; this is a
+										     tap-to-open, lazy-loaded preview so the image is viewable
+										     without leaving the chat. -->
+										{#if !msg.isStreaming && !parsed.isError && dlUrl && dlKind === 'image'}
+											<a
+												href={dlUrl}
+												target="_blank"
+												rel="noopener noreferrer"
+												class="mt-2 block"
+												title={`Open ${dlPath}`}
+											>
+												<img
+													src={dlUrl}
+													alt={dlPath}
+													loading="lazy"
+													class="max-h-96 max-w-full rounded border border-brand-border/40 bg-brand-dark/60 object-contain"
+												/>
+											</a>
 										{/if}
 									</div>
 								{:else}
@@ -1434,10 +1444,35 @@
 											{/if}
 										</div>
 
-										<!-- Tool image attachments (e.g. read on an image file).
-									     Rendered OUTSIDE the collapsible section so images stay
-									     visible even when the tool details are collapsed; the
-									     args/output below remain collapsible. -->
+										<!-- Inline image preview from the DOWNLOAD URL (not embedded
+									     bytes), for a file-oriented tool (now only `read`) whose path
+									     is an image. Rendered OUTSIDE the collapsible section so it
+									     survives collapse, and tap-to-open + lazy-loaded. De-duped
+									     against the model-facing `msg.images` path below: when the
+									     tool result already embeds image blocks we render ONLY those,
+									     so a `read`-on-image shows exactly one preview. -->
+										{#if !(msg.images && msg.images.length > 0) && dlUrl && dlKind === 'image'}
+											<a
+												href={dlUrl}
+												target="_blank"
+												rel="noopener noreferrer"
+												class="mt-2 block"
+												title={`Open ${dlPath}`}
+											>
+												<img
+													src={dlUrl}
+													alt={dlPath}
+													loading="lazy"
+													class="max-h-96 max-w-full rounded border border-brand-border/40 bg-brand-dark/60 object-contain"
+												/>
+											</a>
+										{/if}
+
+										<!-- Tool image attachments (e.g. read on an image file) that
+									     ALSO produced model-facing image blocks (base64). Rendered
+									     OUTSIDE the collapsible section so images stay visible even
+									     when the tool details are collapsed; the args/output below
+									     remain collapsible. -->
 										{#if msg.images && msg.images.length > 0}
 											<div class="mt-2 flex flex-col gap-1">
 												<div class="flex flex-wrap gap-2">
