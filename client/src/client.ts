@@ -876,6 +876,44 @@ export class WhereverClient {
               : m,
           );
           const startedAt = Date.now();
+          const isForce = !!(msg as any).forceCommand;
+
+          // A `!command` / `!!command` already rendered an OPTIMISTIC bash bubble
+          // locally at send time (so it appeared instantly, without waiting for
+          // this server round-trip). Reconcile onto the OLDEST such pending bubble
+          // instead of appending a duplicate: adopt the real startedAt and drop
+          // the optimistic flag, keeping any output the user's bubble may already
+          // carry empty (tool_update/tool_end will fill it). Fall back to append
+          // when there is no pending optimistic bubble (agent tool call, or the
+          // optimistic one was already reconciled).
+          if (isForce) {
+            const pending = finalizedMessages.find(
+              (m: ChatMessage) =>
+                m.role === 'tool' && m.optimistic && m.isStreaming,
+            );
+            if (pending) {
+              return {
+                ...s,
+                messages: finalizedMessages.map((m: ChatMessage) =>
+                  m.id === pending.id
+                    ? {
+                        ...m,
+                        optimistic: false,
+                        toolName: msg.toolName,
+                        toolArgs,
+                        content: toolArgs
+                          ? `$ ${msg.toolName} ${toolArgs}`
+                          : `$ ${msg.toolName}`,
+                        startedAt,
+                        timestamp: startedAt,
+                        forceCommand: true,
+                      }
+                    : m,
+                ),
+              };
+            }
+          }
+
           const newMsg: ChatMessage = {
             id: this.generateId(),
             role: 'tool',
@@ -888,7 +926,7 @@ export class WhereverClient {
             toolArgs: toolArgs,
             toolOutput: '',
             startedAt,
-            ...((msg as any).forceCommand ? { forceCommand: true } : {}),
+            ...(isForce ? { forceCommand: true } : {}),
           };
           return {
             ...s,
@@ -1589,12 +1627,47 @@ export class WhereverClient {
     // A `!command` / `!!command` is intercepted by the server and run as a bash
     // tool call, NOT delivered to the agent. The server never echoes it back as a
     // user message, and the bash tool_start/tool_end events are the real, durable
-    // feedback (and are recorded in history). So do NOT add any local user echo
-    // for it: a bubble here would be a transient duplicate that vanishes on
+    // feedback (and are recorded in history). So do NOT add any local USER echo
+    // for it: a user bubble here would be a transient duplicate that vanishes on
     // reload (bash runs are not part of the user-message transcript) and, if
-    // delivery-tracked, would wrongly time out into a retry/discard banner. Just
-    // clear any prior error and let the tool-call render carry the feedback.
+    // delivery-tracked, would wrongly time out into a retry/discard banner.
+    //
+    // We DO, however, render an optimistic bash TOOL bubble immediately so the
+    // command shows up instantly instead of only after the server round-trip
+    // (client -> server -> tool_start -> client). It is tagged `optimistic` so
+    // the real `tool_start` reconciles onto it (no duplicate) and is NOT
+    // delivery-tracked (no watchdog/banner). Skip the optimistic bubble for
+    // `!sudo ...`: the server defers those behind a password prompt and does not
+    // emit `tool_start` until the password arrives, so a pending bubble would sit
+    // there streaming (and never reconcile if the prompt is cancelled).
     if (text.trimStart().startsWith('!')) {
+      const raw = text.trimStart();
+      const isExcluded = raw.startsWith('!!');
+      const command = (isExcluded ? raw.slice(2) : raw.slice(1)).trim();
+      const isSudo = /^sudo(\s|$)/.test(command);
+      if (command && !isSudo) {
+        const toolArgs = `command=${JSON.stringify(command)}`;
+        const startedAt = Date.now();
+        const optimisticTool: ChatMessage = {
+          id: this.generateId(),
+          role: 'tool',
+          content: `$ bash ${toolArgs}`,
+          timestamp: startedAt,
+          isStreaming: true,
+          toolName: 'bash',
+          toolArgs,
+          toolOutput: '',
+          startedAt,
+          forceCommand: true,
+          optimistic: true,
+        };
+        this.stateStore.update((st: WhereverState) => ({
+          ...st,
+          sessionError: null,
+          messages: [...st.messages, optimisticTool],
+        }));
+        return true;
+      }
       this.stateStore.update((st: WhereverState) => ({...st, sessionError: null}));
       return true;
     }

@@ -31,6 +31,14 @@ export interface ChatMessage {
 	// frame (live) or the history tool_call (reload). The web UI auto-expands
 	// force-command bash output. Only meaningful for role: 'tool', toolName 'bash'.
 	forceCommand?: boolean;
+	// True on an OPTIMISTIC force-command (`!command` / `!!command`) tool bubble
+	// the client rendered locally at send time, BEFORE the server's real
+	// `tool_start` arrives. It gives instant feedback (the server no longer echoes
+	// `!`-commands as a user message, so without this nothing shows until the
+	// server round-trip completes). When the real `tool_start` for the same
+	// command arrives it RECONCILES onto this bubble (clearing this flag) instead
+	// of appending a duplicate. Only meaningful for role: 'tool', toolName 'bash'.
+	optimistic?: boolean;
 	// Wall-clock start of a tool call (ms epoch), set when the tool_start frame
 	// arrives. `timestamp` also carries this, but startedAt is kept explicit so
 	// the elapsed/took duration is unambiguous and survives content rewrites.
