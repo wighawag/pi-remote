@@ -94,6 +94,30 @@ describe('audio inline-preview render decision (mediaKind gate)', () => {
 	});
 });
 
+// The inline-VIDEO render branch in ChatMessageList.svelte keys entirely off
+// `mediaKind(path) === 'video'` (a <video controls playsinline> sourced from the
+// same download URL, beside the image/audio branches). These pin that render
+// decision at the pure-logic seam the component consumes — mirroring the image
+// and audio slices — so a video path drives the video branch and a non-video
+// path does not, without standing up jsdom+svelte infra the repo omits.
+describe('video inline-preview render decision (mediaKind gate)', () => {
+	it('a video path selects the video branch (drives <video controls playsinline>)', () => {
+		for (const ext of ['mp4', 'webm', 'mov', 'm4v', 'ogv']) {
+			expect(mediaKind(`/a/b/clip.${ext}`)).toBe('video');
+		}
+		expect(mediaKind('/x/Movie.MP4')).toBe('video'); // case-insensitive
+	});
+
+	it('a non-video path does NOT select the video branch', () => {
+		// Image previews as image, audio as audio, everything else null — so the
+		// video branch (=== 'video') never fires for them.
+		expect(mediaKind('/a/b/pic.png')).not.toBe('video');
+		expect(mediaKind('/a/b/song.mp3')).not.toBe('video');
+		expect(mediaKind('/a/b/notes.txt')).not.toBe('video');
+		expect(mediaKind('/a/b/src')).not.toBe('video');
+	});
+});
+
 describe('extractDownloadablePath', () => {
 	it('returns the path for read and attach_file', () => {
 		expect(extractDownloadablePath('read', {path: '/a/b.png'}, false)).toBe(

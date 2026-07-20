@@ -43,12 +43,87 @@ const MIME_TYPES: Record<string, string> = {
   '.csv': 'text/csv',
   '.zip': 'application/zip',
   '.webp': 'image/webp',
-  '.webmanifest': 'application/manifest+json'
+  '.webmanifest': 'application/manifest+json',
+  // Audio media types. Without these, audio files were served as
+  // application/octet-stream, which browsers refuse to play inline. Extensions
+  // mirror the web media-kind helper's AUDIO_EXTS.
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.oga': 'audio/ogg',
+  '.ogg': 'audio/ogg',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.flac': 'audio/flac',
+  '.opus': 'audio/opus',
+  // Video media types. Same rationale; extensions mirror the web media-kind
+  // helper's VIDEO_EXTS so inline <video> playback gets a playable Content-Type.
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  '.mov': 'video/quicktime',
+  '.m4v': 'video/mp4',
+  '.ogv': 'video/ogg'
 };
 
 function mimeTypeFor(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
   return MIME_TYPES[ext] || 'application/octet-stream';
+}
+
+// Content-Type prefixes that should render INLINE in the browser (media the
+// user previews in-chat) rather than force a save dialog. An `attachment`
+// disposition can suppress inline <video>/<audio>/<img> rendering, so media
+// gets `inline`; everything else keeps `attachment` (the safe save default).
+function dispositionTypeFor(contentType: string): 'inline' | 'attachment' {
+  if (
+    contentType.startsWith('audio/') ||
+    contentType.startsWith('video/') ||
+    contentType.startsWith('image/')
+  ) {
+    return 'inline';
+  }
+  return 'attachment';
+}
+
+/**
+ * Parse a single-range HTTP `Range: bytes=start-end` header against a known
+ * resource size. Returns:
+ *   - null  when there is no usable range (absent/blank/non-bytes header) -> the
+ *     caller serves the full 200.
+ *   - { unsatisfiable: true } when the range is syntactically a bytes range but
+ *     cannot be satisfied (start beyond EOF) -> the caller replies 416.
+ *   - { start, end } (inclusive, clamped to [0, size-1]) for a satisfiable
+ *     range -> the caller replies 206 with that slice.
+ * Only the FIRST range of a (possibly multi-range) header is honoured; we never
+ * emit a multipart/byteranges body (a single contiguous slice is all a media
+ * element needs to seek). A suffix range `bytes=-N` returns the last N bytes.
+ */
+function parseRangeHeader(
+  rangeHeader: string | undefined,
+  size: number,
+): null | { unsatisfiable: true } | { start: number; end: number } {
+  if (!rangeHeader) return null;
+  const m = /^bytes=(\d*)-(\d*)/.exec(rangeHeader.trim());
+  if (!m) return null;
+  const startStr = m[1];
+  const endStr = m[2];
+  // A range with neither bound (`bytes=-`) is meaningless: treat as no range.
+  if (startStr === '' && endStr === '') return null;
+
+  let start: number;
+  let end: number;
+  if (startStr === '') {
+    // Suffix range: last `endStr` bytes.
+    const suffix = parseInt(endStr, 10);
+    if (suffix <= 0) return { unsatisfiable: true };
+    start = Math.max(0, size - suffix);
+    end = size - 1;
+  } else {
+    start = parseInt(startStr, 10);
+    end = endStr === '' ? size - 1 : parseInt(endStr, 10);
+    if (end > size - 1) end = size - 1;
+  }
+  if (start > end || start >= size || start < 0) return { unsatisfiable: true };
+  return { start, end };
 }
 
 function expandTilde(p: string): string {
@@ -1112,10 +1187,60 @@ async function main(): Promise<void> {
       // fallback with quotes escaped.
       const asciiName = filename.replace(/["\\]/g, '_').replace(/[^\x20-\x7e]/g, '_');
       const encodedName = encodeURIComponent(filename);
+      const contentType = mimeTypeFor(safePath);
+      // Media (audio/video/image) renders inline; everything else stays a
+      // download (`attachment`). Both keep the ASCII + RFC 5987 filename.
+      const disposition = dispositionTypeFor(contentType);
+      const contentDisposition = `${disposition}; filename="${asciiName}"; filename*=UTF-8''${encodedName}`;
+
+      // Honour a single-range HTTP Range request so <video>/<audio> can seek.
+      // No Range header -> full 200. A satisfiable range -> 206 with a sliced
+      // stream + Content-Range. An unsatisfiable range -> 416.
+      const rangeHeader = req.headers['range'];
+      const range = parseRangeHeader(
+        Array.isArray(rangeHeader) ? rangeHeader[0] : rangeHeader,
+        stat.size,
+      );
+
+      if (range && 'unsatisfiable' in range) {
+        res.writeHead(416, {
+          'Content-Range': `bytes */${stat.size}`,
+          'Accept-Ranges': 'bytes',
+          'Cache-Control': 'no-store',
+        });
+        res.end();
+        return;
+      }
+
+      if (range) {
+        const { start, end } = range;
+        const chunkSize = end - start + 1;
+        res.writeHead(206, {
+          'Content-Type': contentType,
+          'Content-Length': chunkSize,
+          'Content-Range': `bytes ${start}-${end}/${stat.size}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Disposition': contentDisposition,
+          'Cache-Control': 'no-store',
+        });
+        const stream = fs.createReadStream(safePath, { start, end });
+        stream.on('error', (err) => {
+          if (!res.headersSent) {
+            sendJSON(res, 500, { error: `Read error: ${err.message}` });
+          } else {
+            res.destroy();
+          }
+        });
+        stream.pipe(res);
+        return;
+      }
+
       res.writeHead(200, {
-        'Content-Type': mimeTypeFor(safePath),
+        'Content-Type': contentType,
         'Content-Length': stat.size,
-        'Content-Disposition': `attachment; filename="${asciiName}"; filename*=UTF-8''${encodedName}`,
+        // Advertise range support so clients (and <video>) know they can seek.
+        'Accept-Ranges': 'bytes',
+        'Content-Disposition': contentDisposition,
         'Cache-Control': 'no-store',
       });
       const stream = fs.createReadStream(safePath);

@@ -1355,6 +1355,24 @@
 												class="mt-2 block w-full max-w-full"
 											></audio>
 										{/if}
+
+										<!-- Inline VIDEO player for an attached video file, sourced
+										     from the SAME token-gated download URL as the chip above (NOT
+										     from embedded bytes). Additive: the download chip stays; this
+										     lets the user watch (and SEEK — the server honours HTTP Range)
+										     without leaving the chat. `playsinline` keeps iOS from going
+										     fullscreen; `preload` metadata only; an unsupported format
+										     degrades to the chip (empty player, chip always remains). -->
+										{#if !msg.isStreaming && !parsed.isError && dlUrl && dlKind === 'video'}
+											<video
+												controls
+												playsinline
+												preload="metadata"
+												src={dlUrl}
+												title={dlPath}
+												class="mt-2 block max-h-96 w-full max-w-full rounded border border-brand-border/40 bg-brand-dark/60"
+											></video>
+										{/if}
 									</div>
 								{:else}
 									<div
@@ -1498,6 +1516,24 @@
 												title={dlPath}
 												class="mt-2 block w-full max-w-full"
 											></audio>
+										{/if}
+
+										<!-- Inline VIDEO player from the DOWNLOAD URL (not embedded
+									     bytes), for a file-oriented tool (now only `read`) whose path
+									     is video. Rendered OUTSIDE the collapsible section so it
+									     survives collapse; `playsinline` keeps iOS inline; `preload`
+									     metadata only. The server honours HTTP Range so seeking works.
+									     The download chip stays, so an unsupported format degrades to
+									     it. -->
+										{#if dlUrl && dlKind === 'video'}
+											<video
+												controls
+												playsinline
+												preload="metadata"
+												src={dlUrl}
+												title={dlPath}
+												class="mt-2 block max-h-96 w-full max-w-full rounded border border-brand-border/40 bg-brand-dark/60"
+											></video>
 										{/if}
 
 										<!-- Tool image attachments (e.g. read on an image file) that
