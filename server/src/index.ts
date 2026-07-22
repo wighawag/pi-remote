@@ -1897,6 +1897,23 @@ async function handleWSMessage(
       }
       const streaming = pool.isStreaming(client.sessionId);
       await pool.sendUserMessage(client.sessionId, msg.message, streaming ? 'steer' : undefined);
+      // Acknowledge delivery the moment the message is accepted by the agent.
+      // For a mid-stream steer, pi only echoes the user message back
+      // (message_end role:user) at the NEXT model call, which can be far beyond
+      // the client's confirmation window; without this ack the client would
+      // wrongly flip an accepted steer to "failed / Retry". `!command` bash is
+      // not a delivery-tracked user message on the client, so skip the ack for
+      // it (its tool_start/tool_end frames are the real feedback).
+      if (!msg.message.trimStart().startsWith('!')) {
+        // Identify the session to the client by its UUID (sessionId), matching
+        // every other server->client frame; client.sessionId is the sessionFile
+        // path, which the client does not key on.
+        sendWS(client.ws, {
+          type: 'message_ack',
+          sessionId: attached.sessionId,
+          content: msg.message,
+        });
+      }
       break;
     }
 

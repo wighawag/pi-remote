@@ -93,6 +93,55 @@ describe('outbound message delivery confirmation', () => {
 		).toBe(1);
 	});
 
+	it('confirms on a message_ack, before any user echo (the steer case)', () => {
+		// A mid-stream steer is accepted immediately but pi only echoes it back
+		// (message_end role:user) at the NEXT model call, which can be far beyond
+		// the confirmation window. The server sends message_ack the moment it hands
+		// the message to the agent, so delivery is confirmed right away.
+		client.sendMessage('steer me now');
+		expect(
+			state().messages.find((x) => x.content === 'steer me now')!.delivery,
+		).toBe('sending');
+
+		ws.last().receive({
+			type: 'message_ack',
+			sessionId: 'sid-1',
+			content: 'steer me now',
+		});
+		expect(
+			state().messages.find((x) => x.content === 'steer me now')!.delivery,
+		).toBeUndefined();
+
+		// The watchdog is cleared: even past the window it stays confirmed.
+		vi.advanceTimersByTime(12_000);
+		expect(
+			state().messages.find((x) => x.content === 'steer me now')!.delivery,
+		).toBeUndefined();
+		// No duplicate bubble.
+		expect(
+			state().messages.filter((x) => x.content === 'steer me now').length,
+		).toBe(1);
+	});
+
+	it('a message_ack for the same content later (the user echo) adds no duplicate', () => {
+		client.sendMessage('acked then echoed');
+		ws.last().receive({
+			type: 'message_ack',
+			sessionId: 'sid-1',
+			content: 'acked then echoed',
+		});
+		// The real pi user-echo arrives at the next turn; it must not duplicate.
+		ws.last().receive({
+			type: 'message_end',
+			sessionId: 'sid-1',
+			role: 'user',
+			content: 'acked then echoed',
+		});
+		expect(
+			state().messages.filter((x) => x.content === 'acked then echoed').length,
+		).toBe(1);
+	});
+
 	it('flips to failed when no echo arrives within the window (half-open loss)', () => {
 		// Half-open: send() reports success but the server never processes it, so
 		// no echo is ever received.

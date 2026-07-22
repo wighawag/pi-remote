@@ -1075,7 +1075,11 @@
 				>
 					<div
 						class="max-w-[85%] rounded-lg px-4 py-3 {msg.role === 'user'
-							? 'bg-brand-blue/80 text-brand-text'
+							? msg.delivery === 'sending'
+								? 'bg-brand-blue/40 text-brand-text ring-1 ring-brand-blue/50'
+								: msg.delivery === 'failed'
+									? 'bg-brand-blue/30 text-brand-text ring-1 ring-amber-400/50'
+									: 'bg-brand-blue/80 text-brand-text'
 							: msg.role === 'thinking'
 								? 'border-l-2 border-brand-border bg-brand-surface/30 text-sm text-brand-text-muted'
 								: msg.role === 'tool' && msg.toolName === 'attach_file'
@@ -1685,7 +1689,12 @@
 										: 'text-brand-text-muted'}"
 							>
 								{#if msg.role === 'user' && msg.delivery === 'sending'}
-									<span title="Sending, awaiting confirmation">Sending...</span>
+									<span
+										class="inline-block h-3 w-3 animate-spin rounded-full border border-brand-text-muted border-t-transparent"
+										title="Sending, awaiting confirmation"
+										aria-label="Sending"
+									></span>
+									<span title="Sending, awaiting confirmation">Sending</span>
 									<span>·</span>
 								{/if}
 								{formatTime(msg.timestamp)}

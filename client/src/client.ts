@@ -753,6 +753,19 @@ export class WhereverClient {
         });
         break;
 
+      case 'message_ack':
+        // The server accepted this outbound user message (a normal turn, or a
+        // mid-stream steer queued for the next step) and handed it to the agent.
+        // This is the delivery CONFIRMATION: it arrives immediately, so an
+        // accepted steer is not left waiting on the message_end (role:user)
+        // echo, which for a steer only comes at the next model call and can miss
+        // the confirmation window (flipping the message to a false "Retry").
+        // Content-matched to the oldest still-unconfirmed pending message.
+        if (typeof msg.content === 'string') {
+          this.confirmDeliveredByContent(msg.content);
+        }
+        break;
+
       case 'message_end':
         this.stateStore.update((s: WhereverState) => {
           let newMessages = s.messages;

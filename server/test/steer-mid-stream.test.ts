@@ -38,6 +38,16 @@ describe('mid-stream message steers the running session', () => {
     // delivers it as a steer into the same session.
     c.send({ type: 'message', message: 'actually do X instead', sessionId });
 
+    // The server acknowledges delivery IMMEDIATELY (message_ack), before the
+    // steered user-echo that only comes at the next model call. This is what
+    // lets the web client confirm an accepted steer instead of wrongly flipping
+    // it to "failed / Retry" when the current turn outlasts the confirm window.
+    const ack = await c.waitFor(
+      (m) => m.type === 'message_ack' && (m as any).content === 'actually do X instead',
+      30_000,
+    );
+    expect(ack.sessionId).toBe(sessionId);
+
     // The session must settle cleanly (no session_error from an unqueued/blocked
     // mid-stream send). The steered turn produces at least one more agent_end.
     const settled = await c.waitFor(

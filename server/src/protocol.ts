@@ -43,6 +43,13 @@ export type ServerMessage =
  | { type: 'thinking_update'; sessionId: string; delta: string }
  | { type: 'message_update'; sessionId: string; delta: string }
   | { type: 'message_end'; sessionId: string; content: string; role?: 'user' | 'assistant' }
+  // Server -> client: the server accepted an outbound user message and handed it
+  // to the agent (as a normal turn OR as a mid-stream steer queued for the next
+  // step). This is the DELIVERY acknowledgement: it fires immediately, whereas
+  // the message_end (role:user) echo for a steer only comes at the next model
+  // call and can arrive long after the client's confirmation window. `content`
+  // lets the client match the ack to its optimistic pending echo.
+  | { type: 'message_ack'; sessionId: string; content: string }
   | { type: 'agent_end'; sessionId: string }
   | { type: 'tool_start'; sessionId: string; toolName: string; args: unknown; forceCommand?: boolean }
   | { type: 'tool_update'; sessionId: string; toolName: string; delta: string }
