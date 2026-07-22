@@ -144,6 +144,14 @@ export interface WhereverState {
 	// Context-window usage for the active session (drives the "11.3% / 1.0M"
 	// indicator). null when unknown (no model, no usage yet, or just compacted).
 	contextUsage: ContextUsage | null;
+	// The mid-stream STEER messages currently queued on the server (pi injects
+	// them at the next step boundary). Mirrors the server's queue_update: it is
+	// the FULL current queue, replaced outright on each update. Used to badge a
+	// still-pending steer bubble and to offer a session-level cancel (pi's
+	// clearQueue() drops the whole queue at once); empty when nothing is queued.
+	// Only server-type sessions populate this (CLI bridges do not emit
+	// queue_update), so CLI steers are not cancellable from the web.
+	pendingSteering: string[];
 }
 
 export interface ContextUsage {

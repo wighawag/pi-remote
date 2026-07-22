@@ -408,6 +408,13 @@ export function abort() {
 	client.abort();
 }
 
+// Cancel the queued mid-stream steer messages for the active session, retracting
+// a steer the user regrets WITHOUT aborting the in-flight turn. Only meaningful
+// for server-type sessions (the ones that report a steer queue).
+export function cancelSteer() {
+	client.cancelSteer();
+}
+
 export function joinSession(sessionFile: string, cwd?: string, model?: string) {
 	client.joinSession(sessionFile, cwd, model);
 }
@@ -556,6 +563,10 @@ export const currentSession = derived(piState, ($s) => $s.session);
 // Folder-conflict warning-banner state (null when there is no conflict).
 export const folderConflict = derived(piState, ($s) => $s.folderConflict);
 export const isInterrupted = derived(piState, ($s) => $s.isInterrupted);
+// The mid-stream steer messages still queued on the server (not yet injected).
+// A user bubble whose content appears here is a pending steer the user can
+// cancel. Empty when nothing is queued.
+export const pendingSteering = derived(piState, ($s) => $s.pendingSteering);
 export const sessionError = derived(piState, ($s) => $s.sessionError);
 // A dismissible, non-fatal session notice (e.g. a CLI took over this session
 // while it was mid-turn here, discarding the in-flight tool call or streaming

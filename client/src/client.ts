@@ -39,6 +39,7 @@ const defaultState: WhereverState = {
 	historyOffset: 0,
 	loadingMoreHistory: false,
 	contextUsage: null,
+	pendingSteering: [],
 };
 
 export class WhereverClient {
@@ -766,6 +767,18 @@ export class WhereverClient {
         }
         break;
 
+      case 'queue_update':
+        // The server relayed pi's current steer queue. Replace our pending-steer
+        // set outright (it is the full queue): a message whose content is still
+        // in this set is a queued steer that has NOT yet been injected, so the
+        // UI can offer to cancel it. When a queued steer is delivered or
+        // cancelled, a fresh queue_update arrives with it removed.
+        this.stateStore.update((s: WhereverState) => ({
+          ...s,
+          pendingSteering: Array.isArray(msg.steering) ? [...msg.steering] : [],
+        }));
+        break;
+
       case 'message_end':
         this.stateStore.update((s: WhereverState) => {
           let newMessages = s.messages;
@@ -844,6 +857,11 @@ export class WhereverClient {
           this.stateStore.update((s: WhereverState) => ({
             ...s,
             isStreaming: false,
+            // The run ended: any steer that was queued has been delivered (or
+            // dropped), so nothing is cancellable anymore. The server also emits
+            // a final queue_update, but clear here defensively in case it is
+            // missed, so a stale "Cancel" affordance cannot linger.
+            pendingSteering: [],
             messages: s.messages.map((m: ChatMessage) =>
               m.isStreaming
                 ? {
@@ -1886,6 +1904,17 @@ export class WhereverClient {
     this.send({type: 'abort', sessionId: s.sessionId});
   }
 
+  // Cancel the queued mid-stream steer messages for the active session without
+  // aborting the in-flight turn. Optimistically clears our local pending-steer
+  // set so the "Cancel" affordance disappears immediately; the server's fresh
+  // queue_update (after clearQueue) reconciles the authoritative state.
+  public cancelSteer(): void {
+    const s = get(this.stateStore);
+    if (!s.sessionId) return;
+    this.send({type: 'cancel_steer', sessionId: s.sessionId});
+    this.stateStore.update((st: WhereverState) => ({...st, pendingSteering: []}));
+  }
+
   public joinSession(sessionFile: string, cwd?: string, model?: string) {
     this.stateStore.update((s: WhereverState) => ({
       ...s,
@@ -1935,6 +1964,7 @@ export class WhereverClient {
       resyncing: false,
       agentPending: false,
       contextUsage: null,
+      pendingSteering: [],
       loadingSession: true,
     }));
     this.resumeSessionFile = null;
@@ -2007,6 +2037,7 @@ export class WhereverClient {
       resyncing: false,
       agentPending: false,
       contextUsage: null,
+      pendingSteering: [],
     }));
     this.clearLoadWatchdog();
     this.resumeSessionFile = null;

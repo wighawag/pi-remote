@@ -515,6 +515,15 @@ async function main(): Promise<void> {
         msg = { type: 'message_end', sessionId, content, role };
         break;
       }
+      case 'queue_update' as any: {
+        // pi's queue changed (a steer was queued, delivered, or cleared). Relay
+        // the current steering queue so the web can show which messages are
+        // still pending and offer a (session-level) cancel. Only steering matters
+        // for cancel; follow-ups are a separate concept the web does not surface.
+        const steering = ((event as any).steering as readonly string[] | undefined) ?? [];
+        msg = { type: 'queue_update', sessionId, steering: [...steering] };
+        break;
+      }
       case 'agent_end': {
         msg = { type: 'agent_end', sessionId };
         const messages = (event as any).messages;
@@ -1926,6 +1935,18 @@ async function handleWSMessage(
       const target = msg.sessionId ? pool.getSession(msg.sessionId) : attached;
       if (!attached || !target || target !== attached) break;
       await pool.abortSession(client.sessionId);
+      break;
+    }
+
+    case 'cancel_steer': {
+      if (!client.sessionId) return;
+      if (client.readOnly) return;
+      // Same authority guard as 'message'/'abort': only touch the queue of the
+      // session this connection is actually attached to and looking at.
+      const attached = pool.getSession(client.sessionId);
+      const target = msg.sessionId ? pool.getSession(msg.sessionId) : attached;
+      if (!attached || !target || target !== attached) break;
+      await pool.cancelSteerQueue(client.sessionId);
       break;
     }
 

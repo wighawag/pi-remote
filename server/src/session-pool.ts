@@ -1737,6 +1737,20 @@ export class SessionPool {
     }
   }
 
+  // Cancel the queued mid-stream steer (and follow-up) messages WITHOUT aborting
+  // the in-flight turn. pi's AgentSession.clearQueue() drops the WHOLE pending
+  // queue at once (it has no per-message dequeue) and emits a fresh queue_update
+  // (so the web's pending-steer set clears itself). Only server-type sessions
+  // have this API; CLI-bridge sessions only expose abort, so this is a no-op for
+  // them and they never surface a cancel affordance.
+  async cancelSteerQueue(sessionFileOrId: string): Promise<void> {
+    const tracked = this.getSession(sessionFileOrId);
+    if (!tracked) return;
+    if (tracked.type === 'server') {
+      tracked.agentSession.clearQueue();
+    }
+  }
+
   async changeModel(sessionFileOrId: string, modelStr: string): Promise<{ error?: string }> {
     const tracked = this.getSession(sessionFileOrId);
     if (!tracked) return { error: 'Session not found' };

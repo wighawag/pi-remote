@@ -11,6 +11,12 @@ export type ClientMessage =
   | { type: 'connect' }
   | { type: 'message'; message: string; sessionId: string }
   | { type: 'abort'; sessionId: string }
+  // Client -> server: cancel the queued mid-stream STEER messages for this
+  // session (the ones injected at the next step boundary that have not yet been
+  // delivered). Retracts a steer the user regrets WITHOUT aborting the whole
+  // in-flight turn. Only server-type sessions can dequeue a single steer; CLI
+  // bridges never emit queue_update, so no cancel affordance shows for them.
+  | { type: 'cancel_steer'; sessionId: string }
   | { type: 'ping' }
   | { type: 'session_load'; sessionFile: string; cwd?: string; model?: string }
   | { type: 'history_load_more'; sessionId: string; beforeOffset: number }
@@ -50,6 +56,14 @@ export type ServerMessage =
   // call and can arrive long after the client's confirmation window. `content`
   // lets the client match the ack to its optimistic pending echo.
   | { type: 'message_ack'; sessionId: string; content: string }
+  // Server -> client: the set of mid-stream STEER messages currently queued for
+  // this session (pi injects them at the next step boundary). Sent whenever the
+  // queue changes (pi's queue_update). `steering` is the full current queue, so
+  // the client replaces its pending-steer set outright. An empty array means
+  // nothing is queued (e.g. the queued steers were just delivered or cancelled).
+  // Only server-type sessions emit this; CLI bridges do not, so their steers are
+  // not individually cancellable from the web (the button simply never appears).
+  | { type: 'queue_update'; sessionId: string; steering: string[] }
   | { type: 'agent_end'; sessionId: string }
   | { type: 'tool_start'; sessionId: string; toolName: string; args: unknown; forceCommand?: boolean }
   | { type: 'tool_update'; sessionId: string; toolName: string; delta: string }

@@ -14,6 +14,8 @@
 		isResyncing,
 		resendMessage,
 		discardMessage,
+		cancelSteer,
+		pendingSteering,
 		beepEnabled,
 		beepSessionOverride,
 		setBeepSessionOverride,
@@ -1699,6 +1701,24 @@
 								{/if}
 								{formatTime(msg.timestamp)}
 							</div>
+							{#if msg.role === 'user' && $pendingSteering.includes(msg.content)}
+								<!-- This user message is a mid-stream steer that is still QUEUED on
+								     the server (pi injects it at the next step boundary). Show a
+								     passive per-message badge so the user can SEE which messages are
+								     still pending. The cancel ACTION lives at the session level (next
+								     to Abort), because pi's clearQueue() drops the WHOLE steer queue
+								     at once -- a per-message Cancel would misleadingly imply it only
+								     cancels this one. Only server-type sessions report a steer queue,
+								     so this never appears for CLI-bridge sessions. -->
+								<div
+									class="mt-1.5 flex items-center justify-end gap-1 text-xs font-medium text-brand-text-muted"
+								>
+									<span
+										class="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400"
+									></span>
+									Queued (not yet sent to the agent)
+								</div>
+							{/if}
 							{#if msg.role === 'user' && msg.delivery === 'failed'}
 								<!-- Delivery could NOT be confirmed (a half-open socket may have
 								     swallowed the frame). Never silently drop it: offer retry /
@@ -1795,14 +1815,32 @@
 				</div>
 			{/if}
 		</div>
-		<button
-			onclick={abort}
-			disabled={!streaming}
-			class="rounded bg-rose-500 px-3 py-1.5 text-xs text-brand-text transition-colors hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
-			title="Abort"
-		>
-			Abort
-		</button>
+		<div class="flex items-center gap-2">
+			<!-- Cancel ALL queued steers without aborting the running turn. pi's
+			     clearQueue() is all-or-nothing, so this is a single session-level
+			     action (not per-message). Shown only when something is queued. -->
+			{#if $pendingSteering.length > 0}
+				<button
+					onclick={cancelSteer}
+					class="rounded border border-amber-400/50 bg-brand-surface-3 px-3 py-1.5 text-xs text-brand-text-muted transition-colors hover:bg-rose-500/80 hover:text-brand-text"
+					title="Cancel the queued steer message{$pendingSteering.length > 1
+						? 's'
+						: ''} (does not abort the current turn)"
+				>
+					Cancel queued{$pendingSteering.length > 1
+						? ` (${$pendingSteering.length})`
+						: ''}
+				</button>
+			{/if}
+			<button
+				onclick={abort}
+				disabled={!streaming}
+				class="rounded bg-rose-500 px-3 py-1.5 text-xs text-brand-text transition-colors hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
+				title="Abort"
+			>
+				Abort
+			</button>
+		</div>
 	</div>
 
 	<!-- Custom Confirm Modal for Existing Folders -->
