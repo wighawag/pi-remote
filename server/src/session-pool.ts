@@ -276,6 +276,8 @@ export interface DiskSessionInfo {
   modified: Date;
   messageCount: number;
   firstMessage: string;
+  /** Parent session path from the header (`parentSession`), if forked. */
+  parentSessionPath?: string;
 }
 
 /**
@@ -297,6 +299,9 @@ function buildDiskSessionInfo(filePath: string): DiskSessionInfo | null {
     const header = entries[0];
     if (header?.type !== 'session') return null;
 
+    const parentSessionPath = typeof header.parentSession === 'string' && header.parentSession
+      ? header.parentSession
+      : undefined;
     const stats = fs.statSync(filePath);
     let messageCount = 0;
     let firstMessage = '';
@@ -336,6 +341,7 @@ function buildDiskSessionInfo(filePath: string): DiskSessionInfo | null {
       modified,
       messageCount,
       firstMessage: firstMessage || '(no messages)',
+      ...(parentSessionPath ? { parentSessionPath } : {}),
     };
   } catch {
     return null;
@@ -1101,6 +1107,77 @@ export class SessionPool {
     return createPromise;
   }
 
+  /**
+   * Fork a session at a specific user message, mirroring pi's `/fork` with the
+   * default `position: 'before'`. Opens the SOURCE session file, validates that
+   * `entryId` points at a `user` message, and creates a NEW branched session
+   * file containing only root -> the entry BEFORE that user message (the user
+   * entry's parent). The new file's header records `parentSession` = source
+   * path (so the fork hierarchy is captured), and the chosen user message's
+   * text is returned as `prefillText` for the client to drop into the composer
+   * to edit and resend.
+   *
+   * Does NOT build a live agent or attach any client: the caller loads the
+   * returned `sessionFile` through the normal `session_load` path, reusing all
+   * the existing fast-first-load / attach machinery.
+   */
+  async forkSession(
+    sessionFileOrId: string,
+    entryId: string,
+  ): Promise<{ sessionFile: string; cwd: string; prefillText: string } | { error: string }> {
+    const resolved = await this.resolveSessionFile(sessionFileOrId);
+    if (resolved.error || !resolved.resolvedFile) {
+      return { error: resolved.error ?? 'Could not resolve session' };
+    }
+    const sourceFile = resolved.resolvedFile;
+
+    try {
+      const sessionManager = SessionManager.open(sourceFile);
+      const selectedEntry = sessionManager.getEntry(entryId);
+      if (!selectedEntry) {
+        return { error: 'Invalid entry id for forking' };
+      }
+      if (selectedEntry.type !== 'message' || (selectedEntry as SessionMessageEntry).message.role !== 'user') {
+        return { error: 'Fork target must be a user message' };
+      }
+
+      const userMsg = (selectedEntry as SessionMessageEntry).message;
+      const prefillText = this.extractMessageText(userMsg) || '';
+
+      // pi's position:'before' -> the new branch ends just BEFORE the chosen
+      // user message, i.e. at that entry's parent. A null parent means the user
+      // message is the very first entry; forking before it yields an empty
+      // session that still records the parent lineage.
+      const targetLeafId = selectedEntry.parentId;
+
+      let forkedFile: string | undefined;
+      if (!targetLeafId) {
+        // Nothing precedes the chosen message: create a fresh session in the
+        // same cwd that records the parent lineage, matching pi's newSession
+        // ({ parentSession }) branch of fork().
+        const forkManager = SessionManager.create(
+          sessionManager.getCwd(),
+          sessionManager.getSessionDir(),
+        );
+        forkManager.newSession({ parentSession: sourceFile });
+        forkedFile = forkManager.getSessionFile();
+      } else {
+        forkedFile = sessionManager.createBranchedSession(targetLeafId);
+      }
+
+      if (!forkedFile) {
+        return { error: 'Failed to create forked session' };
+      }
+      return {
+        sessionFile: normalizeSessionFile(forkedFile),
+        cwd: normalizePath(sessionManager.getCwd()),
+        prefillText,
+      };
+    } catch (err) {
+      return { error: (err as Error).message };
+    }
+  }
+
   addClient(sessionFileOrId: string, clientId: string): TrackedSession | null {
     const tracked = this.getSession(sessionFileOrId);
     if (!tracked) return null;
@@ -1190,7 +1267,10 @@ export class SessionPool {
         if (msg.role === 'user') {
           const content = this.extractMessageText(msg);
           if (content) {
-            messages.push({ role: 'user', content, timestamp: ts });
+            // Carry the source entry id so the client can "Fork from here"
+            // (fork BEFORE this user entry, pi's default position:'before').
+            const entryId = typeof msgEntry.id === 'string' ? msgEntry.id : undefined;
+            messages.push({ role: 'user', content, timestamp: ts, ...(entryId ? { entryId } : {}) });
           }
         } else if (msg.role === 'assistant') {
           const content = msg.content;
@@ -1342,6 +1422,7 @@ export class SessionPool {
           modified: s.modified,
           messageCount: s.messageCount,
           firstMessage: s.firstMessage,
+          parentSessionPath: s.parentSessionPath,
         })),
       );
     }
@@ -1444,7 +1525,9 @@ export class SessionPool {
       }
       const active = this.getSession(s.path);
       folderMap.get(cwd)!.push({
-        path: s.path,
+        // Normalize so a child's parentSessionPath (also normalized) matches this
+        // path exactly when the client builds the fork-hierarchy tree.
+        path: normalizeSessionFile(s.path),
         id: s.id,
         name: s.name,
         created: safeToISOString(s.created),
@@ -1455,6 +1538,7 @@ export class SessionPool {
         firstMessage: previewText(s.firstMessage),
         isActive: !!active,
         clientCount: active ? active.clients.size : 0,
+        ...(s.parentSessionPath ? { parentSessionPath: normalizeSessionFile(s.parentSessionPath) } : {}),
       });
     }
 

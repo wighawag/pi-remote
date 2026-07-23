@@ -1859,6 +1859,30 @@ async function handleWSMessage(
       break;
     }
 
+    case 'session_fork': {
+      // Fork the given session at a specific user-message entry (pi's default
+      // position:'before'). The server only CREATES the branched file here; the
+      // client then loads it through the normal session_load path, reusing the
+      // existing fast-first-load/attach machinery. This keeps forking a thin
+      // "make a new file + tell me its path + pre-fill text" operation.
+      const forked = await pool.forkSession(msg.sessionId, msg.entryId);
+      if ('error' in forked) {
+        sendWS(client.ws, { type: 'session_error', sessionId: msg.sessionId, error: forked.error });
+        return;
+      }
+      sendWS(client.ws, {
+        type: 'session_forked',
+        sourceSessionId: msg.sessionId,
+        sessionFile: forked.sessionFile,
+        cwd: forked.cwd,
+        prefillText: forked.prefillText,
+      });
+      // The fork produced a new session file on disk; refresh session lists so
+      // the new node appears in the hierarchy for all clients.
+      onSessionsUpdated();
+      break;
+    }
+
     case 'session_leave': {
       if (client.sessionId) {
         switchClientSession(client, null, pool, onSessionsUpdated);

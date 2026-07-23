@@ -35,6 +35,12 @@ export interface FolderSessionInfo {
   firstMessage: string;
   isActive: boolean;
   clientCount: number;
+  /**
+   * Absolute path of the parent session this one was forked from (from the
+   * session header's `parentSession`), or undefined for a root session. Lets
+   * the client build the fork hierarchy tree, mirroring pi's session selector.
+   */
+  parentSessionPath?: string;
 }
 
 export interface FolderWithSessions {
@@ -67,6 +73,13 @@ export interface HistoryMessage {
   timestamp: number;
   toolName?: string;
   isError?: boolean;
+  /**
+   * The source session-tree entry id this message was mapped from. Set on
+   * `user` messages so the client can offer a "Fork from here" affordance that
+   * forks the session BEFORE this entry (pi's `position: 'before'` semantics),
+   * pre-filling the composer with this message's text to edit and resend.
+   */
+  entryId?: string;
   /**
    * The tool-call id. Set on `tool_call` (the id the assistant issued) and on
    * `tool_result` (the toolCallId it satisfies). Lets the client pair a result

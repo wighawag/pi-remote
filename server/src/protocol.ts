@@ -21,6 +21,13 @@ export type ClientMessage =
   | { type: 'session_load'; sessionFile: string; cwd?: string; model?: string }
   | { type: 'history_load_more'; sessionId: string; beforeOffset: number }
   | { type: 'session_new'; cwd: string; model?: string; gitInit?: boolean; createRemote?: boolean; repoVisibility?: 'private' | 'public'; cloneRemote?: boolean }
+  // Client -> server: fork the given session at a specific user-message entry,
+  // mirroring pi's `/fork` (position 'before'). The server creates a new
+  // branched session file (root -> the entry before `entryId`) that records
+  // `parentSession` = the source, and replies with `session_forked` carrying
+  // the new file path + the chosen message's text to pre-fill the composer.
+  // The client then loads the new session via the normal `session_load` flow.
+  | { type: 'session_fork'; sessionId: string; entryId: string }
   | { type: 'session_leave'; sessionId: string }
   // Client -> server: the user clicked "Continue anyway" on the folder-conflict
   // warning banner. The server lifts this client's read-only flag so it can send
@@ -89,6 +96,11 @@ export type ServerMessage =
   | { type: 'context_usage'; sessionId: string; contextUsage: ContextUsageInfo | null }
   | { type: 'session_destroyed'; sessionId: string; reason: string }
   | { type: 'session_error'; sessionId?: string; error: string; detail?: string }
+  // Server -> client: a `session_fork` succeeded. `sessionFile` is the new
+  // forked session's file path; the client should load it (normal session_load)
+  // and pre-fill the composer with `prefillText` (the forked-at user message,
+  // ready to edit and resend). `sourceSessionId` echoes what was forked.
+  | { type: 'session_forked'; sourceSessionId: string; sessionFile: string; cwd: string; prefillText: string }
   // Server -> client: whether ANOTHER active session exists in the same folder
   // as this client's current session. Sent as a live update (on top of the
   // initial `folderConflict` flag in session_created) so the warning banner can

@@ -10,6 +10,7 @@
 		uploadFile,
 		beginFilePicker,
 		endFilePicker,
+		composerPrefill,
 	} from '$lib/wherever';
 	import {isStreaming, isReadOnly, activeSessionInfo} from '$lib/wherever';
 	import {getBaseUrl, getToken} from '$lib/session-store';
@@ -127,6 +128,26 @@
 			}
 			text = saved ?? '';
 			hydratedKey = key;
+		});
+	});
+
+	// Fork prefill: when the fork-at-user-message flow sets composerPrefill (a
+	// bumped {text, bump}), drop that text into the box for the user to edit and
+	// send, mirroring pi's `/fork`. Keyed on `bump` so re-applying the same text
+	// works; guarded so bump:0 (the initial empty value) is ignored. Runs after a
+	// session switch, so it deliberately wins over the (empty) hydrated draft.
+	let appliedPrefillBump = $state(0);
+	$effect(() => {
+		const {text: prefillText, bump} = $composerPrefill;
+		if (bump === 0 || bump === appliedPrefillBump) return;
+		appliedPrefillBump = bump;
+		untrack(() => {
+			// Ensure the current key is treated as hydrated so the persist effect
+			// saves this prefilled draft rather than being skipped/overwritten.
+			hydratedKey = draftKey;
+			text = prefillText;
+			if (isCollapsed) isCollapsed = false;
+			queueMicrotask(() => textarea?.focus());
 		});
 	});
 

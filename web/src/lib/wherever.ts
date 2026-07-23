@@ -275,11 +275,53 @@ state.subscribe((s) => {
 // session_created arrives, then send it as the first message of that session.
 let pendingSearchQuery: string | null = null;
 
+// Composer prefill: text to drop into the message box (to edit and send), used
+// by the fork-at-user-message flow to mirror pi's `/fork` position:'before'
+// (which hands you the forked-at message to edit and resend). The composer
+// watches this store, applies the text to its textarea, and clears it. A bump
+// counter guarantees the composer re-applies even when the same text is set
+// twice in a row.
+export const composerPrefill = writable<{text: string; bump: number}>({
+	text: '',
+	bump: 0,
+});
+
+export function prefillComposer(text: string) {
+	composerPrefill.update((p) => ({text, bump: p.bump + 1}));
+}
+
+// After a `session_fork` succeeds, the server returns the new session file plus
+// the forked-at message text. Hold that text here until the new session is
+// created/loaded, then push it into the composer so it lands in the RIGHT
+// (forked) session, not the source one.
+let pendingForkPrefill: string | null = null;
+
 // Sync WebSocket messages with Svelte session-store state side-effects
 client.onMessage((msg) => {
 	switch (msg.type) {
+		case 'session_forked': {
+			// The server created the branched session file. Load it (switching away
+			// from the source), and stash the forked-at message text so it is dropped
+			// into the composer once the new session is active.
+			const forkedMsg = msg as {
+				sessionFile: string;
+				cwd: string;
+				prefillText: string;
+			};
+			pendingForkPrefill = forkedMsg.prefillText ?? '';
+			switchSession(forkedMsg.sessionFile, forkedMsg.cwd);
+			break;
+		}
+
 		case 'session_created':
 			setCurrentSession(msg.sessionFile);
+			if (pendingForkPrefill !== null) {
+				const text = pendingForkPrefill;
+				pendingForkPrefill = null;
+				// Defer so the composer has hydrated the (empty) new-session draft
+				// before we overwrite it with the forked-at text.
+				queueMicrotask(() => prefillComposer(text));
+			}
 			if (pendingSearchQuery !== null) {
 				const query = pendingSearchQuery;
 				pendingSearchQuery = null;
@@ -295,6 +337,8 @@ client.onMessage((msg) => {
 			// A search that failed to create a session must not leave a stale
 			// pending query that would fire on the next unrelated session.
 			pendingSearchQuery = null;
+			// Likewise, a failed fork must not leak its prefill into a later session.
+			pendingForkPrefill = null;
 			break;
 
 		case 'session_destroyed':
@@ -429,6 +473,14 @@ export function switchSession(
 	model?: string,
 ) {
 	client.switchSession(sessionFile, cwd, model);
+}
+
+// Fork the given session at a specific user-message entry (pi's `/fork`,
+// position 'before'). The server creates the branched session file and replies
+// with `session_forked`, which the onMessage handler above turns into a switch
+// to the new session + a composer prefill of the forked-at message text.
+export function forkSession(sessionId: string, entryId: string) {
+	client.forkSession(sessionId, entryId);
 }
 
 export function createSession(

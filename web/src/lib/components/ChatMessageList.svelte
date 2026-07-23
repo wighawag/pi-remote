@@ -21,6 +21,7 @@
 		setBeepSessionOverride,
 		isReadOnly,
 		downloadFileUrl,
+		forkSession,
 	} from '$lib/wherever';
 	import {mediaKind, extractDownloadablePath} from '$lib/core/media-kind';
 	import {
@@ -303,6 +304,18 @@
 	let sessionInfo = $derived($activeSessionInfo);
 	let loadingSession = $derived($isLoadingSession);
 	let resyncing = $derived($isResyncing);
+	let readOnly = $derived($isReadOnly);
+
+	// Fork-at-user-message (pi's `/fork`, position 'before'). Clicking the fork
+	// icon on a user message asks the server to branch the session BEFORE that
+	// message; the response switches us to the new session and pre-fills the
+	// composer with the forked-at text to edit and resend.
+	function handleFork(entryId: string | undefined) {
+		if (!entryId) return;
+		const sessionId = sessionInfo.sessionId;
+		if (!sessionId) return;
+		forkSession(sessionId, entryId);
+	}
 
 	// Per-session beep control is tri-state: undefined = follow the global
 	// default, true/false = an explicit choice that sticks to this session.
@@ -1700,6 +1713,19 @@
 									<span>·</span>
 								{/if}
 								{formatTime(msg.timestamp)}
+								{#if msg.role === 'user' && msg.entryId && sessionInfo.sessionId && !readOnly && msg.delivery === undefined && !$pendingSteering.includes(msg.content)}
+									<span>·</span>
+									<button
+										type="button"
+										onclick={() => handleFork(msg.entryId)}
+										class="inline-flex items-center gap-0.5 rounded px-1 py-0.5 opacity-70 transition-opacity hover:opacity-100 hover:text-brand-blue"
+										title="Fork the conversation from this message (edit and resend)"
+										aria-label="Fork from this message"
+									>
+										<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3 w-3"><circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="8" r="2.2"/><path d="M6 8.2v7.6"/><path d="M18 10.2c0 3-3 3.8-6 3.8"/></svg>
+										Fork
+									</button>
+								{/if}
 							</div>
 							{#if msg.role === 'user' && $pendingSteering.includes(msg.content)}
 								<!-- This user message is a mid-stream steer that is still QUEUED on

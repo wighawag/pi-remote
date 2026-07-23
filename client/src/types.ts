@@ -13,6 +13,11 @@ export interface ChatMessage {
 	toolName?: string;
 	toolArgs?: string;
 	toolOutput?: string;
+	// The source session-tree entry id this message maps to. Set on `user`
+	// messages (from history) so the UI can offer a "Fork from here" action that
+	// forks the session BEFORE this entry (pi's position:'before'), pre-filling
+	// the composer with this message's text to edit and resend.
+	entryId?: string;
 	// Image attachments extracted from a tool result (e.g. `read` on an image
 	// file). `data` is base64 (no data-URI prefix); rendered inline in the tool
 	// output, mirroring the CLI's inline image display.

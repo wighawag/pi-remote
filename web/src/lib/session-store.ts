@@ -11,6 +11,9 @@ export interface SessionInfo {
 	firstMessage: string;
 	isActive: boolean;
 	clientCount: number;
+	// Absolute path of the parent session this one was forked from, or undefined
+	// for a root session. Used to build the fork-hierarchy tree in the browser.
+	parentSessionPath?: string;
 }
 
 export interface FolderWithSessions {

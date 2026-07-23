@@ -1522,6 +1522,9 @@ export class WhereverClient {
           isStreaming: false,
           toolName: m.toolName,
           sessionId,
+          // Carry the source entry id (set on user messages by the server) so the
+          // UI can offer "Fork from here" on each user message.
+          ...(typeof m.entryId === 'string' && m.entryId ? {entryId: m.entryId} : {}),
         });
       }
     }
@@ -1975,6 +1978,17 @@ export class WhereverClient {
     this.clearCreateWatchdog();
     this.send({type: 'session_load', sessionFile, cwd, model});
     this.armLoadWatchdog();
+  }
+
+  // Fork the given session at a specific user-message entry, mirroring pi's
+  // `/fork` (position 'before'). The server creates a new branched session file
+  // and replies with `session_forked` (carrying the new file path + the chosen
+  // message's text). The app layer listens for that reply, switches to the new
+  // session, and pre-fills the composer. This method only issues the request;
+  // it does not itself change the active session.
+  public forkSession(sessionId: string, entryId: string): boolean {
+    if (!sessionId || !entryId) return false;
+    return this.send({type: 'session_fork', sessionId, entryId});
   }
 
   public createSession(

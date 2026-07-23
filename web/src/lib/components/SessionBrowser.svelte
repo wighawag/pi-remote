@@ -160,6 +160,43 @@
 		}
 	}
 
+	// Flatten a folder's sessions into a fork-hierarchy tree (mirrors pi's session
+	// selector). A session whose `parentSessionPath` matches another session's
+	// `path` (in this folder) is nested under it; roots are everything else.
+	// Returns each session with a `depth` for indentation, ordered depth-first so a
+	// child renders directly beneath its parent. Cross-folder parents (a fork into
+	// a different cwd) simply surface as roots here, since we only tree WITHIN a
+	// folder. Cycle-safe via a visited set.
+	function buildForkTree(
+		sessions: FolderWithSessions['sessions'],
+	): {session: FolderWithSessions['sessions'][number]; depth: number}[] {
+		const byPath = new Map<string, FolderWithSessions['sessions'][number]>();
+		for (const s of sessions) byPath.set(s.path, s);
+		const childrenOf = new Map<string, FolderWithSessions['sessions'][number][]>();
+		const roots: FolderWithSessions['sessions'][number][] = [];
+		for (const s of sessions) {
+			const parent = s.parentSessionPath;
+			if (parent && byPath.has(parent) && parent !== s.path) {
+				if (!childrenOf.has(parent)) childrenOf.set(parent, []);
+				childrenOf.get(parent)!.push(s);
+			} else {
+				roots.push(s);
+			}
+		}
+		const out: {session: FolderWithSessions['sessions'][number]; depth: number}[] = [];
+		const visited = new Set<string>();
+		const walk = (s: FolderWithSessions['sessions'][number], depth: number) => {
+			if (visited.has(s.path)) return;
+			visited.add(s.path);
+			out.push({session: s, depth});
+			for (const child of childrenOf.get(s.path) ?? []) walk(child, depth + 1);
+		};
+		for (const r of roots) walk(r, 0);
+		// Safety net: include any session dropped by a cycle so nothing vanishes.
+		for (const s of sessions) if (!visited.has(s.path)) out.push({session: s, depth: 0});
+		return out;
+	}
+
 	function handleSessionClick(sessionPath: string) {
 		// Tapping the already-active session (and not currently loading) is a no-op.
 		if (currentSession === sessionPath && !loadingSession && !resyncing) return;
@@ -739,13 +776,24 @@
 								</div>
 							{/if}
 
-							{#each folder.sessions as session (session.path)}
+							{#each buildForkTree(folder.sessions) as {session, depth} (session.path)}
 								<div
-									class="group flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-brand-surface-3/30 {currentSession ===
+									style={depth > 0 ? `margin-left: ${depth * 0.85}rem` : ''}
+									class="group flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-brand-surface-3/30 {depth >
+									0
+										? 'border-l border-brand-border/60 pl-2'
+										: ''} {currentSession ===
 									session.path
 										? 'bg-brand-surface-3'
 										: ''}"
 								>
+									{#if depth > 0}
+										<span
+											class="flex-shrink-0 text-brand-text-muted"
+											title="Forked from the session above"
+											aria-label="Forked session">↳</span
+										>
+									{/if}
 									<a
 										href="#{encodeURIComponent(session.id)}"
 										onclick={(e) => {
