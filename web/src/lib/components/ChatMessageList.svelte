@@ -1713,12 +1713,16 @@
 									<span>·</span>
 								{/if}
 								{formatTime(msg.timestamp)}
-								{#if msg.role === 'user' && msg.entryId && sessionInfo.sessionId && !readOnly && msg.delivery === undefined && !$pendingSteering.includes(msg.content)}
-									<span>·</span>
+							</div>
+							{#if msg.role === 'user' && msg.entryId && sessionInfo.sessionId && !readOnly && msg.delivery === undefined && !$pendingSteering.includes(msg.content)}
+								<!-- Fork-from-here lives OUTSIDE the opacity-50 footer above, so it is
+								     fully opaque and its hover state is clearly visible (a parent
+								     opacity would otherwise cap the child's hover:opacity-100). -->
+								<div class="mt-1 flex justify-end">
 									<button
 										type="button"
 										onclick={() => handleFork(msg.entryId)}
-										class="inline-flex items-center gap-0.5 rounded px-1 py-0.5 opacity-70 transition-opacity hover:text-brand-blue hover:opacity-100"
+										class="inline-flex items-center gap-1 rounded border border-brand-border/60 bg-brand-surface-3/60 px-2 py-0.5 text-xs font-medium text-brand-text-muted transition-colors hover:border-brand-blue hover:bg-brand-blue/15 hover:text-brand-blue"
 										title="Fork the conversation from this message (edit and resend)"
 										aria-label="Fork from this message"
 									>
@@ -1730,7 +1734,7 @@
 											stroke-width="2"
 											stroke-linecap="round"
 											stroke-linejoin="round"
-											class="h-3 w-3"
+											class="h-3.5 w-3.5"
 											><circle cx="6" cy="6" r="2.2" /><circle
 												cx="6"
 												cy="18"
@@ -1741,8 +1745,8 @@
 										>
 										Fork
 									</button>
-								{/if}
-							</div>
+								</div>
+							{/if}
 							{#if msg.role === 'user' && $pendingSteering.includes(msg.content)}
 								<!-- This user message is a mid-stream steer that is still QUEUED on
 								     the server (pi injects it at the next step boundary). Show a
