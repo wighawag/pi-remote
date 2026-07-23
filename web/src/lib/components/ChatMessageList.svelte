@@ -1718,11 +1718,27 @@
 									<button
 										type="button"
 										onclick={() => handleFork(msg.entryId)}
-										class="inline-flex items-center gap-0.5 rounded px-1 py-0.5 opacity-70 transition-opacity hover:opacity-100 hover:text-brand-blue"
+										class="inline-flex items-center gap-0.5 rounded px-1 py-0.5 opacity-70 transition-opacity hover:text-brand-blue hover:opacity-100"
 										title="Fork the conversation from this message (edit and resend)"
 										aria-label="Fork from this message"
 									>
-										<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3 w-3"><circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="8" r="2.2"/><path d="M6 8.2v7.6"/><path d="M18 10.2c0 3-3 3.8-6 3.8"/></svg>
+										<svg
+											xmlns="http://www.w3.org/2000/svg"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											class="h-3 w-3"
+											><circle cx="6" cy="6" r="2.2" /><circle
+												cx="6"
+												cy="18"
+												r="2.2"
+											/><circle cx="18" cy="8" r="2.2" /><path
+												d="M6 8.2v7.6"
+											/><path d="M18 10.2c0 3-3 3.8-6 3.8" /></svg
+										>
 										Fork
 									</button>
 								{/if}

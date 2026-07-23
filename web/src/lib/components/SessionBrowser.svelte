@@ -172,7 +172,10 @@
 	): {session: FolderWithSessions['sessions'][number]; depth: number}[] {
 		const byPath = new Map<string, FolderWithSessions['sessions'][number]>();
 		for (const s of sessions) byPath.set(s.path, s);
-		const childrenOf = new Map<string, FolderWithSessions['sessions'][number][]>();
+		const childrenOf = new Map<
+			string,
+			FolderWithSessions['sessions'][number][]
+		>();
 		const roots: FolderWithSessions['sessions'][number][] = [];
 		for (const s of sessions) {
 			const parent = s.parentSessionPath;
@@ -183,7 +186,10 @@
 				roots.push(s);
 			}
 		}
-		const out: {session: FolderWithSessions['sessions'][number]; depth: number}[] = [];
+		const out: {
+			session: FolderWithSessions['sessions'][number];
+			depth: number;
+		}[] = [];
 		const visited = new Set<string>();
 		const walk = (s: FolderWithSessions['sessions'][number], depth: number) => {
 			if (visited.has(s.path)) return;
@@ -193,7 +199,8 @@
 		};
 		for (const r of roots) walk(r, 0);
 		// Safety net: include any session dropped by a cycle so nothing vanishes.
-		for (const s of sessions) if (!visited.has(s.path)) out.push({session: s, depth: 0});
+		for (const s of sessions)
+			if (!visited.has(s.path)) out.push({session: s, depth: 0});
 		return out;
 	}
 
@@ -776,14 +783,13 @@
 								</div>
 							{/if}
 
-							{#each buildForkTree(folder.sessions) as {session, depth} (session.path)}
+							{#each buildForkTree(folder.sessions) as { session, depth } (session.path)}
 								<div
 									style={depth > 0 ? `margin-left: ${depth * 0.85}rem` : ''}
 									class="group flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-brand-surface-3/30 {depth >
 									0
 										? 'border-l border-brand-border/60 pl-2'
-										: ''} {currentSession ===
-									session.path
+										: ''} {currentSession === session.path
 										? 'bg-brand-surface-3'
 										: ''}"
 								>
