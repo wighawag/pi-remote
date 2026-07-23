@@ -197,6 +197,29 @@ The service runs a fixed path to the installed `wherever-dev` package, so updati
 
 > On Linux user services, run `loginctl enable-linger $USER` if you want the service to keep running after you log out. Windows is not supported yet; run `wherever start` manually or use a tool like NSSM.
 
+> **Linux `PATH` / environment caveat (important).** A systemd **user** service does **not** source your login shell (`~/.profile`, `~/.bashrc`, `~/.config/fish/config.fish`, etc.). It inherits the **systemd user manager's** environment, which your desktop session imports separately, and it **snapshots that environment once at start** and never re-reads it. Two consequences follow:
+>
+> - Your curated dev `PATH` (volta, pixi, pnpm, cargo, foundry, ...) is only visible to the service if it was imported into the user manager **before** the service started. Your shell config alone does not put it there.
+> - That import can happen in **stages** during login. If the service starts during a window where the manager's `PATH` is still incomplete (for example missing the system dirs `/usr/bin`, `/bin`), it freezes that incomplete `PATH` for its whole lifetime. Every tool it later shells out to (`git`, `ssh`, coreutils, and anything you drive through it) then fails to be found with an opaque `ENOENT`, and this is **intermittent** because it depends purely on start-time ordering. A later `export PATH=...` in a shell cannot fix it: it cannot mutate the already-running service's frozen environment.
+>
+> To get your full, correct `PATH` into the service, use ONE of these (systemd-native; do **not** try to make the unit "source fish/bash"):
+>
+> 1. **Import your session PATH into the user manager, then (re)start the service after it:**
+>    ```bash
+>    systemctl --user import-environment PATH
+>    systemctl --user restart wherever
+>    ```
+>    This copies your current shell-built `PATH` (volta/pixi/etc included) into the manager so the service inherits it. Many desktops already run `import-environment` at login; the point is that `wherever` must start *after* it. If your login does not import it reliably, add the two lines above to your session startup.
+> 2. **Pin a `PATH` on the unit (deterministic, but static).** Edit `~/.config/systemd/user/wherever.service`, add an `Environment=PATH=...` line under `[Service]` that includes at least the system dirs (`/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`) plus any tool-manager dirs you need (e.g. `%h/.volta/bin:%h/.local/bin:%h/.cargo/bin`), then `systemctl --user daemon-reload && systemctl --user restart wherever`. This never races, but you now maintain the list by hand and it will not auto-track new tool-manager dirs. A `~/.config/environment.d/10-path.conf` with `PATH=...` achieves the same for all user services.
+>
+> Diagnose the running service's actual `PATH` with:
+> ```bash
+> systemctl --user show wherever -p Environment
+> systemctl --user show-environment | grep '^PATH='
+> tr '\0' '\n' < /proc/$(systemctl --user show wherever -p ExecMainPID --value)/environ | grep '^PATH='
+> ```
+> If that `PATH` is missing `/usr/bin` (or a tool dir you expect), it started too early: import/pin as above and restart. Restarting drops in-flight sessions, so do it when idle.
+
 > Note: the server is started with the explicit `wherever start` verb. A bare `wherever` prints the command help. All server flags below apply to `wherever start`.
 
 ---
