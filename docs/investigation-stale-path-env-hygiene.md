@@ -4,9 +4,14 @@ Status: investigation. Read-only on the live service; no code change and no serv
 
 ## Summary
 
-wherever runs as a long-lived systemd **user** service that snapshots `process.env` once at start and passes it, essentially unmodified, to every child it spawns (pi sessions, bash-tool subprocesses, and through them dorfl -> git). Because a systemd user manager's `PATH` is imported in stages and wherever's unit pins no `PATH` of its own, a service that happens to start before the system block (`/usr/local/bin:/usr/bin:/bin:...`) is imported will freeze a `/usr/bin`-less PATH for its entire lifetime. Every descendant that resolves a core binary (git, ssh, coreutils) against `PATH` is then exposed to an opaque, start-time-ordering-dependent `ENOENT`. This is a wherever-level environment-hygiene problem, independent of the dorfl fix.
+wherever runs as a long-lived systemd **user** service that snapshots `process.env` once at start and passes it, essentially unmodified, to every child it spawns (pi sessions, bash-tool subprocesses, and through them dorfl -> git). Because a systemd user manager's `PATH` is imported in stages and wherever's unit pins no `PATH` of its own, a service that happens to start before the system block (`/usr/local/bin:/usr/bin:/bin:...`) is imported will freeze a `/usr/bin`-less PATH for its entire lifetime. Every descendant that resolves a core binary (git, ssh, coreutils) against `PATH` is then exposed to `ENOENT`. This is a wherever-level environment-hygiene problem, independent of the dorfl fix.
 
-The failing `dorfl do ... --isolated --merge --review` run predates the current import state, so the live service does not reproduce it now (its current snapshot DOES contain `/usr/bin`). The trace below is confirmed against the code and the live machine anyway.
+**Two distinct layers, do not conflate them (corrected after reading the richelieu sessions):**
+
+1. **Why the PATH was broken at all (wherever / systemd setup):** the frozen `process.env.PATH` in the wherever process omitted `/usr/bin`. On the machine's richelieu drive this was **constant for the whole process lifetime**, not intermittent. That is the staged-import / snapshot-once story below.
+2. **Why the git failure was intermittent across consecutive tasks (dorfl-internal):** given that constant broken PATH, whether any individual `git` spawn fails depends on **which dorfl code path built the `env` for that spawn**. dorfl spawns `spawnSync('git', args, { env: options.env ?? process.env })`; some call sites pass an explicit `env` and some default to `process.env`, and Node resolves the bare `'git'` against whichever `env.PATH` that spawn received. Different tasks/gates exercise different call sites, so one task's git calls hit a PATH-less env and the next task's do not. This toggling is **entirely inside dorfl** and has nothing to do with systemd start-time ordering.
+
+So: the systemd race explains why *this wherever instance had a `/usr/bin`-less PATH at all*; it does **not** explain the task-to-task toggling. Earlier drafts of this note wrongly attributed the intermittency to service start-time ordering; that is corrected here. The failing `dorfl do ... --isolated --merge --review` run predates the current import state, so the live service does not reproduce the broken-PATH condition now (its current snapshot DOES contain `/usr/bin`).
 
 ## The chain, re-verified on this machine
 
@@ -56,9 +61,19 @@ Nuance worth carrying: pi resolves the **shell binary itself** to an absolute `/
 
 Net confirmation: nothing guarantees wherever.service starts only after a complete PATH is imported. A `WantedBy=default.target` user service can be activated during the window where the manager PATH is partial. If it starts then, it freezes the partial PATH, and the export-in-a-later-shell trick cannot help because it mutates a different (child) shell, never the already-frozen service parent that every grandchild inherits from.
 
+### 5. Evidence from the richelieu drive sessions (why it looked intermittent within one process)
+
+Session files under `~/.pi/agent/sessions/` confirm the two-layer split above:
+
+- `--home-wighawag-dev-github-wighawag-richelieu--/2026-07-23T08-02-40-048Z_...jsonl` is the drive session. It ran `dorfl do task:<slug> --isolated --merge --review` for several richelieu tasks in **one wherever process**. `memory-pillar-open-world-lifecycle` built and merged fine; the very next task `attention-retrieval-pillar-thicken` died with `failed to spawn 'git': spawnSync git ENOENT` at the claim/`git switch` step, with the **same** PATH.
+- The in-session diagnosis (assistant messages id `c828ca9f`, `f6993981`, `7d2b25ec`) established: the bash-tool `process.env.PATH` was the volta/pixi/brew/.local/bin list **without** `/usr/bin` for the whole session (constant, not flapping); `git` is at `/usr/bin/git`; wherever's own git calls worked because they run through a shell, but the spawned dorfl child inherited the `/usr/bin`-less PATH.
+- The intermittency was pinned to dorfl: `dist/git.js` `run()`/`runAsync()` spawn `('git', args, { env: options.env ?? process.env })`, and `dist/identity.js` `identityEnv(identity, base = process.env)` builds the env as `{ ...base }` (preserves, does not strip, PATH). Because many call sites pass an explicit `{ env }` and others default to `process.env`, which git spawns fail is call-site-dependent, hence task-to-task toggling.
+- The durable workaround the session applied is the clincher: symlinking `~/.local/bin/git -> /usr/bin/git`. `~/.local/bin` **was** on the propagated PATH, so bare `'git'` then resolved regardless of which env dorfl built for the spawn. That only makes sense if the variance is "which env is handed to the spawn," not "is the parent PATH sometimes fixed."
+
 ### Anything that contradicts the trace?
 
-- The **live** snapshot currently contains `/usr/bin`, so the bug does not reproduce right now. This does not contradict the trace; it matches the stated "failing run predates the current import state". The defect is the *freezing of a possibly-partial PATH*, not a permanently-broken current value.
+- The **live** snapshot currently contains `/usr/bin`, so the broken-PATH condition does not reproduce right now. This matches "failing run predates the current import state." The defect is the *freezing of a possibly-partial PATH*, not a permanently-broken current value.
+- The failure being **intermittent within a single process** initially looked like it contradicted the frozen-snapshot story (one snapshot cannot be sometimes-broken). It does not: the snapshot was constantly broken; dorfl's per-call-site env construction is what toggled the visible failure. The systemd layer explains the broken PATH; the dorfl layer explains the intermittency.
 - pi resolving `/bin/bash` absolutely slightly narrows the blast radius (the shell itself won't ENOENT), but does not remove it: every tool the shell invokes by name is still PATH-dependent. dorfl -> `git` is precisely that case.
 
 ## Solution space (tradeoffs, no pick)
