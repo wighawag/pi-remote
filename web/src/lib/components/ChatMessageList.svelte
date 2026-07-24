@@ -86,8 +86,35 @@
 		return `${u.percent.toFixed(1)}% / ${window}`;
 	});
 
+	// A `/skill:<name> <args>` invocation is EXPANDED server-side before it is
+	// stored/echoed, so what actually reaches us as the user message is the full
+	// skill block (the skill body wrapped in a <skill> element), optionally
+	// followed by the trailing argument text the user typed after the skill name.
+	// The raw `/skill:...` invocation is not preserved anywhere, so we recover the
+	// skill NAME and the ARGS by parsing that expanded block back out. Matches
+	// both the live echo and history-reloaded messages (both carry the expansion).
+	// The expansion format (pi's _expandSkillCommand) is:
+	//   <skill name="NAME" location="...">\n...body...\n</skill>
+	// with an optional `\n\n<args>` appended when the user typed arguments.
+	function parseSkillInvocation(
+		content: string,
+	): {skillName: string; args: string} | null {
+		const trimmed = content.trimStart();
+		const open = trimmed.match(/^<skill\s+name="([^"]*)"[^>]*>/);
+		if (!open) return null;
+		const closeIdx = trimmed.indexOf('</skill>');
+		if (closeIdx === -1) return null;
+		const skillName = open[1];
+		// Whatever follows the closing tag is the trailing args the user typed after
+		// `/skill:<name> ` (pi joins it with a blank line). Empty when none.
+		const args = trimmed.slice(closeIdx + '</skill>'.length).trim();
+		return {skillName, args};
+	}
+
 	function parseUserMessage(content: string) {
-		if (!content) return {cleanContent: '', attachments: []};
+		if (!content) return {cleanContent: '', attachments: [], skill: null};
+		const skill = parseSkillInvocation(content);
+		if (skill) return {cleanContent: '', attachments: [], skill};
 		const lines = content.split('\n');
 		const fileRegex = /^\[Uploaded file: (.+)\]$/;
 		const cleanLines: string[] = [];
@@ -106,7 +133,7 @@
 		if (cleanContent === 'I have uploaded the following file(s) for you:') {
 			cleanContent = '';
 		}
-		return {cleanContent, attachments};
+		return {cleanContent, attachments, skill: null};
 	}
 
 	let newFolderCwd = $state('');
@@ -1653,32 +1680,63 @@
 							{/if}
 						{:else}
 							{@const parsedUserMsg = parseUserMessage(msg.content)}
-							<div
-								class="chat-selectable text-sm leading-relaxed whitespace-pre-wrap"
-							>
-								{#if parsedUserMsg.cleanContent}
-									{@const userHtml = renderUser(parsedUserMsg.cleanContent)}
-									{#if userHtml}
-										<!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via DOMPurify in linkifyText -->
-										<span>{@html userHtml}</span>
-									{:else}
-										{parsedUserMsg.cleanContent}
-									{/if}
-								{:else if parsedUserMsg.attachments.length > 0}
-									<span class="text-brand-text-muted italic"
-										>Shared file{parsedUserMsg.attachments.length > 1
-											? 's'
-											: ''} with agent:</span
-									>
-								{:else}
-									{msg.content || (msg.isStreaming ? 'Thinking...' : '')}
-								{/if}
-								{#if msg.isStreaming && streaming}
+							{#if parsedUserMsg.skill}
+								<!-- A `/skill:<name> <args>` invocation. The message is stored/
+								     echoed EXPANDED (the full skill body). Display the compact
+								     invocation instead: a skill chip with the skill name, plus the
+								     trailing args the user typed after the skill name (if any). -->
+								<div class="chat-selectable flex flex-col gap-1.5">
 									<span
-										class="ml-1 inline-block h-4 w-1.5 animate-pulse bg-brand-cyan"
-									></span>
-								{/if}
-							</div>
+										class="inline-flex w-fit items-center gap-1.5 rounded bg-brand-blue/25 px-2 py-0.5 font-mono text-xs font-medium text-brand-text ring-1 ring-brand-blue/40"
+										title="Skill invocation (expanded for the agent)"
+									>
+										<svg
+											xmlns="http://www.w3.org/2000/svg"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											class="h-3.5 w-3.5"
+											><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z" /></svg
+										>
+										<span>skill:{parsedUserMsg.skill.skillName}</span>
+									</span>
+									{#if parsedUserMsg.skill.args}
+										<div class="text-sm leading-relaxed whitespace-pre-wrap">
+											{parsedUserMsg.skill.args}
+										</div>
+									{/if}
+								</div>
+							{:else}
+								<div
+									class="chat-selectable text-sm leading-relaxed whitespace-pre-wrap"
+								>
+									{#if parsedUserMsg.cleanContent}
+										{@const userHtml = renderUser(parsedUserMsg.cleanContent)}
+										{#if userHtml}
+											<!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via DOMPurify in linkifyText -->
+											<span>{@html userHtml}</span>
+										{:else}
+											{parsedUserMsg.cleanContent}
+										{/if}
+									{:else if parsedUserMsg.attachments.length > 0}
+										<span class="text-brand-text-muted italic"
+											>Shared file{parsedUserMsg.attachments.length > 1
+												? 's'
+												: ''} with agent:</span
+										>
+									{:else}
+										{msg.content || (msg.isStreaming ? 'Thinking...' : '')}
+									{/if}
+									{#if msg.isStreaming && streaming}
+										<span
+											class="ml-1 inline-block h-4 w-1.5 animate-pulse bg-brand-cyan"
+										></span>
+									{/if}
+								</div>
+							{/if}
 							{#if parsedUserMsg.attachments.length > 0}
 								<div
 									class="mt-2 flex flex-col gap-1 border-t border-brand-blue/20 pt-2"
