@@ -175,3 +175,60 @@ export interface ContextUsage {
 	contextWindow: number;
 	percent: number | null;
 }
+
+// A parsed `/skill:<name> <args>` invocation. `skillName` is the bare skill
+// name; `args` is the trailing text the user typed after `/skill:<name>` (empty
+// when none).
+export interface SkillInvocation {
+	skillName: string;
+	args: string;
+}
+
+// Recognize a `/skill:<name> <args>` invocation in EITHER form and return its
+// parsed parts, or null when the content is not a skill invocation.
+//
+// Two forms carry the same logical invocation and must be treated as one:
+//   - RAW: what the client sends and optimistically echoes, e.g.
+//       `/skill:setup do the thing`
+//   - EXPANDED: what the server stores/echoes back after pi inlines the skill
+//     body (pi's _expandSkillCommand), e.g.
+//       `<skill name="setup" location="...">\n...body...\n</skill>\n\ndo the thing`
+// Both resolve to { skillName: 'setup', args: 'do the thing' }. This lets the
+// delivery-confirmation match the optimistic RAW echo to the server's EXPANDED
+// echo (same invocation) instead of appending a duplicate and orphaning the
+// optimistic bubble as "failed".
+export function parseSkillInvocation(
+	content: string,
+): SkillInvocation | null {
+	if (!content) return null;
+	const trimmed = content.trimStart();
+	// Expanded form: the stored/echoed skill block.
+	const open = trimmed.match(/^<skill\s+name="([^"]*)"[^>]*>/);
+	if (open) {
+		const closeIdx = trimmed.indexOf('</skill>');
+		if (closeIdx === -1) return null;
+		return {
+			skillName: open[1],
+			args: trimmed.slice(closeIdx + '</skill>'.length).trim(),
+		};
+	}
+	// Raw form: the `/skill:<name> <args>` the user typed / the client sent.
+	if (trimmed.startsWith('/skill:')) {
+		const rest = trimmed.slice('/skill:'.length);
+		const spaceIdx = rest.indexOf(' ');
+		const skillName = spaceIdx === -1 ? rest : rest.slice(0, spaceIdx);
+		if (!skillName) return null;
+		const args = spaceIdx === -1 ? '' : rest.slice(spaceIdx + 1).trim();
+		return {skillName, args};
+	}
+	return null;
+}
+
+// A stable identity string for a skill invocation, or null when `content` is not
+// one. Equal identities mean the RAW and EXPANDED forms are the same invocation.
+// The NUL separator cannot appear in either the name or the args.
+export function skillInvocationIdentity(content: string): string | null {
+	const parsed = parseSkillInvocation(content);
+	if (!parsed) return null;
+	return `skill:${parsed.skillName}\u0000${parsed.args}`;
+}

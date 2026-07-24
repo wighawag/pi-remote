@@ -1,5 +1,5 @@
 import { writable, get, type Writable } from "sveltore";
-import { type ChatMessage, type WhereverState } from "./types.js";
+import { type ChatMessage, type WhereverState, skillInvocationIdentity } from "./types.js";
 
 export interface WhereverClientConfig {
   host: string;
@@ -820,6 +820,32 @@ export class WhereverClient {
               if (confirmedPending) {
                 // Re-read: confirmDeliveredByContent already updated the store.
                 return get(this.stateStore);
+              }
+            }
+            // Skill invocations arrive TWICE from the server: first the RAW
+            // `/skill:<name> <args>` (as the immediate message_ack, which already
+            // confirmed the optimistic bubble by exact content), then the
+            // EXPANDED skill block (this message_end echo). They are the same
+            // invocation, so instead of appending the expanded form as a
+            // duplicate, REWRITE the already-present raw bubble to the expanded
+            // content so it renders as the skill chip.
+            const echoIdentity =
+              msg.role === 'user' ? skillInvocationIdentity(msg.content) : null;
+            if (echoIdentity) {
+              const existing = [...newMessages]
+                .reverse()
+                .find(
+                  (m) =>
+                    m.role === 'user' &&
+                    skillInvocationIdentity(m.content) === echoIdentity,
+                );
+              if (existing) {
+                if (existing.content !== msg.content) {
+                  newMessages = newMessages.map((m) =>
+                    m.id === existing.id ? {...m, content: msg.content} : m,
+                  );
+                }
+                return {...s, messages: newMessages};
               }
             }
             const lastUserMessage = [...newMessages]
@@ -1856,20 +1882,49 @@ export class WhereverClient {
   // Mark the oldest still-unconfirmed user message with this content as
   // delivered (the server echoed it back). Content-matched because the server
   // echo carries no client message id. Returns true if one was confirmed.
+  //
+  // Skill invocations need a looser match: the client optimistically echoes the
+  // RAW `/skill:<name> <args>`, but the server echoes the EXPANDED skill block
+  // (pi inlines the skill body before storing/echoing). Exact-content matching
+  // would miss, leaving the raw bubble orphaned as "failed" AND appending the
+  // expanded echo as a duplicate. So fall back to matching a pending message
+  // whose skill-invocation IDENTITY (name + args) equals the echo's, and REWRITE
+  // its content to the confirmed (expanded) form so it renders as the skill chip
+  // and the server's own echo is then deduped against it.
   private confirmDeliveredByContent(content: string): boolean {
     let confirmedId: string | null = null;
     let sessionId: string | null = null;
+    const echoIdentity = skillInvocationIdentity(content);
     this.stateStore.update((st: WhereverState) => {
-      const target = st.messages.find(
+      let target = st.messages.find(
         (m) => m.role === 'user' && m.delivery !== undefined && m.content === content,
       );
+      // Skill-identity fallback: match the RAW optimistic echo to this EXPANDED
+      // server echo when they are the same invocation.
+      if (!target && echoIdentity) {
+        target = st.messages.find(
+          (m) =>
+            m.role === 'user' &&
+            m.delivery !== undefined &&
+            skillInvocationIdentity(m.content) === echoIdentity,
+        );
+      }
       if (!target) return st;
       confirmedId = target.id;
       sessionId = st.sessionId;
       return {
         ...st,
         messages: st.messages.map((m) =>
-          m.id === target.id ? {...m, delivery: undefined} : m,
+          m.id === target!.id
+            ? {
+                ...m,
+                delivery: undefined,
+                // Adopt the expanded content so the skill chip renders (and the
+                // server's message_end echo dedupes against it instead of
+                // appending a second bubble).
+                ...(echoIdentity ? {content} : {}),
+              }
+            : m,
         ),
       };
     });

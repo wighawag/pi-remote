@@ -142,6 +142,83 @@ describe('outbound message delivery confirmation', () => {
 		).toBe(1);
 	});
 
+	// A `/skill:<name> <args>` invocation is optimistically echoed RAW, but the
+	// server confirms it via a RAW message_ack (mid-stream steer) and then echoes
+	// the EXPANDED skill block back as message_end role:user. Both refer to the
+	// same invocation: the client must confirm the one bubble and rewrite it to
+	// the expanded form, NEVER leave the raw one orphaned as failed nor append the
+	// expanded one as a duplicate.
+	const EXPANDED_SETUP =
+		'<skill name="setup" location="/a/b/SKILL.md">\nReferences are relative to /a/b.\n\nBody here.\n</skill>';
+
+	it('skill: message_end (expanded) confirms the raw optimistic bubble, no duplicate', () => {
+		client.sendMessage('/skill:setup');
+		expect(
+			state().messages.find((x) => x.content === '/skill:setup')!.delivery,
+		).toBe('sending');
+
+		// Server echoes the EXPANDED block (no prior message_ack, e.g. not streaming).
+		ws.last().receive({
+			type: 'message_end',
+			sessionId: 'sid-1',
+			role: 'user',
+			content: EXPANDED_SETUP,
+		});
+
+		const users = state().messages.filter((x) => x.role === 'user');
+		expect(users.length).toBe(1);
+		expect(users[0].delivery).toBeUndefined();
+		// Rewritten to the expanded form so the skill chip renders.
+		expect(users[0].content).toBe(EXPANDED_SETUP);
+
+		// Even past the window it stays confirmed (watchdog cleared).
+		vi.advanceTimersByTime(12_000);
+		expect(
+			state().messages.find((x) => x.role === 'user')!.delivery,
+		).toBeUndefined();
+	});
+
+	it('skill: raw message_ack then expanded message_end yields one confirmed chip', () => {
+		client.sendMessage('/skill:setup');
+		// Mid-stream steer path: server acks the RAW content immediately.
+		ws.last().receive({
+			type: 'message_ack',
+			sessionId: 'sid-1',
+			content: '/skill:setup',
+		});
+		expect(
+			state().messages.find((x) => x.role === 'user')!.delivery,
+		).toBeUndefined();
+
+		// Later, pi echoes the EXPANDED block at the next model call.
+		ws.last().receive({
+			type: 'message_end',
+			sessionId: 'sid-1',
+			role: 'user',
+			content: EXPANDED_SETUP,
+		});
+
+		const users = state().messages.filter((x) => x.role === 'user');
+		expect(users.length).toBe(1);
+		expect(users[0].delivery).toBeUndefined();
+		expect(users[0].content).toBe(EXPANDED_SETUP);
+	});
+
+	it('skill: preserves the trailing args when matching raw to expanded', () => {
+		client.sendMessage('/skill:setup do the thing');
+		const expandedWithArgs = `${EXPANDED_SETUP}\n\ndo the thing`;
+		ws.last().receive({
+			type: 'message_end',
+			sessionId: 'sid-1',
+			role: 'user',
+			content: expandedWithArgs,
+		});
+		const users = state().messages.filter((x) => x.role === 'user');
+		expect(users.length).toBe(1);
+		expect(users[0].delivery).toBeUndefined();
+		expect(users[0].content).toBe(expandedWithArgs);
+	});
+
 	it('flips to failed when no echo arrives within the window (half-open loss)', () => {
 		// Half-open: send() reports success but the server never processes it, so
 		// no echo is ever received.

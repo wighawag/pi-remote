@@ -2,6 +2,7 @@ import {derived, get, writable} from 'svelte/store';
 import {playInvitingBeep} from './core/beep';
 import {
 	WhereverClient,
+	parseSkillInvocation,
 	type ChatMessage,
 	type WhereverState,
 } from '@wherever-dev/client';
@@ -16,6 +17,7 @@ import {
 } from './session-store';
 
 export type {ChatMessage, WhereverState};
+export {parseSkillInvocation};
 
 function getStoredConfig() {
 	try {

@@ -31,7 +31,7 @@
 		autocompletePath,
 		checkRemoteRepo,
 	} from '$lib/session-store';
-	import type {ChatMessage} from '$lib/wherever';
+	import {parseSkillInvocation, type ChatMessage} from '$lib/wherever';
 	import {onMount} from 'svelte';
 	import {url} from '$lib/core/utils/web/path';
 	import {renderMarkdown, linkifyText} from '$lib/core/utils/markdown';
@@ -86,31 +86,10 @@
 		return `${u.percent.toFixed(1)}% / ${window}`;
 	});
 
-	// A `/skill:<name> <args>` invocation is EXPANDED server-side before it is
-	// stored/echoed, so what actually reaches us as the user message is the full
-	// skill block (the skill body wrapped in a <skill> element), optionally
-	// followed by the trailing argument text the user typed after the skill name.
-	// The raw `/skill:...` invocation is not preserved anywhere, so we recover the
-	// skill NAME and the ARGS by parsing that expanded block back out. Matches
-	// both the live echo and history-reloaded messages (both carry the expansion).
-	// The expansion format (pi's _expandSkillCommand) is:
-	//   <skill name="NAME" location="...">\n...body...\n</skill>
-	// with an optional `\n\n<args>` appended when the user typed arguments.
-	function parseSkillInvocation(
-		content: string,
-	): {skillName: string; args: string} | null {
-		const trimmed = content.trimStart();
-		const open = trimmed.match(/^<skill\s+name="([^"]*)"[^>]*>/);
-		if (!open) return null;
-		const closeIdx = trimmed.indexOf('</skill>');
-		if (closeIdx === -1) return null;
-		const skillName = open[1];
-		// Whatever follows the closing tag is the trailing args the user typed after
-		// `/skill:<name> ` (pi joins it with a blank line). Empty when none.
-		const args = trimmed.slice(closeIdx + '</skill>'.length).trim();
-		return {skillName, args};
-	}
-
+	// `/skill:<name> <args>` invocations are recovered from either their raw or
+	// their expanded (server-stored) form via the shared parseSkillInvocation()
+	// (see @wherever-dev/client), so the composer echo and history reloads render
+	// the same compact skill chip.
 	function parseUserMessage(content: string) {
 		if (!content) return {cleanContent: '', attachments: [], skill: null};
 		const skill = parseSkillInvocation(content);
