@@ -13,8 +13,12 @@
 		composerPrefill,
 	} from '$lib/wherever';
 	import {isStreaming, isReadOnly, activeSessionInfo} from '$lib/wherever';
+	import {getConversationKnobs} from '$lib/wherever';
 	import {getBaseUrl, getToken} from '$lib/session-store';
 	import {decideComposeSend} from '$lib/core/compose-send';
+	import {isKnobActive} from '$lib/core/conversation-mode';
+	import {decideMicReopen} from '$lib/core/hands-free';
+	import {whenTtsIdle} from '$lib/core/speak';
 	import SpeechButton from './speech/SpeechButton.svelte';
 
 	let {
@@ -48,6 +52,14 @@
 	let text = $state('');
 	let enterToSend = $state(true);
 	let isCollapsed = $state(false);
+
+	// Hands-free mic-reopen loop (`micReopensAfterReply` knob). The SpeechButton
+	// child owns the engine + the programmatic recording start; ChatInput owns the
+	// composer focus and already subscribes to the isStreaming settle edge, so the
+	// settle-edge driver lives here. These bindings surface the child's engine and
+	// its instance (for startRecordingProgrammatically) to the driver below.
+	let speechEngine = $state<'browser' | 'cloud'>('browser');
+	let speechButton = $state<{startRecordingProgrammatically: () => void}>();
 
 	// --- Slash-command (skill) autocomplete ---------------------------------
 	// Mirrors the pi CLI: when the message STARTS with a `/` token (no space yet),
@@ -241,6 +253,41 @@
 		if (isCollapsed) isCollapsed = false;
 		textarea?.focus();
 	}
+
+	// --- Hands-free mic-reopen driver --------------------------------------
+	// Mirror the waiting-for-human beep: watch the streaming flag and act on the
+	// isStreaming true->false edge (the moment the agent settles and is waiting for
+	// the human). When the `micReopensAfterReply` knob is active we wait for any
+	// in-flight `say` TTS to finish (whenTtsIdle) so the spoken reply is not
+	// captured as mic input, then either auto-reopen the mic (browser engine) or
+	// re-focus the composer (cloud engine fallback, no auto-record). When the knob
+	// is inactive (conversation mode off, or the knob off) nothing happens.
+	// decideMicReopen is the pure, unit-tested engine-scope rule.
+	let prevStreamingForReopen = false;
+	$effect(() => {
+		const nowStreaming = $isStreaming;
+		const settled = prevStreamingForReopen && !nowStreaming;
+		prevStreamingForReopen = nowStreaming;
+		if (!settled) return;
+		// Snapshot the decision at the settle edge (engine + knob state now). The
+		// TTS wait is async, so guard against acting after the composer is torn down.
+		const action = decideMicReopen({
+			active: isKnobActive('micReopensAfterReply', getConversationKnobs()),
+			engine: speechEngine,
+		});
+		if (action === 'none') return;
+		if (effectivelyDisabled) return;
+		void whenTtsIdle().then(() => {
+			// Re-check: the user may have started streaming again, or the composer may
+			// have been disabled, while TTS was finishing.
+			if ($isStreaming || effectivelyDisabled) return;
+			if (action === 'reopen-mic') {
+				speechButton?.startRecordingProgrammatically();
+			} else {
+				focusInput();
+			}
+		});
+	});
 
 	function toggleEnterToSend() {
 		enterToSend = !enterToSend;
@@ -674,7 +721,9 @@
 				{/if}
 				<div class="flex w-full justify-center">
 					<SpeechButton
+						bind:this={speechButton}
 						bind:text
+						bind:activeEngine={speechEngine}
 						disabled={effectivelyDisabled}
 						onSend={handleSend}
 					/>

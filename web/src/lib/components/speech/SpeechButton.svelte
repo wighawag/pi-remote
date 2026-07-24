@@ -6,10 +6,17 @@
 		text = $bindable(),
 		disabled,
 		onSend,
+		activeEngine = $bindable('browser'),
 	}: {
 		text: string;
 		disabled: boolean;
 		onSend?: () => void;
+		// The speech engine currently in use, mirrored out to the parent so the
+		// hands-free mic-reopen loop can pick the right action (browser -> auto
+		// reopen the mic; cloud -> re-focus the composer). Bindable so a parent can
+		// read it reactively; SpeechButton owns the value (the settings popover sets
+		// it), the parent only observes.
+		activeEngine?: 'browser' | 'cloud';
 	} = $props();
 
 	// Check for Web Speech API support
@@ -29,6 +36,12 @@
 	let locale = $state('en-US');
 	let engine = $state<'browser' | 'cloud'>('browser');
 	let speechError = $state<string | null>(null);
+
+	// Keep the bindable `activeEngine` prop in lockstep with the internal engine
+	// choice so the parent (the hands-free loop) always sees the live engine.
+	$effect(() => {
+		activeEngine = engine;
+	});
 
 	// Gesture & API Tracking
 	let pressTimer = $state<any>(null);
@@ -441,6 +454,15 @@
 		} else {
 			startBrowserRecording();
 		}
+	}
+
+	// Public: programmatically start recording, for the hands-free mic-reopen loop
+	// (browser engine only; the parent gates on the engine + knob before calling).
+	// Exposed via bind:this so the settle-edge driver in ChatInput can auto-restart
+	// streaming recognition after a reply settles, exactly as a manual tap would.
+	// Guarded by the same disabled/recording checks as a user gesture.
+	export function startRecordingProgrammatically() {
+		startRecording();
 	}
 
 	function stopRecording() {
