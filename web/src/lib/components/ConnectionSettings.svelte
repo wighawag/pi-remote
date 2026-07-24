@@ -27,6 +27,10 @@
 	let localHideThinking = $state(false);
 	let localBeepDefault = $state(false);
 	let localBeepSoundUrl = $state('');
+	let localConversationMode = $state(false);
+	let localSpeakReplies = $state(false);
+	let localCollapseLongReplies = $state(false);
+	let localMicReopensAfterReply = $state(false);
 	let saving = $state(false);
 	let connected = $derived($isConnected);
 
@@ -38,6 +42,10 @@
 		localHideThinking = !!config.hideThinking;
 		localBeepDefault = !!config.beepDefault;
 		localBeepSoundUrl = config.beepSoundUrl || '';
+		localConversationMode = !!config.conversationMode;
+		localSpeakReplies = !!config.speakReplies;
+		localCollapseLongReplies = !!config.collapseLongReplies;
+		localMicReopensAfterReply = !!config.micReopensAfterReply;
 	});
 
 	function handleTestBeep() {
@@ -55,6 +63,10 @@
 			hideTools: false,
 			beepDefault: localBeepDefault,
 			beepSoundUrl: localBeepSoundUrl.trim(),
+			conversationMode: localConversationMode,
+			speakReplies: localSpeakReplies,
+			collapseLongReplies: localCollapseLongReplies,
+			micReopensAfterReply: localMicReopensAfterReply,
 		});
 	}
 
@@ -67,6 +79,10 @@
 			hideTools: false,
 			beepDefault: localBeepDefault,
 			beepSoundUrl: localBeepSoundUrl.trim(),
+			conversationMode: localConversationMode,
+			speakReplies: localSpeakReplies,
+			collapseLongReplies: localCollapseLongReplies,
+			micReopensAfterReply: localMicReopensAfterReply,
 		});
 		disconnect();
 		setTimeout(() => connect(), 100);
@@ -176,6 +192,77 @@
 				>
 					Test
 				</button>
+			</div>
+		</div>
+
+		<div class="space-y-2 border-t border-brand-border pt-3">
+			<div class="flex items-center gap-2 py-1">
+				<input
+					id="pi-conversation-mode"
+					type="checkbox"
+					bind:checked={localConversationMode}
+					onchange={handleConfigChange}
+					class="h-4 w-4 rounded border-brand-border bg-brand-surface-2 text-brand-blue focus:ring-brand-blue focus:ring-offset-0"
+				/>
+				<label
+					for="pi-conversation-mode"
+					class="cursor-pointer text-xs font-medium text-brand-text select-none"
+				>
+					Conversation Mode (spoken back-and-forth)
+				</label>
+			</div>
+			<p class="pl-6 text-[10px] leading-relaxed text-brand-text-muted">
+				Flips the knobs below on at once. When off, they are dormant and the
+				default typing-first experience is unchanged. Auto-send on speech end
+				(Direct Send, in Speech Settings) keeps its own effect regardless.
+			</p>
+
+			<div class="flex items-center gap-2 py-1 pl-6">
+				<input
+					id="pi-speak-replies"
+					type="checkbox"
+					bind:checked={localSpeakReplies}
+					onchange={handleConfigChange}
+					class="h-4 w-4 rounded border-brand-border bg-brand-surface-2 text-brand-blue focus:ring-brand-blue focus:ring-offset-0"
+				/>
+				<label
+					for="pi-speak-replies"
+					class="cursor-pointer text-xs text-brand-text select-none"
+				>
+					Speak replies aloud (browser TTS)
+				</label>
+			</div>
+
+			<div class="flex items-center gap-2 py-1 pl-6">
+				<input
+					id="pi-collapse-long-replies"
+					type="checkbox"
+					bind:checked={localCollapseLongReplies}
+					onchange={handleConfigChange}
+					class="h-4 w-4 rounded border-brand-border bg-brand-surface-2 text-brand-blue focus:ring-brand-blue focus:ring-offset-0"
+				/>
+				<label
+					for="pi-collapse-long-replies"
+					class="cursor-pointer text-xs text-brand-text select-none"
+				>
+					Collapse long written replies
+				</label>
+			</div>
+
+			<div class="flex items-center gap-2 py-1 pl-6">
+				<input
+					id="pi-mic-reopen"
+					type="checkbox"
+					bind:checked={localMicReopensAfterReply}
+					onchange={handleConfigChange}
+					class="h-4 w-4 rounded border-brand-border bg-brand-surface-2 text-brand-blue focus:ring-brand-blue focus:ring-offset-0"
+				/>
+				<label
+					for="pi-mic-reopen"
+					class="cursor-pointer text-xs text-brand-text select-none"
+				>
+					Re-open mic after the agent speaks (hands-free)
+				</label>
 			</div>
 		</div>
 

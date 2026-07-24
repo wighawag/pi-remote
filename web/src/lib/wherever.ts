@@ -35,6 +35,10 @@ function saveConfig(config: {
 	hideTools?: boolean;
 	beepDefault?: boolean;
 	beepSoundUrl?: string;
+	conversationMode?: boolean;
+	speakReplies?: boolean;
+	collapseLongReplies?: boolean;
+	micReopensAfterReply?: boolean;
 }) {
 	localStorage.setItem('wherever-config', JSON.stringify(config));
 }
@@ -104,6 +108,10 @@ export function getConfig() {
 			hideTools: false,
 			beepDefault: false,
 			beepSoundUrl: '',
+			conversationMode: false,
+			speakReplies: false,
+			collapseLongReplies: false,
+			micReopensAfterReply: false,
 			...stored,
 		};
 	}
@@ -115,6 +123,10 @@ export function getConfig() {
 		hideTools: false,
 		beepDefault: false,
 		beepSoundUrl: '',
+		conversationMode: false,
+		speakReplies: false,
+		collapseLongReplies: false,
+		micReopensAfterReply: false,
 	};
 }
 
@@ -226,6 +238,124 @@ export function setBeepSessionOverride(value: boolean | undefined) {
 // session follows the default; a session with a stored choice keeps it.
 export function setBeepSessionKey(key: string | null) {
 	beepSessionKeyStore.set(key ?? '');
+}
+
+// --- Conversation mode knobs ------------------------------------------------
+// Conversation mode is a saved PRESET over a set of independent boolean knobs
+// (see core/conversation-mode.ts for the registry + gating logic). This block
+// is the persistence + reactive-store wiring, mirroring the beepDefault pattern:
+// each knob has exactly ONE canonical localStorage home.
+//
+//   - autoSendOnSpeechEnd IS the pre-existing directSend flag, so it reuses the
+//     `wherever-speech-direct-send` key (NOT a forked second flag) and stays the
+//     SAME underlying value SpeechButton reads/writes. It is therefore NOT gated
+//     by the master toggle (story 14): a standalone-set directSend still
+//     auto-sends with conversation mode off.
+//   - conversationMode (the master) + the purely-conversation knobs
+//     (speakReplies, collapseLongReplies, micReopensAfterReply) live as boolean
+//     fields in the single `wherever-config` entry via getConfig()/saveConfig().
+const DIRECT_SEND_KEY = 'wherever-speech-direct-send';
+
+function readDirectSend(): boolean {
+	try {
+		return localStorage.getItem(DIRECT_SEND_KEY) === 'true';
+	} catch {}
+	return false;
+}
+
+// autoSendOnSpeechEnd === directSend. Reflected here so a change made in either
+// this store or SpeechButton is observable from the same single key.
+export const autoSendOnSpeechEnd = writable<boolean>(
+	typeof localStorage !== 'undefined' ? readDirectSend() : false,
+);
+
+export function getAutoSendOnSpeechEnd(): boolean {
+	return readDirectSend();
+}
+
+export function setAutoSendOnSpeechEnd(value: boolean) {
+	try {
+		localStorage.setItem(DIRECT_SEND_KEY, String(value));
+	} catch {}
+	autoSendOnSpeechEnd.set(value);
+}
+
+// The master toggle + the purely-conversation knobs, backed by wherever-config.
+const conversationModeStore = writable<boolean>(!!getConfig().conversationMode);
+const speakRepliesStore = writable<boolean>(!!getConfig().speakReplies);
+const collapseLongRepliesStore = writable<boolean>(
+	!!getConfig().collapseLongReplies,
+);
+const micReopensAfterReplyStore = writable<boolean>(
+	!!getConfig().micReopensAfterReply,
+);
+
+export const conversationMode = {subscribe: conversationModeStore.subscribe};
+export const speakReplies = {subscribe: speakRepliesStore.subscribe};
+export const collapseLongReplies = {
+	subscribe: collapseLongRepliesStore.subscribe,
+};
+export const micReopensAfterReply = {
+	subscribe: micReopensAfterReplyStore.subscribe,
+};
+
+export function getConversationMode(): boolean {
+	return get(conversationModeStore);
+}
+
+// Set the master toggle. Persists to config AND updates the reactive store.
+// This does NOT force the purely-conversation knobs on/off: they keep their
+// configured values and become active only while the master is on (the gating
+// lives in isKnobActive; see core/conversation-mode.ts). It also does NOT touch
+// autoSendOnSpeechEnd (= directSend), whose standalone effect must survive the
+// master being off.
+export function setConversationMode(value: boolean) {
+	const config = getConfig();
+	saveConfig({...config, conversationMode: value});
+	conversationModeStore.set(value);
+}
+
+export function setSpeakReplies(value: boolean) {
+	const config = getConfig();
+	saveConfig({...config, speakReplies: value});
+	speakRepliesStore.set(value);
+}
+
+export function setCollapseLongReplies(value: boolean) {
+	const config = getConfig();
+	saveConfig({...config, collapseLongReplies: value});
+	collapseLongRepliesStore.set(value);
+}
+
+export function setMicReopensAfterReply(value: boolean) {
+	const config = getConfig();
+	saveConfig({...config, micReopensAfterReply: value});
+	micReopensAfterReplyStore.set(value);
+}
+
+// The whole knob bundle as a plain object, for isKnobActive()/bundleOn() from
+// core/conversation-mode.ts.
+export function getConversationKnobs(): {
+	conversationMode: boolean;
+	autoSendOnSpeechEnd: boolean;
+	speakReplies: boolean;
+	collapseLongReplies: boolean;
+	micReopensAfterReply: boolean;
+} {
+	return {
+		conversationMode: getConversationMode(),
+		autoSendOnSpeechEnd: getAutoSendOnSpeechEnd(),
+		speakReplies: get(speakRepliesStore),
+		collapseLongReplies: get(collapseLongRepliesStore),
+		micReopensAfterReply: get(micReopensAfterReplyStore),
+	};
+}
+
+// Flip the master ON (bundling in the configured knobs) or OFF. Mirrors
+// bundleOn() from core/conversation-mode.ts: turning it off dormant-izes the
+// gated knobs but does NOT force autoSendOnSpeechEnd off.
+export function setConversationModeBundle(on: boolean) {
+	setConversationMode(on);
 }
 
 // Instantiate the isomorphic WhereverClient
@@ -561,17 +691,34 @@ export function setConfig(config: {
 	hideTools?: boolean;
 	beepDefault?: boolean;
 	beepSoundUrl?: string;
+	conversationMode?: boolean;
+	speakReplies?: boolean;
+	collapseLongReplies?: boolean;
+	micReopensAfterReply?: boolean;
 }) {
 	saveConfig(config);
-	// beepDefault/beepSoundUrl are frontend-only preferences; the client config
-	// has no such fields, so forward only the fields it understands.
+	// beepDefault/beepSoundUrl and the conversation-mode knobs are frontend-only
+	// preferences; the client config has no such fields, so forward only the
+	// fields it understands.
 	const {host, port, token, hideThinking, hideTools} = config;
 	client.setConfig({host, port, token, hideThinking, hideTools});
-	// Keep the reactive beep-default store in sync so beepEnabled recomputes when
-	// the Config menu changes the default (this is the path the settings UI uses,
-	// not setBeepDefault). Only when the field is actually present in this update.
+	// Keep the reactive stores in sync so derived state recomputes when the
+	// settings UI changes a value (this is the path the settings UI uses, not the
+	// dedicated setters). Only when the field is actually present in this update.
 	if (config.beepDefault !== undefined) {
 		beepDefaultStore.set(!!config.beepDefault);
+	}
+	if (config.conversationMode !== undefined) {
+		conversationModeStore.set(!!config.conversationMode);
+	}
+	if (config.speakReplies !== undefined) {
+		speakRepliesStore.set(!!config.speakReplies);
+	}
+	if (config.collapseLongReplies !== undefined) {
+		collapseLongRepliesStore.set(!!config.collapseLongReplies);
+	}
+	if (config.micReopensAfterReply !== undefined) {
+		micReopensAfterReplyStore.set(!!config.micReopensAfterReply);
 	}
 }
 

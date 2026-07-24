@@ -19,6 +19,8 @@
 		beepEnabled,
 		beepSessionOverride,
 		setBeepSessionOverride,
+		conversationMode,
+		setConversationModeBundle,
 		isReadOnly,
 		downloadFileUrl,
 		forkSession,
@@ -330,6 +332,13 @@
 	// session, so it tracks the default live.
 	let beepOverride = $derived($beepSessionOverride);
 	let beepOn = $derived($beepEnabled);
+	// The Conversation Mode master toggle: one click flips the configured bundle
+	// of knobs ON at once (and back OFF). The knobs it gates are edited
+	// individually in Connection Settings.
+	let conversationOn = $derived($conversationMode);
+	function toggleConversationMode() {
+		setConversationModeBundle(!conversationOn);
+	}
 	function cycleBeep() {
 		if (beepOverride === undefined) setBeepSessionOverride(true);
 		else if (beepOverride === true) setBeepSessionOverride(false);
@@ -1884,6 +1893,24 @@
 					</span>
 				</button>
 			{/if}
+
+			<!-- Conversation Mode master toggle: flips the configured knob bundle on
+			     at once (speak replies, collapse long replies, hands-free mic re-open).
+			     Individual knobs are edited in Connection Settings. -->
+			<button
+				type="button"
+				onclick={toggleConversationMode}
+				class="flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs select-none hover:text-brand-text {conversationOn
+					? 'text-brand-blue'
+					: 'text-brand-text-muted'}"
+				title={conversationOn
+					? 'Conversation Mode: ON. Click to turn off (the configured knobs go dormant).'
+					: 'Conversation Mode: OFF. Click to flip your configured bundle of speech/voice knobs on at once.'}
+				aria-label="Toggle conversation mode"
+			>
+				<span>{conversationOn ? '🗣️' : '💬'}</span>
+				<span>{conversationOn ? 'Conversation: On' : 'Conversation: Off'}</span>
+			</button>
 
 			<!-- Context-window usage, e.g. "11.3% / 1.0M" -->
 			{#if contextLabel}

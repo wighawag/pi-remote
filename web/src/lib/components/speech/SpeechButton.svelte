@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {onMount} from 'svelte';
+	import {autoSendOnSpeechEnd, setAutoSendOnSpeechEnd} from '$lib/wherever';
 
 	let {
 		text = $bindable(),
@@ -52,14 +53,16 @@
 		{code: 'en-ZA', label: 'English (South Africa)'},
 	];
 
+	// directSend IS the conversation-mode `autoSendOnSpeechEnd` knob: it shares the
+	// single `wherever-speech-direct-send` home via the autoSendOnSpeechEnd store
+	// (see wherever.ts), so a change here or in the settings UI is reflected in the
+	// other without a forked second flag.
+	const unsubscribeDirectSend = autoSendOnSpeechEnd.subscribe((v) => {
+		directSend = v;
+	});
+
 	onMount(() => {
-		// Load preferences
-		const storedDirectSend = localStorage.getItem(
-			'wherever-speech-direct-send',
-		);
-		if (storedDirectSend !== null) {
-			directSend = storedDirectSend === 'true';
-		}
+		// Load preferences (directSend is loaded via the autoSendOnSpeechEnd store).
 		const storedLocale = localStorage.getItem('wherever-speech-locale');
 		if (storedLocale !== null) {
 			locale = storedLocale;
@@ -73,6 +76,7 @@
 
 		// Cleanup on destroy
 		return () => {
+			unsubscribeDirectSend();
 			if (recognitionInstance) {
 				try {
 					recognitionInstance.abort();
@@ -103,7 +107,9 @@
 	});
 
 	function savePreferences() {
-		localStorage.setItem('wherever-speech-direct-send', String(directSend));
+		// directSend persists via its shared store (single canonical home) so the
+		// conversation-mode autoSendOnSpeechEnd knob and this toggle stay in sync.
+		setAutoSendOnSpeechEnd(directSend);
 		localStorage.setItem('wherever-speech-locale', locale);
 		localStorage.setItem('wherever-speech-engine', engine);
 	}
