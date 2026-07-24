@@ -599,30 +599,30 @@
 							<li>
 								<button
 									type="button"
-								role="option"
-								aria-selected={i === skillMenuIndex}
-								onmousedown={(e) => {
-									// mousedown (not click) so the textarea doesn't blur first and
-									// tear the menu down before the selection lands.
-									e.preventDefault();
-									applySkill(skill.name);
-								}}
-								onmouseenter={() => (skillMenuIndex = i)}
-								class="flex w-full flex-col items-start gap-0.5 px-3 py-1.5 text-left text-sm {i ===
-								skillMenuIndex
-									? 'bg-brand-surface-3 text-brand-text'
-									: 'text-brand-text-muted hover:bg-brand-surface-3/60'}"
-							>
-								<span class="font-mono text-brand-text">/{skill.name}</span>
-								{#if skill.description}
-									<span class="line-clamp-1 text-[11px] text-brand-text-muted"
-										>{skill.description}</span
-									>
-								{/if}
-							</button>
-						</li>
-					{/each}
-				</ul>
+									role="option"
+									aria-selected={i === skillMenuIndex}
+									onmousedown={(e) => {
+										// mousedown (not click) so the textarea doesn't blur first and
+										// tear the menu down before the selection lands.
+										e.preventDefault();
+										applySkill(skill.name);
+									}}
+									onmouseenter={() => (skillMenuIndex = i)}
+									class="flex w-full flex-col items-start gap-0.5 px-3 py-1.5 text-left text-sm {i ===
+									skillMenuIndex
+										? 'bg-brand-surface-3 text-brand-text'
+										: 'text-brand-text-muted hover:bg-brand-surface-3/60'}"
+								>
+									<span class="font-mono text-brand-text">/{skill.name}</span>
+									{#if skill.description}
+										<span class="line-clamp-1 text-[11px] text-brand-text-muted"
+											>{skill.description}</span
+										>
+									{/if}
+								</button>
+							</li>
+						{/each}
+					</ul>
 				{/if}
 				<textarea
 					bind:this={textarea}
