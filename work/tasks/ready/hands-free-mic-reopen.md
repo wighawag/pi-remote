@@ -4,6 +4,7 @@ slug: hands-free-mic-reopen
 spec: conversation-mode
 blockedBy: [conversation-mode-knobs-registry, say-tool-tts-and-card]
 covers: [7]
+needsAnswers: true
 ---
 
 ## What to build
