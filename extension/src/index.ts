@@ -529,6 +529,66 @@ export default async function (pi: ExtensionAPI) {
     },
   });
 
+  // Let the agent emit a SHORT spoken-form reply the web UI can speak aloud and
+  // surface while a spoken conversation is active. Like `attach_file`, this is a
+  // SELF-CONTAINED tool: it just validates its `text` argument and returns a
+  // normal tool result carrying that text in `details`. It reads NO files,
+  // depends on NO bridge, and emits no side-channel marker. The spoken-reply
+  // affordance is driven entirely by the tool CALL: every client (web frontend
+  // included) already receives tool_start/tool_end for this call, and the web UI
+  // recognizes the `say` tool name, surfaces the spoken text, and speaks it via
+  // the browser SpeechSynthesis API. This is why it works identically in a
+  // CLI-bridge session and a pure server-side session, with NO new WS message
+  // type and NO new chat role.
+  pi.registerTool({
+    name: "say",
+    label: "Say",
+    description:
+      "Emit a SHORT spoken-form reply that the web UI can speak aloud and surface " +
+      "while a spoken conversation is active. Use this ONLY IN ADDITION to your " +
+      "normal written answer, never instead of it: the full detail stays in the " +
+      "written message, and `say` is just the concise version the human hears and " +
+      "can sanity-check against the full reply. Keep it to one or two sentences of " +
+      "natural, plain spoken language (no code, no markdown, no lists). Only use " +
+      "it while a spoken conversation is active; if the user is typing, a written " +
+      "answer alone is enough.",
+    promptSnippet:
+      "Emit a short spoken-form reply the web UI can speak aloud (in addition to your written answer)",
+    promptGuidelines: [
+      "Use say only while a spoken conversation is active, and only IN ADDITION to your normal written answer, never as a replacement: the full detail stays in the written message.",
+      "Keep say to one or two sentences of plain spoken language (no code, no markdown), a concise version of your answer the human can hear and sanity-check.",
+    ],
+    parameters: Type.Object({
+      text: Type.String({
+        description:
+          "The short spoken-form reply (one or two sentences of plain language) to speak aloud, in addition to your written answer.",
+      }),
+    }),
+    async execute(_toolCallId, params) {
+      const text = String((params as { text?: string }).text || "").trim();
+      if (!text) {
+        return {
+          content: [{ type: "text", text: "say: no text provided." }],
+          details: undefined,
+          isError: true,
+        };
+      }
+
+      // Success. The spoken-reply surface is driven by the tool CALL (the web UI
+      // reads the `text` from details), so we just confirm back to the model. No
+      // filesystem, no bridge, no marker: works in any session type.
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Spoken reply delivered to the conversation.",
+          },
+        ],
+        details: { text },
+      };
+    },
+  });
+
   // Forward the agent's current context-window usage so the web UI can show the
   // "11.3% / 1.0M" indicator for CLI-bridged sessions (the server cannot compute
   // it for these). Best-effort: undefined usage (no model / no turn yet) is sent

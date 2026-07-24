@@ -555,6 +555,7 @@ import type { BashOperations } from '@earendil-works/pi-coding-agent';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createAttachFileTool } from './attach-file-tool.js';
+import { createSayTool } from './say-tool.js';
 import type { AgentSession, AgentSessionEvent } from '@earendil-works/pi-coding-agent';
 import type { Model, Api } from '@earendil-works/pi-ai';
 import type { SessionMessageEntry, SessionEntry } from '@earendil-works/pi-coding-agent';
@@ -850,10 +851,11 @@ export class SessionPool {
           sessionManager,
           settingsManager,
           resourceLoader,
-          // Register attach_file for server-created sessions (web frontend with no
-          // CLI bridge). The tool is self-contained; the download button is driven
-          // by the tool call reaching the web UI, no bridge/marker needed.
-          customTools: [createAttachFileTool(normalizedCwd)],
+          // Register attach_file + say for server-created sessions (web frontend
+          // with no CLI bridge). Both tools are self-contained; their UI affordance
+          // (attach_file's download button, say's spoken-reply card) is driven by
+          // the tool call reaching the web UI, no bridge/marker needed.
+          customTools: [createAttachFileTool(normalizedCwd), createSayTool()],
         });
 
         const modelLabel = agentSession.model ? `${agentSession.model.provider}:${agentSession.model.id}` : '';
@@ -1070,9 +1072,9 @@ export class SessionPool {
           sessionManager,
           settingsManager,
           resourceLoader,
-          // Register attach_file for server-created sessions (see the other
+          // Register attach_file + say for server-created sessions (see the other
           // createAgentSession call for the rationale).
-          customTools: [createAttachFileTool(resolvedCwd)],
+          customTools: [createAttachFileTool(resolvedCwd), createSayTool()],
         });
 
         const sessionFile = normalizeSessionFile(agentSession.sessionFile || '');
