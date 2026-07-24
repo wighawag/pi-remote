@@ -1786,6 +1786,22 @@ async function handleWSMessage(
       break;
     }
 
+    case 'skills_request': {
+      // Serve the skill commands for the requested session so the composer can
+      // offer `/skill:<name>` autocomplete. Resolve against the client's own
+      // attached session (authority) rather than trusting an arbitrary id.
+      const targetFile = client.sessionId;
+      if (!targetFile) return;
+      const tracked = pool.getSession(targetFile);
+      if (!tracked) return;
+      sendWS(client.ws, {
+        type: 'skills_list',
+        sessionId: tracked.sessionId,
+        skills: pool.getSkills(targetFile),
+      });
+      break;
+    }
+
     case 'session_new': {
       const existing = pool.findActiveSessionByCwd(msg.cwd);
       const hasOtherClients = existing && (

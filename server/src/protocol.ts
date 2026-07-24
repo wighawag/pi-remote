@@ -1,5 +1,5 @@
-import { HistoryMessage, ContextUsageInfo, ToolImage } from './session-types.js';
-export type { ContextUsageInfo, ToolImage } from './session-types.js';
+import { HistoryMessage, ContextUsageInfo, ToolImage, SkillCommand } from './session-types.js';
+export type { ContextUsageInfo, ToolImage, SkillCommand } from './session-types.js';
 
 // Initial number of (most recent) history messages sent when a session is
 // loaded/joined. Older messages are fetched lazily via `history_load_more`.
@@ -29,6 +29,10 @@ export type ClientMessage =
   // The client then loads the new session via the normal `session_load` flow.
   | { type: 'session_fork'; sessionId: string; entryId: string }
   | { type: 'session_leave'; sessionId: string }
+  // Client -> server: ask for the skill commands available in this session so
+  // the composer can offer `/skill:<name>` autocomplete. The server replies with
+  // a `skills_list`. Sent once the session is ready; safe to re-request.
+  | { type: 'skills_request'; sessionId: string }
   // Client -> server: the user clicked "Continue anyway" on the folder-conflict
   // warning banner. The server lifts this client's read-only flag so it can send
   // into its session even though another session in the same folder is active.
@@ -128,4 +132,9 @@ export type ServerMessage =
   | { type: 'file_uploaded'; uploadId: string; sessionId: string; filename: string; savedPath: string }
   | { type: 'file_upload_error'; uploadId: string; sessionId: string; error: string }
   | { type: 'sessions_updated' }
+  // Server -> client: the skill commands available for `sessionId`, for the
+  // composer's `/skill:<name>` autocomplete. Each entry's `name` is the full
+  // invocation without the leading slash (e.g. "skill:setup"). Empty for CLI
+  // bridges (they expand skills on their own side) or when none are discovered.
+  | { type: 'skills_list'; sessionId: string; skills: SkillCommand[] }
   | { type: 'pong'; timestamp: number };

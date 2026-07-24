@@ -40,6 +40,7 @@ const defaultState: WhereverState = {
 	loadingMoreHistory: false,
 	contextUsage: null,
 	pendingSteering: [],
+	skills: [],
 };
 
 export class WhereverClient {
@@ -1135,6 +1136,9 @@ export class WhereverClient {
           // Initial context-usage snapshot for the new session (null if unknown;
           // live updates arrive via 'context_usage').
           contextUsage: msg.contextUsage ?? null,
+          // Reset skill-command autocomplete for the newly attached session; the
+          // authoritative list is (re-)requested on session_ready.
+          skills: [],
         }));
         break;
 
@@ -1153,6 +1157,22 @@ export class WhereverClient {
             isStreaming: msg.isStreaming ?? s.isStreaming,
             contextUsage: msg.contextUsage ?? s.contextUsage,
           };
+        });
+        // The live agent (with its resource loader) now exists, so its skill
+        // commands are resolvable. Ask for them to populate `/skill:` composer
+        // autocomplete. Safe to re-request; the server replies with the full list.
+        {
+          const sid = get(this.stateStore).sessionId;
+          if (sid) this.send({ type: 'skills_request', sessionId: sid });
+        }
+        break;
+
+      case 'skills_list':
+        // The set of `/skill:<name>` commands for the active session. Replace
+        // outright; ignore a list for a session we already switched away from.
+        this.stateStore.update((s: WhereverState) => {
+          if (s.sessionId && msg.sessionId && s.sessionId !== msg.sessionId) return s;
+          return { ...s, skills: Array.isArray(msg.skills) ? msg.skills : [] };
         });
         break;
 

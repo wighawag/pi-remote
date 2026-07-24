@@ -49,6 +49,15 @@
 	let enterToSend = $state(true);
 	let isCollapsed = $state(false);
 
+	// --- Slash-command (skill) autocomplete ---------------------------------
+	// Mirrors the pi CLI: when the message STARTS with a `/` token (no space yet),
+	// offer the session's `/skill:<name>` commands. Selecting one only INSERTS
+	// `/skill:<name> ` (trailing space) so the user can keep typing an argument;
+	// it never submits. Expansion happens server-side at send time. `/skill:` is
+	// start-anchored, so a `/` mid-message is ignored, exactly like the CLI.
+	let skillMenuOpen = $state(false);
+	let skillMenuIndex = $state(0);
+
 	let fileInput = $state<HTMLInputElement>();
 	let attachments = $state<
 		{name: string; path?: string; error?: string; uploading: boolean}[]
@@ -59,6 +68,64 @@
 	let sessionInfo = $derived($activeSessionInfo);
 	let connected = $derived($isConnected);
 	let appState = $derived($piState);
+
+	// The `/` token currently being typed at the START of the message, or null
+	// when the message doesn't begin a slash command (no leading `/`, or a space
+	// has already been typed so the command name is committed). Only the leading
+	// token triggers the menu, matching the CLI's start-of-line anchoring.
+	let slashPrefix = $derived.by(() => {
+		if (searchMode) return null;
+		const m = text.match(/^\/([^\s]*)$/);
+		return m ? m[1] : null;
+	});
+
+	// Skill commands the composer can offer, fuzzily filtered by the typed token.
+	// `s.name` is the full invocation without the slash (e.g. "skill:setup"), so
+	// typing "/setu" surfaces "skill:setup" via substring match on the name.
+	let skillMatches = $derived.by(() => {
+		if (slashPrefix === null) return [];
+		const all = appState.skills ?? [];
+		if (all.length === 0) return [];
+		const q = slashPrefix.toLowerCase();
+		const matches = q
+			? all.filter((s) => s.name.toLowerCase().includes(q))
+			: all.slice();
+		// Rank exact-prefix hits ("skill:setup" for "skill:set") above loose
+		// substring hits so the most likely completion is highlighted first.
+		return matches.sort((a, b) => {
+			const ap = a.name.toLowerCase().startsWith(q) ? 0 : 1;
+			const bp = b.name.toLowerCase().startsWith(q) ? 0 : 1;
+			return ap - bp || a.name.localeCompare(b.name);
+		});
+	});
+
+	// Open the menu whenever there are matches for the current slash token, and
+	// keep the highlighted index in range as the list shrinks/grows. Closes when
+	// the token is committed (space typed) or there are no matches.
+	$effect(() => {
+		const count = skillMatches.length;
+		if (count === 0) {
+			if (untrack(() => skillMenuOpen)) skillMenuOpen = false;
+			return;
+		}
+		if (!untrack(() => skillMenuOpen)) skillMenuOpen = true;
+		if (untrack(() => skillMenuIndex) >= count) skillMenuIndex = 0;
+	});
+
+	// Insert `/skill:<name> ` (trailing space), keeping focus and placing the
+	// cursor after the space so the user can immediately type an argument. Never
+	// submits: this only rewrites the composer, exactly like the pi CLI.
+	function applySkill(name: string) {
+		text = `/${name} `;
+		skillMenuOpen = false;
+		skillMenuIndex = 0;
+		queueMicrotask(() => {
+			if (!textarea) return;
+			textarea.focus();
+			const end = text.length;
+			textarea.setSelectionRange(end, end);
+		});
+	}
 
 	// In search mode the composer must work with no active session: it requires
 	// only a live connection and a configured search folder. In chat mode it
@@ -347,6 +414,34 @@
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
+		// Skill autocomplete owns the navigation keys while the menu is open. The
+		// first Enter/Tab ACCEPTS the highlighted command (inserting `/skill:<name> `)
+		// and is swallowed, so a second Enter is needed to actually send, matching the
+		// pi CLI's accept-then-send behaviour and giving the user room to type args.
+		if (skillMenuOpen && skillMatches.length > 0) {
+			if (e.key === 'ArrowDown') {
+				e.preventDefault();
+				skillMenuIndex = (skillMenuIndex + 1) % skillMatches.length;
+				return;
+			}
+			if (e.key === 'ArrowUp') {
+				e.preventDefault();
+				skillMenuIndex =
+					(skillMenuIndex - 1 + skillMatches.length) % skillMatches.length;
+				return;
+			}
+			if (e.key === 'Enter' || e.key === 'Tab') {
+				e.preventDefault();
+				const chosen = skillMatches[skillMenuIndex] ?? skillMatches[0];
+				if (chosen) applySkill(chosen.name);
+				return;
+			}
+			if (e.key === 'Escape') {
+				e.preventDefault();
+				skillMenuOpen = false;
+				return;
+			}
+		}
 		if (e.key === 'Enter') {
 			if (enterToSend) {
 				// Default mode: Enter to send, Shift+Enter for newline
@@ -492,7 +587,43 @@
 			}}
 			class="flex items-stretch gap-3"
 		>
-			<div class="min-w-0 flex-1">
+			<div class="relative min-w-0 flex-1">
+				{#if skillMenuOpen && skillMatches.length > 0}
+					<!-- Skill-command autocomplete. Floats above the composer. Selecting an
+					     item only inserts `/skill:<name> ` (see applySkill); it never sends. -->
+					<ul
+						class="absolute bottom-full left-0 z-20 mb-1 max-h-56 w-full overflow-y-auto rounded-lg border border-brand-border bg-brand-surface-2 py-1 shadow-lg"
+						role="listbox"
+					>
+						{#each skillMatches as skill, i (skill.name)}
+							<li>
+								<button
+									type="button"
+								role="option"
+								aria-selected={i === skillMenuIndex}
+								onmousedown={(e) => {
+									// mousedown (not click) so the textarea doesn't blur first and
+									// tear the menu down before the selection lands.
+									e.preventDefault();
+									applySkill(skill.name);
+								}}
+								onmouseenter={() => (skillMenuIndex = i)}
+								class="flex w-full flex-col items-start gap-0.5 px-3 py-1.5 text-left text-sm {i ===
+								skillMenuIndex
+									? 'bg-brand-surface-3 text-brand-text'
+									: 'text-brand-text-muted hover:bg-brand-surface-3/60'}"
+							>
+								<span class="font-mono text-brand-text">/{skill.name}</span>
+								{#if skill.description}
+									<span class="line-clamp-1 text-[11px] text-brand-text-muted"
+										>{skill.description}</span
+									>
+								{/if}
+							</button>
+						</li>
+					{/each}
+				</ul>
+				{/if}
 				<textarea
 					bind:this={textarea}
 					bind:value={text}

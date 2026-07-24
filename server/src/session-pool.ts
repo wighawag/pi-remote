@@ -558,7 +558,7 @@ import { createAttachFileTool } from './attach-file-tool.js';
 import type { AgentSession, AgentSessionEvent } from '@earendil-works/pi-coding-agent';
 import type { Model, Api } from '@earendil-works/pi-ai';
 import type { SessionMessageEntry, SessionEntry } from '@earendil-works/pi-coding-agent';
-import type { SessionInfo, HistoryMessage, FolderWithSessions, ModelInfo, FolderSessionInfo, ContextUsageInfo } from './session-types.js';
+import type { SessionInfo, HistoryMessage, FolderWithSessions, ModelInfo, FolderSessionInfo, ContextUsageInfo, SkillCommand } from './session-types.js';
 import type { WebSocket } from 'ws';
 
 export interface ServerTrackedSession {
@@ -1646,7 +1646,24 @@ export class SessionPool {
     }
 
     if (tracked.type === 'server') {
-      await tracked.agentSession.sendUserMessage(text, { deliverAs: streamingBehavior });
+      // Slash-prefixed input (/skill:<name> ..., /template ..., extension
+      // commands) must be expanded before it reaches the model. sendUserMessage()
+      // internally calls prompt() with expandPromptTemplates:false, so it would
+      // forward "/skill:foo" to the LLM verbatim instead of inlining the skill
+      // body. Route "/"-prefixed messages through prompt() with expansion enabled
+      // so browser/server sessions behave exactly like the pi CLI: all three
+      // expansions are start-of-message anchored, and any trailing text after
+      // "/skill:<name> " is preserved and appended after the skill block. Plain
+      // text keeps the sendUserMessage() path (extension "input"-event source).
+      if (text.startsWith('/')) {
+        await tracked.agentSession.prompt(text, {
+          expandPromptTemplates: true,
+          streamingBehavior,
+          source: 'interactive',
+        });
+      } else {
+        await tracked.agentSession.sendUserMessage(text, { deliverAs: streamingBehavior });
+      }
     } else if (tracked.type === 'cli') {
       tracked.cliWs.send(JSON.stringify({
         type: 'cli_message',
@@ -1863,6 +1880,27 @@ export class SessionPool {
     const tracked = this.getSession(sessionFileOrId);
     if (!tracked) return false;
     return tracked.type === 'server' ? tracked.agentSession.isStreaming : tracked.isStreaming;
+  }
+
+  /**
+   * Skill commands available for a session's composer autocomplete. Mirrors the
+   * pi CLI: each discovered skill becomes a `skill:<name>` command whose
+   * expansion is handled at send time by prompt() (see sendUserMessage). Only
+   * server-type sessions run an in-process agent with a resource loader; CLI
+   * bridges resolve their own skills, so we return [] for them (the bridged CLI
+   * still expands on its side). Returns [] on any error so autocomplete simply
+   * offers nothing rather than breaking the session.
+   */
+  getSkills(sessionFileOrId: string): SkillCommand[] {
+    const tracked = this.getSession(sessionFileOrId);
+    if (!tracked || tracked.type !== 'server') return [];
+    try {
+      return tracked.agentSession.resourceLoader
+        .getSkills()
+        .skills.map((s) => ({ name: `skill:${s.name}`, description: s.description }));
+    } catch {
+      return [];
+    }
   }
 
   /**

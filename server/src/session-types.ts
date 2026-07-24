@@ -1,3 +1,16 @@
+/**
+ * A slash-command candidate the composer's autocomplete can offer. Currently
+ * only skills are surfaced (`name` is the full invocation, e.g. `skill:setup`,
+ * so the composer inserts `/skill:setup `). Prompt templates could be added
+ * here later with the same shape.
+ */
+export interface SkillCommand {
+  /** Full command name WITHOUT the leading slash, e.g. "skill:setup". */
+  name: string;
+  /** One-line description from the skill's frontmatter, if any. */
+  description?: string;
+}
+
 /** Context-window usage snapshot surfaced in the UI (e.g. "11.3% / 1.0M"). */
 export interface ContextUsageInfo {
   /** Estimated context tokens, or null if unknown (e.g. right after compaction). */

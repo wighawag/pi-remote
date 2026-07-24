@@ -157,6 +157,17 @@ export interface WhereverState {
 	// Only server-type sessions populate this (CLI bridges do not emit
 	// queue_update), so CLI steers are not cancellable from the web.
 	pendingSteering: string[];
+	// Skill commands available for the active session, for the composer's
+	// `/skill:<name>` autocomplete. Each `name` is the full invocation without
+	// the leading slash (e.g. "skill:setup"). Requested on session_ready and
+	// replaced outright by each skills_list; empty for CLI bridges or before the
+	// list arrives.
+	skills: SkillCommand[];
+}
+
+export interface SkillCommand {
+	name: string;
+	description?: string;
 }
 
 export interface ContextUsage {
