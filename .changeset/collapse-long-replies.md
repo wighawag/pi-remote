@@ -1,0 +1,5 @@
+---
+"wherever-dev": patch
+---
+
+Add the `collapseLongReplies` conversation-mode behaviour to the web dashboard: when conversation mode + the `collapseLongReplies` knob are on, a LONG written assistant reply is de-emphasised (clamped behind a fade) so the short spoken `say` summary is the focus and the transcript stays glanceable. This is a display concern only — the full written reply is NEVER deleted, hidden, or destructively truncated; it always stays fully expandable via a "Show full reply" affordance (reusing the same expand/collapse idiom the chat message list already uses for tool cards) and re-collapsible once opened. Being a gated conversation knob, it only takes effect when the master `conversationMode` toggle is also on; with the knob off (or conversation mode off) replies render exactly as today, no collapse. The underlying transcript/message content is untouched. The pure decision logic (whether a given reply renders collapsed, and the long-reply char threshold) lives in a new `core/collapse-reply.ts` module — mirroring the `core/speak.ts` seam pattern for the `say` card — with unit tests at that seam.

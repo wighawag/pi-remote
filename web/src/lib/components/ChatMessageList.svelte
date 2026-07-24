@@ -22,6 +22,7 @@
 		conversationMode,
 		setConversationModeBundle,
 		speakReplies,
+		collapseLongReplies,
 		getConversationKnobs,
 		isReadOnly,
 		downloadFileUrl,
@@ -29,6 +30,7 @@
 	} from '$lib/wherever';
 	import {mediaKind, extractDownloadablePath} from '$lib/core/media-kind';
 	import {extractSayText, speakUtterance} from '$lib/core/speak';
+	import {shouldCollapseReply, isLongReply} from '$lib/core/collapse-reply';
 	import {isKnobActive} from '$lib/core/conversation-mode';
 	import {
 		availableModels,
@@ -343,6 +345,23 @@
 	function toggleConversationMode() {
 		setConversationModeBundle(!conversationOn);
 	}
+
+	// Whether the `collapseLongReplies` knob is currently ACTIVE. Being a gated
+	// conversation knob, it is active only when the master conversationMode is ALSO
+	// on (see isKnobActive), so with conversation mode off (or the knob off) long
+	// replies render exactly as today -- no collapse. Reactive on both stores so the
+	// transcript re-evaluates the instant either flips. This drives a DISPLAY-only
+	// collapse: the full written reply is never removed/truncated and always stays
+	// expandable (see core/collapse-reply.ts + the assistant branch below).
+	let collapseActive = $derived(
+		isKnobActive('collapseLongReplies', {
+			conversationMode: $conversationMode,
+			autoSendOnSpeechEnd: false,
+			speakReplies: false,
+			collapseLongReplies: $collapseLongReplies,
+			micReopensAfterReply: false,
+		}),
+	);
 
 	// TTS for the `say` tool. When the `speakReplies` knob is ACTIVE (which, being
 	// a gated conversation knob, requires the master conversationMode on too — see
@@ -1762,11 +1781,50 @@
 										class="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-brand-cyan align-text-bottom"
 									></span></pre>
 							{:else}
-								<!-- eslint-disable-next-line svelte/no-at-html-tags -- output sanitized via DOMPurify in renderMarkdown -->
-								<div
-									class="chat-selectable markdown-body text-sm leading-relaxed"
-								>
-									{@html renderAssistant(msg.id, msg.content)}
+								<!-- Conversation mode's collapseLongReplies knob: when ACTIVE
+								     (which requires the master conversationMode on too), a LONG
+								     written reply is DE-EMPHASISED so the short spoken summary is
+								     the focus and the transcript stays glanceable. Display-only:
+								     the full reply is NEVER removed/truncated -- it is clamped
+								     behind a fade and stays fully expandable via "Show full reply"
+								     (reusing the same expandedMessages idiom as the tool cards).
+								     Expanding is the reader's escape hatch: an opened reply renders
+								     in full and is never re-collapsed. With the knob inactive,
+								     replies render exactly as today. -->
+								{@const replyExpanded = expandedMessages[msg.id] === true}
+								{@const replyCollapsed = shouldCollapseReply({
+									active: collapseActive,
+									expanded: replyExpanded,
+									content: msg.content,
+								})}
+								<div class="flex flex-col">
+									<!-- eslint-disable-next-line svelte/no-at-html-tags -- output sanitized via DOMPurify in renderMarkdown -->
+									<div
+										class="chat-selectable markdown-body text-sm leading-relaxed {replyCollapsed
+											? 'relative max-h-40 overflow-hidden [mask-image:linear-gradient(to_bottom,black_60%,transparent)] opacity-80'
+											: ''}"
+									>
+										{@html renderAssistant(msg.id, msg.content)}
+									</div>
+									{#if replyCollapsed}
+										<button
+											type="button"
+											onclick={() => toggleMessage(msg.id, replyExpanded)}
+											class="mt-1 flex w-fit items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-brand-text-muted transition-colors select-none hover:bg-brand-surface-3/30 hover:text-brand-text"
+											title="Show the full written reply (collapsed while conversation mode focuses the spoken summary)"
+										>
+											Show full reply <span class="text-[10px]">▼</span>
+										</button>
+									{:else if collapseActive && replyExpanded && isLongReply(msg.content)}
+										<button
+											type="button"
+											onclick={() => toggleMessage(msg.id, replyExpanded)}
+											class="mt-1 flex w-fit items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-brand-text-muted transition-colors select-none hover:bg-brand-surface-3/30 hover:text-brand-text"
+											title="Collapse this long reply again"
+										>
+											Collapse <span class="text-[10px]">▲</span>
+										</button>
+									{/if}
 								</div>
 							{/if}
 						{:else}
