@@ -21,11 +21,15 @@
 		setBeepSessionOverride,
 		conversationMode,
 		setConversationModeBundle,
+		speakReplies,
+		getConversationKnobs,
 		isReadOnly,
 		downloadFileUrl,
 		forkSession,
 	} from '$lib/wherever';
 	import {mediaKind, extractDownloadablePath} from '$lib/core/media-kind';
+	import {extractSayText, speakUtterance} from '$lib/core/speak';
+	import {isKnobActive} from '$lib/core/conversation-mode';
 	import {
 		availableModels,
 		gitInitDefaultStore,
@@ -339,6 +343,45 @@
 	function toggleConversationMode() {
 		setConversationModeBundle(!conversationOn);
 	}
+
+	// TTS for the `say` tool. When the `speakReplies` knob is ACTIVE (which, being
+	// a gated conversation knob, requires the master conversationMode on too — see
+	// isKnobActive), a completed `say` tool call speaks its short text aloud via
+	// the browser SpeechSynthesis API, using the configured speech locale for the
+	// utterance lang. Feature-detected to a graceful no-op when the browser has no
+	// speechSynthesis (see core/speak.ts). This is ADDITIVE: the full written
+	// reply always stays in the transcript, and the spoken text comes ONLY from
+	// the agent's explicit `say` call (never a client-side summary).
+	//
+	// Each say message is spoken AT MOST ONCE: its id is recorded on first speak
+	// so re-renders/reactivity never re-fire the utterance. We wait until the tool
+	// message has finished streaming so the text is final. With speakReplies off,
+	// no utterance fires.
+	const spokenSayIds = new Set<string>();
+
+	function speechLocale(): string {
+		if (typeof localStorage === 'undefined') return '';
+		return localStorage.getItem('wherever-speech-locale') || '';
+	}
+
+	$effect(() => {
+		// Subscribe reactively to the message list and the knob store so this re-runs
+		// when a new say message settles or the knob flips.
+		const list = $messages;
+		void $speakReplies;
+		for (const msg of list) {
+			if (msg.role !== 'tool' || msg.toolName !== 'say') continue;
+			if (msg.isStreaming) continue; // wait for the final text
+			if (spokenSayIds.has(msg.id)) continue;
+			// Mark first so a failed/again render never double-speaks.
+			spokenSayIds.add(msg.id);
+			if (msg.isError) continue;
+			if (!isKnobActive('speakReplies', getConversationKnobs())) continue;
+			const parsed = parseToolMessage(msg);
+			if (!parsed.sayText) continue;
+			speakUtterance(parsed.sayText, speechLocale());
+		}
+	});
 	function cycleBeep() {
 		if (beepOverride === undefined) setBeepSessionOverride(true);
 		else if (beepOverride === true) setBeepSessionOverride(false);
@@ -472,6 +515,16 @@
 		return rawArgsStr ? rawArgsStr.trim() : '';
 	}
 
+	// The tools that render as a FIRST-CLASS card (their own affordance, exempt
+	// from the "hide tools" collapse), not as a generic tool row:
+	//   - attach_file: an attachment the agent explicitly offered for download.
+	//   - say: the agent's SHORT spoken-form reply, shown as a distinct "spoken:"
+	//     card so its divergence from the full written reply is spottable. The
+	//     full reply always stays in the transcript; the say card is additive.
+	function isFirstClassTool(toolName: string | undefined): boolean {
+		return toolName === 'attach_file' || toolName === 'say';
+	}
+
 	function parseToolMessage(msg: ChatMessage) {
 		let toolName = msg.toolName || 'tool';
 		let toolArgs = msg.toolArgs !== undefined ? msg.toolArgs : '';
@@ -534,6 +587,11 @@
 			// `ls`/`grep`/`find` (directory/search scope) are excluded. Suppressed
 			// on errors.
 			downloadPath: extractDownloadablePath(toolName, argsObj, isError),
+			// The short spoken-form text from a `say` tool call's args ({ text }).
+			// Drives the first-class "spoken:" card AND the browser TTS off the SAME
+			// extracted text (see core/speak.ts), so what is shown and what is
+			// spoken cannot diverge. Null for non-say tools or a blank/missing text.
+			sayText: toolName === 'say' ? extractSayText(argsObj) : null,
 		};
 	}
 
@@ -618,9 +676,10 @@
 				}
 			}
 			if (msg.role === 'tool') {
-				// attach_file renders as an attachment, not tool noise, so it is
+				// attach_file (an attachment) and say (a first-class "spoken:" card)
+				// render as first-class affordances, not tool noise, so they are
 				// never suppressed by "hide tools".
-				if ($piState.hideTools && msg.toolName !== 'attach_file') {
+				if ($piState.hideTools && !isFirstClassTool(msg.toolName)) {
 					return isAssociatedWithForceCommand(msg) || !!msg.isStreaming;
 				}
 			}
@@ -1112,7 +1171,7 @@
 									: 'bg-brand-blue/80 text-brand-text'
 							: msg.role === 'thinking'
 								? 'border-l-2 border-brand-border bg-brand-surface/30 text-sm text-brand-text-muted'
-								: msg.role === 'tool' && msg.toolName === 'attach_file'
+								: msg.role === 'tool' && isFirstClassTool(msg.toolName)
 									? 'bg-transparent p-0 text-brand-text'
 									: msg.role === 'tool'
 										? $piState.hideTools && !isAssociatedWithForceCommand(msg)
@@ -1229,7 +1288,7 @@
 								</div>
 							{/if}
 						{:else if msg.role === 'tool'}
-							{#if $piState.hideTools && msg.toolName !== 'attach_file' && !isAssociatedWithForceCommand(msg)}
+							{#if $piState.hideTools && !isFirstClassTool(msg.toolName) && !isAssociatedWithForceCommand(msg)}
 								<div
 									class="flex items-center gap-2 font-sans text-sm text-brand-text-muted italic select-none"
 								>
@@ -1276,6 +1335,7 @@
 								{@const dlUrl = dlPath ? downloadFileUrl(dlPath) : null}
 								{@const dlKind = dlPath ? mediaKind(dlPath) : null}
 								{@const isAttachTool = parsed.toolName === 'attach_file'}
+								{@const isSayTool = parsed.toolName === 'say'}
 								{#if isAttachTool}
 									<!-- attach_file rendered as a first-class ATTACHMENT, not a
 									     generic tool card: the agent explicitly offered this file
@@ -1406,6 +1466,49 @@
 												title={dlPath}
 												class="mt-2 block max-h-96 w-full max-w-full rounded border border-brand-border/40 bg-brand-dark/60"
 											></video>
+										{/if}
+									</div>
+								{:else if isSayTool}
+									<!-- say rendered as a first-class "spoken:" card, not a generic
+									     tool card: the agent EXPLICITLY offered this SHORT spoken-form
+									     reply (the 🔊 pill) so the user can visually compare it against
+									     the FULL written reply, which always remains present in the
+									     transcript above/below. The card is ADDITIVE: it never replaces
+									     or hides the full reply. TTS (when speakReplies is active) fires
+									     off the SAME text via the $effect below, not from here. -->
+									<div class="flex max-w-full min-w-[240px] flex-col">
+										{#if parsed.isError}
+											<div
+												class="flex items-start gap-3 rounded-lg border border-rose-400/40 bg-rose-400/10 px-3 py-2.5 text-brand-text"
+											>
+												<span class="text-2xl leading-none">🔇</span>
+												<span class="flex min-w-0 flex-1 flex-col gap-0.5">
+													<span class="text-sm font-semibold text-rose-300"
+														>Could not speak</span
+													>
+													{#if parsed.toolOutput}
+														<span
+															class="text-xs break-words text-brand-text-muted"
+															>{parsed.toolOutput}</span
+														>
+													{/if}
+												</span>
+											</div>
+										{:else if parsed.sayText}
+											<div
+												class="flex items-start gap-3 rounded-lg border border-brand-cyan/40 bg-brand-cyan/10 px-3 py-2.5 text-brand-text"
+											>
+												<span class="text-2xl leading-none">🔊</span>
+												<span class="flex min-w-0 flex-1 flex-col gap-1">
+													<span
+														class="text-[11px] font-semibold tracking-wide text-brand-cyan uppercase select-none"
+														>spoken:</span
+													>
+													<span class="text-sm break-words text-brand-text"
+														>{parsed.sayText}</span
+													>
+												</span>
+											</div>
 										{/if}
 									</div>
 								{:else}
