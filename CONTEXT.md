@@ -59,7 +59,7 @@ Wherever is a TypeScript extension for the [pi coding agent](https://pi.dev) tha
 ### Documentation
 
 - **`README.md`** - Quick start guide
-- **`LICENSE`** - MIT License
+- **`LICENSE`** - AGPL-3.0 License
 - **`.gitignore`** - Standard Node.js ignores
 
 ## Technical Details
@@ -260,7 +260,7 @@ wherever/
 ├── tsconfig.json         # TypeScript config
 ├── README.md             # Quick start
 ├── CONTEXT.md            # This file
-├── LICENSE               # MIT
+├── LICENSE               # AGPL-3.0
 └── .gitignore
 ```
 
@@ -306,7 +306,7 @@ Potential additions:
 ## Contact & Contributing
 
 - Repository: `github.com/wighawag/wherever`
-- License: MIT
+- License: AGPL-3.0-only
 - Contributions welcome!
 
 ## Conventions

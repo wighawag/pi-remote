@@ -500,4 +500,4 @@ Once connected, you can open `https://localhost:31415` locally on your client co
 
 ## License
 
-MIT
+AGPL-3.0-only

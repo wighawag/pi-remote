@@ -312,10 +312,10 @@
 				<span class="text-sm text-brand-text-muted">
 					Copyright &copy; 2026 Ronan Sandford. Released under the
 					<a
-						href="https://opensource.org/licenses/MIT"
+						href="https://www.gnu.org/licenses/agpl-3.0.html"
 						target="_blank"
 						rel="noopener noreferrer"
-						class="text-brand-cyan hover:underline">MIT License</a
+						class="text-brand-cyan hover:underline">AGPL-3.0 License</a
 					>.
 				</span>
 			</div>
