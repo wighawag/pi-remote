@@ -96,6 +96,109 @@ export function resetTtsSettleSignal(): void {
 	for (const resolve of waiters) resolve();
 }
 
+// --- Gesture unlock --------------------------------------------------------
+// Mobile Chrome, iOS Safari and installed PWA webviews gate the FIRST
+// speechSynthesis.speak() of a page behind USER ACTIVATION: a speak() issued
+// outside a real tap/click handler is silently DROPPED (no error thrown, and
+// onend may never fire). A `say` reply is spoken from a WebSocket-driven $effect
+// in the chat list, so there is no gesture in its call stack -- which is exactly
+// why the spoken reply worked on desktop but never fired on mobile.
+//
+// The remedy is the standard one-time gesture unlock (the same shape as
+// core/beep.ts resuming a suspended AudioContext on user interaction): the first
+// time the user makes a gesture that means "I want spoken replies" -- turning
+// Conversation Mode ON, or tapping the mic -- we prime speechSynthesis from
+// INSIDE that handler, and the browser then permits the later gesture-less
+// utterances for the rest of the session.
+let ttsUnlocked = false;
+
+// Best-effort "un-pause the queue" kick. Mobile Chrome can leave the
+// speechSynthesis queue in a paused state, which swallows subsequent utterances
+// even after the session is unlocked. resume() on an unpaused queue is a no-op,
+// so this is safe to issue before every speak; guarded for implementations that
+// lack it (and swallow-all, like the rest of the module).
+function resumeQueue(synth: SpeechSynthesis): void {
+	try {
+		if (typeof synth.resume === 'function') synth.resume();
+	} catch {
+		// A spoken reply is a nicety: never surface a browser-side failure.
+	}
+}
+
+/**
+ * Prime the browser's speech synthesis from INSIDE a user gesture so later
+ * gesture-less `say` replies are actually spoken on mobile Chrome / iOS Safari /
+ * installed PWAs. Idempotent: returns true only for the call that actually
+ * primed, false when already unlocked or when it could not prime.
+ *
+ * MUST be called synchronously from a real tap/click handler (calling it from a
+ * timer or a WebSocket effect does nothing useful -- there is no user activation
+ * to consume). Its two production call sites are both real gestures that mean "I
+ * want a spoken exchange":
+ * - the Conversation Mode toggle handler in ChatMessageList.svelte (the user
+ *   opting into spoken replies), and
+ * - the mic-button pointerdown in speech/SpeechButton.svelte, which additionally
+ *   covers a RETURNING user whose conversation mode was already persisted ON and
+ *   who therefore never taps the toggle.
+ * The gesture-less hands-free re-open path (startRecordingProgrammatically) does
+ * NOT unlock, since there is no user activation there.
+ *
+ * The priming utterance is SILENT (volume 0, whitespace text) so the user hears
+ * nothing, and it is deliberately NOT tracked by the TTS-settle signal: some
+ * browsers never fire onend for an empty utterance, which would wedge
+ * isTtsSpeaking() at true forever and stop the hands-free loop from ever
+ * re-opening the mic. Keeping it off the tracked path means isTtsSpeaking() /
+ * whenTtsIdle() keep reporting ONLY real `say` replies.
+ *
+ * We do NOT call speechSynthesis.cancel() around the priming: cancel drops
+ * queued utterances without firing their onend, which would leak the settle
+ * count for a real reply that happens to be speaking when the user re-toggles.
+ *
+ * Feature-detected + swallow-all: a no-op (never a throw) when speechSynthesis is
+ * absent, and in that case the session stays lockable so a later gesture in a
+ * capable browser can still prime.
+ *
+ * `deps` is injectable for testing; production callers omit it.
+ */
+export function unlockTts(deps: SpeechDeps = browserSpeechDeps()): boolean {
+	if (ttsUnlocked) return false;
+
+	const {synth, Utterance} = deps;
+	if (!synth || !Utterance) return false;
+
+	try {
+		resumeQueue(synth);
+		const priming = new Utterance(' ');
+		priming.volume = 0;
+		// No onend/onerror wiring and no outstandingUtterances++ on purpose: this
+		// utterance must stay invisible to the settle signal.
+		synth.speak(priming);
+		ttsUnlocked = true;
+		return true;
+	} catch {
+		// Could not prime (e.g. the browser refused outside an activation window):
+		// stay locked so the next gesture gets another go.
+		return false;
+	}
+}
+
+/**
+ * Whether TTS has been primed from a user gesture in this session. Diagnostic /
+ * test-facing; callers do not need to check it before speaking (an un-primed
+ * speak simply degrades to silence, as it does today).
+ */
+export function isTtsUnlocked(): boolean {
+	return ttsUnlocked;
+}
+
+/**
+ * Forget that TTS was unlocked. For test isolation (the flag is module-global,
+ * one per browser page); production code never needs this.
+ */
+export function resetTtsUnlock(): void {
+	ttsUnlocked = false;
+}
+
 function browserSpeechDeps(): SpeechDeps {
 	if (typeof window === 'undefined') return {synth: null, Utterance: null};
 	const w = window as Window & {
@@ -119,6 +222,10 @@ function browserSpeechDeps(): SpeechDeps {
  * - `lang`: when a non-empty speech locale is provided it is set on the
  *   utterance so the voice matches the configured speech language; when omitted
  *   the browser default voice/lang is used.
+ * - A defensive `resume()` kick is issued first: mobile Chrome can leave the
+ *   utterance queue paused, which drops the utterance even once the session has
+ *   been gesture-unlocked (see unlockTts). On desktop / an unpaused queue this is
+ *   a no-op, so behaviour there is unchanged.
  *
  * `deps` is injectable for testing; production callers omit it and get the real
  * browser APIs.
@@ -149,6 +256,7 @@ export function speakUtterance(
 	};
 
 	try {
+		resumeQueue(synth);
 		const utterance = new Utterance(spoken);
 		if (lang && lang.trim()) {
 			utterance.lang = lang.trim();

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import {onMount} from 'svelte';
 	import {autoSendOnSpeechEnd, setAutoSendOnSpeechEnd} from '$lib/wherever';
+	import {unlockTts} from '$lib/core/speak';
 
 	let {
 		text = $bindable(),
@@ -476,6 +477,17 @@
 	function handlePointerDown(e: PointerEvent) {
 		if (e.button !== 0) return; // Only left click / main touch
 		if (disabled) return;
+
+		// Second TTS gesture-unlock point (the first is the Conversation Mode
+		// toggle). Tapping the mic is the other unmistakable "I want a spoken
+		// exchange" gesture, and it is the one that covers a RETURNING user whose
+		// conversation mode was already persisted ON: they never tap the toggle, so
+		// without this the gesture-less `say` utterance would still be dropped on
+		// mobile. Silent, idempotent and a no-op where speechSynthesis is absent (see
+		// core/speak.ts), so it costs nothing when the user only wants dictation.
+		// Note the gesture-less startRecordingProgrammatically() path deliberately
+		// does NOT unlock -- there is no user activation there to consume.
+		unlockTts();
 
 		e.preventDefault();
 		if (isRecording) {

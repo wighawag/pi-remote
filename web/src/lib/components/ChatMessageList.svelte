@@ -29,7 +29,7 @@
 		forkSession,
 	} from '$lib/wherever';
 	import {mediaKind, extractDownloadablePath} from '$lib/core/media-kind';
-	import {extractSayText, speakUtterance} from '$lib/core/speak';
+	import {extractSayText, speakUtterance, unlockTts} from '$lib/core/speak';
 	import {shouldCollapseReply, isLongReply} from '$lib/core/collapse-reply';
 	import {isKnobActive} from '$lib/core/conversation-mode';
 	import {
@@ -342,7 +342,18 @@
 	// of knobs ON at once (and back OFF). The knobs it gates are edited
 	// individually in Connection Settings.
 	let conversationOn = $derived($conversationMode);
+	// This click handler is ALSO the TTS gesture-unlock point. Mobile Chrome / iOS
+	// Safari / installed PWAs only allow the FIRST speechSynthesis.speak() from
+	// inside a user gesture, and the `say` reply is spoken from a gesture-less
+	// WebSocket-driven $effect below -- so without priming here, mobile silently
+	// drops every spoken reply. Turning conversation mode ON is exactly the user
+	// opting into spoken replies, so it is the natural gesture to prime from. The
+	// priming is silent, idempotent and a no-op where speechSynthesis is absent
+	// (see core/speak.ts), so this is safe on the OFF direction too -- we prime
+	// unconditionally rather than only when turning on, since a user who toggles
+	// off and on again would otherwise depend on which tap primed.
 	function toggleConversationMode() {
+		unlockTts();
 		setConversationModeBundle(!conversationOn);
 	}
 
