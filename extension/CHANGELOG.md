@@ -1,5 +1,24 @@
 # @wherever-dev/pi
 
+## 0.4.7
+
+### Patch Changes
+
+- fcd3d23: Make conversation mode's spoken reply actually happen: the agent is now TOLD, per turn, that a spoken conversation is active, so it adds a short `say` reply to its written answer instead of staying silent. "Conversation mode is on" only ever lived in the web client, and a dictated message is byte-identical to a typed one, so the agent had no signal and (following the `say` tool's own guidance) defaulted to not speaking, which made the feature inert unless the user nagged it every turn.
+
+  The signal is an OPTIONAL `conversationMode` boolean FIELD on the EXISTING `message` WebSocket payload (no new message type, no new chat role; an absent field means false, so older clients keep working). The web app stamps it, on both the send and the resend path, only when the master `conversationMode` AND `speakReplies` knobs are both active. For a turn whose message carried the flag, a `before_agent_start` hook APPENDS one line to the assembled system prompt asking for a short spoken `say` reply in addition to the written answer; the hint is per-turn (the mode can flip mid-session) and ephemeral (it is a system-prompt addition, so the user's message is preserved verbatim, nothing extra renders on web or CLI, and only the resulting `say` call is visible). It is wired for BOTH session types, mirroring the `say` tool's dual registration: an inline pi extension on the server's own agent sessions, and a `pi.on("before_agent_start", ...)` handler in the `@wherever-dev/pi` extension fed by the flag relayed on `cli_message`, so a bridged terminal session driven from a phone speaks too. With conversation mode (or speak-replies) off, no flag is sent, nothing is injected, and behaviour is exactly as before.
+
+  The `say` tool description/guidelines (server and extension, in lockstep) no longer tell the agent to stay silent when "the user is typing", which was the instruction fighting the feature; `say` is now framed as an additive short spoken layer for an active spoken conversation.
+
+- c6ed2bb: Stop the agent from speaking when conversation mode is OFF: the `say` tool's own text no longer invites it to decide for itself whether a spoken conversation is active. Since the per-turn conversation-mode signal (ADR 0004) became the authoritative "a spoken conversation is active, add a `say` reply" instruction, the tool description's standing "while a spoken conversation is active" condition was a second, unreliable trigger: the agent could infer "active" from a chatty exchange or dictated-sounding text and call `say` with the mode off.
+
+  The description, `promptSnippet` and `promptGuidelines` now split the concerns cleanly: the tool text owns HOW (an additive one-or-two-sentence plain-spoken reply on top of, never instead of, the written answer, no code/markdown/lists), while the injected per-turn hint owns WHETHER. `say` is to be called ONLY when the instructions for THIS turn explicitly state that a spoken conversation is active, that instruction is the only signal there is, and absent it `say` is never called. Both copies (`server/src/say-tool.ts` and the `@wherever-dev/pi` extension's `registerTool` block) are updated identically, and `server/test/say-tool.test.ts` now parses the extension source so the twins cannot drift.
+
+  This is guidance, not a hard gate (the tool is still registered when the mode is off); behaviour with the mode ON is unchanged.
+
+- Updated dependencies [fcd3d23]
+  - @wherever-dev/client@0.5.4
+
 ## 0.4.6
 
 ### Patch Changes
