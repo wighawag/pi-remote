@@ -556,6 +556,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createAttachFileTool } from './attach-file-tool.js';
 import { createSayTool } from './say-tool.js';
+import { createConversationModeSignal, type ConversationModeSignal } from './conversation-mode-hint.js';
 import type { AgentSession, AgentSessionEvent } from '@earendil-works/pi-coding-agent';
 import type { Model, Api } from '@earendil-works/pi-ai';
 import type { SessionMessageEntry, SessionEntry } from '@earendil-works/pi-coding-agent';
@@ -582,6 +583,11 @@ export interface ServerTrackedSession {
   // to merely streaming assistant text (a normal, resumable state). Mirrors the
   // CLI's findDanglingToolCalls warning trigger.
   inFlightToolCount: number;
+  // Per-turn conversation-mode signal for this session: armed from the message's
+  // optional `conversationMode` flag and consumed by the inline extension's
+  // before_agent_start hook, which appends the spoken-conversation hint to that
+  // turn's system prompt. See conversation-mode-hint.ts.
+  conversationSignal: ConversationModeSignal;
 }
 
 export interface CliTrackedSession {
@@ -836,10 +842,16 @@ export class SessionPool {
         }
 
         const settingsManager = SettingsManager.create(normalizedCwd, this.agentDir);
+        // The conversation-mode signal is an INLINE pi extension (the SDK-supported
+        // way to get a before_agent_start hook on a server-created session, the
+        // counterpart of the pi.on(...) the CLI-bridge extension registers). It is
+        // per session, so the armed flag can never cross sessions.
+        const conversationSignal = createConversationModeSignal();
         const resourceLoader = new DefaultResourceLoader({
           cwd: normalizedCwd,
           agentDir: this.agentDir,
           settingsManager,
+          extensionFactories: [conversationSignal.inlineExtension],
         });
         await resourceLoader.reload();
 
@@ -874,6 +886,7 @@ export class SessionPool {
           createdAt: Date.now(),
           lastActivity: Date.now(),
           inFlightToolCount: 0,
+          conversationSignal,
         };
 
         this.sessions.set(resolvedFile, tracked);
@@ -1057,10 +1070,14 @@ export class SessionPool {
         }
 
         const settingsManager = SettingsManager.create(resolvedCwd, this.agentDir);
+        // Per-turn conversation-mode signal (see the other DefaultResourceLoader
+        // call for the rationale).
+        const conversationSignal = createConversationModeSignal();
         const resourceLoader = new DefaultResourceLoader({
           cwd: resolvedCwd,
           agentDir: this.agentDir,
           settingsManager,
+          extensionFactories: [conversationSignal.inlineExtension],
         });
         await resourceLoader.reload();
 
@@ -1094,6 +1111,7 @@ export class SessionPool {
           createdAt: Date.now(),
           lastActivity: Date.now(),
           inFlightToolCount: 0,
+          conversationSignal,
         };
 
         this.sessions.set(sessionFile, tracked);
@@ -1598,7 +1616,17 @@ export class SessionPool {
     return interruptedClientIds;
   }
 
-  async sendUserMessage(sessionFileOrId: string, text: string, streamingBehavior?: 'steer' | 'followUp'): Promise<void> {
+  /**
+   * Deliver a user message to a session's agent.
+   *
+   * `conversationMode` is the per-turn spoken-conversation SIGNAL the web client
+   * stamped on the message (absent/false = off). It never touches the message
+   * text: for a server session it arms the session's ConversationModeSignal (whose
+   * before_agent_start hook appends the hint to THIS turn's system prompt), and for
+   * a CLI-bridge session it is relayed on `cli_message` so the extension's own
+   * before_agent_start hook does the same in the bridged terminal pi.
+   */
+  async sendUserMessage(sessionFileOrId: string, text: string, streamingBehavior?: 'steer' | 'followUp', conversationMode = false): Promise<void> {
     const tracked = this.getSession(sessionFileOrId);
     if (!tracked) return;
     tracked.lastActivity = Date.now();
@@ -1648,6 +1676,10 @@ export class SessionPool {
     }
 
     if (tracked.type === 'server') {
+      // Arm (or disarm) the conversation-mode hint for the turn this message
+      // starts. Set for EVERY message so the latest one always wins, and consumed
+      // by the before_agent_start handler so it applies to one turn only.
+      tracked.conversationSignal.arm(conversationMode);
       // Slash-prefixed input (/skill:<name> ..., /template ..., extension
       // commands) must be expanded before it reaches the model. sendUserMessage()
       // internally calls prompt() with expandPromptTemplates:false, so it would
@@ -1667,10 +1699,13 @@ export class SessionPool {
         await tracked.agentSession.sendUserMessage(text, { deliverAs: streamingBehavior });
       }
     } else if (tracked.type === 'cli') {
+      // Relay the signal to the bridged pi (omitted when off, so the payload is
+      // unchanged for a non-conversation message and older extensions are fine).
       tracked.cliWs.send(JSON.stringify({
         type: 'cli_message',
         message: text,
         streamingBehavior,
+        ...(conversationMode ? { conversationMode: true } : {}),
       }));
     }
   }

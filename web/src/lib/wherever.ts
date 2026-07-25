@@ -6,6 +6,7 @@ import {
 	type ChatMessage,
 	type WhereverState,
 } from '@wherever-dev/client';
+import {shouldSignalConversationMode} from './core/conversation-mode';
 import {
 	setCurrentSession,
 	getBaseUrl,
@@ -358,6 +359,17 @@ export function setConversationModeBundle(on: boolean) {
 	setConversationMode(on);
 }
 
+// Per-send options for every outbound user message: stamp the PER-TURN
+// conversation-mode signal from the knobs as they are right now (the mode can be
+// flipped mid-session). This is the only place the web decides it, so send and
+// resend can never disagree. With the mode (or speakReplies) off the flag is
+// false and the client omits the field entirely, leaving today's behaviour intact.
+function sendOptions(): {conversationMode: boolean} {
+	return {
+		conversationMode: shouldSignalConversationMode(getConversationKnobs()),
+	};
+}
+
 // Instantiate the isomorphic WhereverClient
 const initialConfig = getConfig();
 export const client = new WhereverClient({
@@ -461,7 +473,7 @@ client.onMessage((msg) => {
 				// sets sessionId on its state store, and sendMessage() drops the
 				// message when sessionId is still null. Defer to the next microtask
 				// so the store is populated before we send the query.
-				queueMicrotask(() => client.sendMessage(query));
+				queueMicrotask(() => client.sendMessage(query, sendOptions()));
 			}
 			break;
 
@@ -566,13 +578,15 @@ export function isFilePickerActive(): boolean {
 }
 
 export function sendMessage(text: string): boolean {
-	return client.sendMessage(text);
+	return client.sendMessage(text, sendOptions());
 }
 
 // Retry a user message whose delivery could not be confirmed (delivery:
 // 'failed'). Returns false if it could not be handed to a live socket.
+// A resend starts a fresh turn, so the conversation-mode signal is re-read from
+// the knobs as they are NOW rather than reused from the original send.
 export function resendMessage(messageId: string): boolean {
-	return client.resendMessage(messageId);
+	return client.resendMessage(messageId, sendOptions());
 }
 
 // Drop an undelivered user message the user chooses not to resend.

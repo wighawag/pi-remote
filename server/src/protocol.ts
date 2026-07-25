@@ -9,7 +9,13 @@ export const HISTORY_PAGE_SIZE = 60;
 
 export type ClientMessage =
   | { type: 'connect' }
-  | { type: 'message'; message: string; sessionId: string }
+  // `conversationMode` is the per-turn CONVERSATION-MODE SIGNAL: the web client
+  // stamps it true when its conversation-mode AND speak-replies knobs are both
+  // active, so the agent learns a spoken conversation is on and adds a short `say`
+  // reply. A FIELD on this existing payload (no new message type, no new chat
+  // role); absent means false, so older clients are unaffected. See
+  // server/src/conversation-mode-hint.ts.
+  | { type: 'message'; message: string; sessionId: string; conversationMode?: boolean }
   | { type: 'abort'; sessionId: string }
   // Client -> server: cancel the queued mid-stream STEER messages for this
   // session (the ones injected at the next step boundary that have not yet been
@@ -42,7 +48,11 @@ export type ClientMessage =
   | { type: 'file_upload'; uploadId: string; sessionId: string; filename: string; data: string }
   | { type: 'cli_register'; sessionFile: string; cwd: string; model?: string; isStreaming?: boolean }
   | { type: 'cli_event'; sessionFile: string; event: any }
-  | { type: 'cli_message'; message: string; streamingBehavior?: 'steer' | 'followUp' }
+  // Server -> CLI bridge relay of a web user message. `conversationMode` carries
+  // the same per-turn signal as the `message` payload above, so a bridged terminal
+  // session driven from the web gets the same injection (the extension's own
+  // before_agent_start handler applies it).
+  | { type: 'cli_message'; message: string; streamingBehavior?: 'steer' | 'followUp'; conversationMode?: boolean }
   | { type: 'cli_abort' }
   | { type: 'cli_bash'; command: string; excludeFromContext?: boolean }
   | { type: 'cli_model_change'; model: string }

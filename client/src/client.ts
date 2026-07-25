@@ -1,6 +1,19 @@
 import { writable, get, type Writable } from "sveltore";
 import { type ChatMessage, type WhereverState, skillInvocationIdentity } from "./types.js";
 
+/**
+ * Per-send options for a user message.
+ *
+ * `conversationMode` is the per-turn CONVERSATION-MODE SIGNAL: true means a spoken
+ * conversation is active for this send (the web app stamps it when its
+ * conversation-mode AND speak-replies knobs are both active), so the agent adds a
+ * short spoken `say` reply alongside its written answer. Omitted/false means off,
+ * which is exactly the pre-existing behaviour.
+ */
+export interface SendMessageOptions {
+  conversationMode?: boolean;
+}
+
 export interface WhereverClientConfig {
   host: string;
   port: number | string;
@@ -1713,10 +1726,27 @@ export class WhereverClient {
     return false;
   }
 
+  // Build the outbound `message` frame. The optional conversationMode flag is the
+  // per-turn spoken-conversation SIGNAL: it is a FIELD on this existing payload
+  // (no new message type), and it is OMITTED when off so a normal send is
+  // byte-identical to before and an older server simply ignores it.
+  private messageFrame(text: string, sessionId: string, options?: SendMessageOptions) {
+    return {
+      type: 'message',
+      message: text,
+      sessionId,
+      ...(options?.conversationMode ? {conversationMode: true} : {}),
+    };
+  }
+
   // Returns true only if the message actually went out over an OPEN socket.
   // Callers MUST use the return value to decide whether to clear the input:
   // clearing on a false return is what loses the user's text on a dropped send.
-  public sendMessage(text: string): boolean {
+  //
+  // `options.conversationMode` tells the agent, for this turn only, that a spoken
+  // conversation is active (so it also emits a short `say` reply). The caller owns
+  // that decision: the web app stamps it from its conversation-mode knobs.
+  public sendMessage(text: string, options?: SendMessageOptions): boolean {
     const s = get(this.stateStore);
     if (!s.sessionId) return false;
 
@@ -1756,7 +1786,7 @@ export class WhereverClient {
     // the frame is confirmed handed to an OPEN socket. This way a send that
     // fails (a narrow race between the readyState check and send) leaves no
     // phantom local message and keeps the input intact for the caller to retry.
-    const ok = this.send({type: 'message', message: text, sessionId: s.sessionId});
+    const ok = this.send(this.messageFrame(text, s.sessionId, options));
     if (!ok) {
       this.stateStore.update((st: WhereverState) => ({
         ...st,
@@ -2001,7 +2031,11 @@ export class WhereverClient {
   // Retry a failed (or sending) outbound message: re-send its frame and re-arm
   // confirmation. Returns false if it could not be handed to an OPEN socket (the
   // message stays failed/recoverable).
-  public resendMessage(messageId: string): boolean {
+  //
+  // A resend starts a FRESH turn, so the caller re-stamps the per-turn
+  // conversation-mode signal from the knobs as they are NOW (the mode may have
+  // been flipped since the original send).
+  public resendMessage(messageId: string, options?: SendMessageOptions): boolean {
     const s = get(this.stateStore);
     const m = s.messages.find((x) => x.id === messageId && x.role === 'user');
     if (!m || !s.sessionId) return false;
@@ -2009,7 +2043,7 @@ export class WhereverClient {
       if (!this.ws && !this.reconnectTimer) this.scheduleReconnect();
       return false;
     }
-    const ok = this.send({type: 'message', message: m.content, sessionId: s.sessionId});
+    const ok = this.send(this.messageFrame(m.content, s.sessionId, options));
     if (!ok) return false;
     this.stateStore.update((st: WhereverState) => ({
       ...st,

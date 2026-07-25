@@ -4,6 +4,7 @@ import {
 	KNOB_STORAGE,
 	isKnobActive,
 	bundleOn,
+	shouldSignalConversationMode,
 	type ConversationKnobs,
 } from './conversation-mode.js';
 
@@ -69,6 +70,38 @@ describe('the knob registry', () => {
 			JSON.stringify(KNOB_STORAGE[k]),
 		);
 		expect(new Set(homes).size).toBe(homes.length);
+	});
+});
+
+// The per-turn signal the client stamps on each send: it exists so the AGENT can
+// tell a spoken conversation is active (it otherwise sees a dictated message as
+// byte-identical to a typed one) and therefore also calls `say`. It must be sent
+// only when spoken output is actually on, i.e. master AND speakReplies.
+describe('the outgoing conversation-mode signal', () => {
+	it('is sent when the master AND speakReplies are both on', () => {
+		expect(shouldSignalConversationMode(allOn)).toBe(true);
+	});
+
+	it('is NOT sent when the master is off, however the knobs are configured', () => {
+		expect(shouldSignalConversationMode(modeOffButConfigured)).toBe(false);
+	});
+
+	it('is NOT sent when speakReplies is off (a speak hint with no TTS is pointless)', () => {
+		expect(shouldSignalConversationMode({...allOn, speakReplies: false})).toBe(
+			false,
+		);
+	});
+
+	it('does not depend on the other knobs (collapse / mic re-open / directSend)', () => {
+		expect(
+			shouldSignalConversationMode({
+				conversationMode: true,
+				speakReplies: true,
+				autoSendOnSpeechEnd: false,
+				collapseLongReplies: false,
+				micReopensAfterReply: false,
+			}),
+		).toBe(true);
 	});
 });
 

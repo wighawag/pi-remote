@@ -256,7 +256,13 @@ Establish a connection via `ws://127.0.0.1:31415/ws?token=YOUR_TOKEN`.
 {
   "type": "message",
   "message": "Write a rust test for my module",
-  "sessionId": "abc123xyz"
+  "sessionId": "abc123xyz",
+  // OPTIONAL. True while the sender is in a SPOKEN conversation (the web app sets
+  // it when its conversation-mode and speak-replies knobs are both on). It only
+  // tells the agent, for this turn, to also emit a short spoken `say` reply
+  // alongside its written answer; the message text is delivered verbatim.
+  // Absent/false means off, which is the default behaviour.
+  "conversationMode": true
 }
 
 // Abort current execution

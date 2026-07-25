@@ -96,6 +96,23 @@ export function isKnobActive(
 }
 
 /**
+ * Whether an outgoing user message should carry the per-turn conversation-mode
+ * SIGNAL (the optional `conversationMode` field on the existing `message` WS
+ * payload), which tells the agent a spoken conversation is active so it adds a
+ * short `say` reply to its written answer.
+ *
+ * True iff BOTH the master `conversationMode` and `speakReplies` are active: a
+ * "please also speak" hint is pointless when spoken output is off. That is exactly
+ * the existing gate for `speakReplies`, so this REUSES isKnobActive rather than
+ * re-deriving the rule (one definition of "spoken replies are on right now").
+ */
+export function shouldSignalConversationMode(
+	knobs: ConversationKnobs,
+): boolean {
+	return isKnobActive('speakReplies', knobs);
+}
+
+/**
  * Flip the master toggle ON. Conversation mode is a saved bundle of the user's
  * independently-configured knobs, so turning it on turns the master on and
  * leaves every other knob at its configured value (it does NOT force them all

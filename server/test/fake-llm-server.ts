@@ -41,6 +41,12 @@ export interface FakeLlmServer {
   url: string;
   /** Set the behavior for the NEXT /v1/messages call. */
   setNext(behavior: FakeBehavior): void;
+  /**
+   * Every /v1/messages request body seen so far, parsed. This is how a test can
+   * assert what actually reached the model, e.g. the `system` prompt for a turn
+   * (used by the conversation-mode injection tests).
+   */
+  requests(): Array<Record<string, any>>;
   close(): Promise<void>;
 }
 
@@ -53,15 +59,25 @@ export async function startFakeLlmServer(
   initial: FakeBehavior = { kind: 'reply', text: 'ok' },
 ): Promise<FakeLlmServer> {
   let next: FakeBehavior = initial;
+  const requests: Array<Record<string, any>> = [];
 
   const server = createServer((req, res) => {
     if (!req.url?.endsWith('/v1/messages') || req.method !== 'POST') {
       res.writeHead(404).end('not found');
       return;
     }
-    // Drain the request body (we don't need it for the fake, but must consume it).
-    req.on('data', () => {});
+    // Consume the request body. Besides being mandatory, keeping it lets tests
+    // assert what pi actually sent upstream (system prompt, messages, tools).
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
     req.on('end', () => {
+      try {
+        requests.push(JSON.parse(body));
+      } catch {
+        // A non-JSON body is not something any test asserts on; ignore it.
+      }
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -218,6 +234,9 @@ export async function startFakeLlmServer(
     url: `http://127.0.0.1:${port}`,
     setNext(behavior) {
       next = behavior;
+    },
+    requests() {
+      return requests;
     },
     close() {
       return new Promise<void>((resolve) => server.close(() => resolve()));

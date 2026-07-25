@@ -19,6 +19,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { Type } from "typebox";
 import { WhereverClient } from "@wherever-dev/client";
+import { createConversationModeSignal } from "./conversation-mode-hint.js";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -529,6 +530,12 @@ export default async function (pi: ExtensionAPI) {
     },
   });
 
+  // Whether the turn started by the NEXT relayed user message should carry the
+  // conversation-mode hint (see ./conversation-mode-hint.ts, kept in lockstep with
+  // the server's twin). Armed from every `cli_message` and consumed by the
+  // before_agent_start handler below.
+  const conversationSignal = createConversationModeSignal();
+
   // Let the agent emit a SHORT spoken-form reply the web UI can speak aloud and
   // surface while a spoken conversation is active. Like `attach_file`, this is a
   // SELF-CONTAINED tool: it just validates its `text` argument and returns a
@@ -549,13 +556,14 @@ export default async function (pi: ExtensionAPI) {
       "normal written answer, never instead of it: the full detail stays in the " +
       "written message, and `say` is just the concise version the human hears and " +
       "can sanity-check against the full reply. Keep it to one or two sentences of " +
-      "natural, plain spoken language (no code, no markdown, no lists). Only use " +
-      "it while a spoken conversation is active; if the user is typing, a written " +
-      "answer alone is enough.",
+      "natural, plain spoken language (no code, no markdown, no lists). When a " +
+      "spoken conversation is active you are told so for that turn: add a `say` " +
+      "reply then, on top of your written answer.",
     promptSnippet:
       "Emit a short spoken-form reply the web UI can speak aloud (in addition to your written answer)",
     promptGuidelines: [
-      "Use say only while a spoken conversation is active, and only IN ADDITION to your normal written answer, never as a replacement: the full detail stays in the written message.",
+      "Use say as an ADDITIVE short spoken layer on top of your normal written answer, never as a replacement: the full detail stays in the written message.",
+      "When the turn's instructions say a spoken conversation is active, add a say reply to your written answer.",
       "Keep say to one or two sentences of plain spoken language (no code, no markdown), a concise version of your answer the human can hear and sanity-check.",
     ],
     parameters: Type.Object({
@@ -656,6 +664,9 @@ export default async function (pi: ExtensionAPI) {
         switch (msg.type) {
           case "cli_message": {
             ctxVal?.ui.notify(`[Wherever] Received remote command: ${msg.message.slice(0, 40)}...`, "info");
+            // Arm/disarm the conversation-mode hint for the turn this message
+            // starts (absent flag = off), then let before_agent_start consume it.
+            conversationSignal.arm(msg.conversationMode === true);
             pi.sendUserMessage(msg.message, {
               deliverAs: msg.streamingBehavior,
             });
@@ -1013,6 +1024,18 @@ export default async function (pi: ExtensionAPI) {
         oldCtx.ui.setWidget("wherever-resume-warning", undefined); // Clear resume warning
       } catch (err) {}
     }
+  });
+
+  // Per-turn conversation-mode injection for a bridged terminal session driven
+  // from the web: APPEND the hint to the system prompt this event CARRIES (the SDK
+  // chains extensions' results, so never append to a snapshot and never replace
+  // the prompt), only for a turn whose relayed message carried the flag. Ephemeral
+  // by construction: a system-prompt addition is not stored in the user message and
+  // renders as no chat line on web or CLI: only the resulting `say` call shows.
+  pi.on("before_agent_start", async (event: any) => {
+    const systemPrompt = conversationSignal.applyToSystemPrompt(event.systemPrompt);
+    if (systemPrompt === undefined) return;
+    return { systemPrompt };
   });
 
   // Subscribe and forward Agent Events to the Standalone Server

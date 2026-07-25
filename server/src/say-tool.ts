@@ -28,13 +28,14 @@ export function createSayTool(): ToolDefinition {
       'normal written answer, never instead of it: the full detail stays in the ' +
       'written message, and `say` is just the concise version the human hears and ' +
       'can sanity-check against the full reply. Keep it to one or two sentences of ' +
-      'natural, plain spoken language (no code, no markdown, no lists). Only use ' +
-      'it while a spoken conversation is active; if the user is typing, a written ' +
-      'answer alone is enough.',
+      'natural, plain spoken language (no code, no markdown, no lists). When a ' +
+      'spoken conversation is active you are told so for that turn: add a `say` ' +
+      'reply then, on top of your written answer.',
     promptSnippet:
       'Emit a short spoken-form reply the web UI can speak aloud (in addition to your written answer)',
     promptGuidelines: [
-      'Use say only while a spoken conversation is active, and only IN ADDITION to your normal written answer, never as a replacement: the full detail stays in the written message.',
+      'Use say as an ADDITIVE short spoken layer on top of your normal written answer, never as a replacement: the full detail stays in the written message.',
+      "When the turn's instructions say a spoken conversation is active, add a say reply to your written answer.",
       'Keep say to one or two sentences of plain spoken language (no code, no markdown), a concise version of your answer the human can hear and sanity-check.',
     ],
     parameters: Type.Object({

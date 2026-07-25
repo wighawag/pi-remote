@@ -1945,7 +1945,15 @@ async function handleWSMessage(
         break;
       }
       const streaming = pool.isStreaming(client.sessionId);
-      await pool.sendUserMessage(client.sessionId, msg.message, streaming ? 'steer' : undefined);
+      // The optional conversationMode field is the per-turn spoken-conversation
+      // signal (absent = off). It only decides whether a hint is appended to this
+      // turn's system prompt; the message text itself is delivered verbatim.
+      await pool.sendUserMessage(
+        client.sessionId,
+        msg.message,
+        streaming ? 'steer' : undefined,
+        msg.conversationMode === true,
+      );
       // Acknowledge delivery the moment the message is accepted by the agent.
       // For a mid-stream steer, pi only echoes the user message back
       // (message_end role:user) at the NEXT model call, which can be far beyond
