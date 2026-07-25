@@ -53,3 +53,7 @@ Behaviour is otherwise unchanged: desktop still works, and with conversation mod
 > Test at the pure seam in `core/speak.ts` (the web harness is node-env with no jsdom/svelte, so mirror `speak.test.ts`/`collapse-reply.test.ts`): unlock primes once + is idempotent + does not throw from a non-gesture/feature-absent path; the priming utterance is not settle-counted; a resume kick is issued on a real reply.
 >
 > Done = a `say` reply is spoken on mobile after the user turns Conversation Mode on, desktop is unchanged, the settle signal + hands-free loop are unaffected, and the tests pass. Changeset per AGENTS.md: web-only → `"wherever-dev": patch` (never `@wherever-dev/web`).
+
+## Requeue 2026-07-25
+
+ONLY fix: delete the stray final line '</content>' from .changeset/mobile-tts-gesture-unlock.md (a tool-write artifact Gate-2 flagged). The changeset frontmatter + body above it are CORRECT and should be kept verbatim. The code + tests already passed the acceptance gate (71 web tests green) and are correct; do NOT change them. This is a one-line changeset cleanup only.
