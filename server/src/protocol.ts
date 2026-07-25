@@ -37,7 +37,9 @@ export type ClientMessage =
   | { type: 'session_leave'; sessionId: string }
   // Client -> server: ask for the skill commands available in this session so
   // the composer can offer `/skill:<name>` autocomplete. The server replies with
-  // a `skills_list`. Sent once the session is ready; safe to re-request.
+  // a `skills_list`. Sent as soon as the session's agent is live (on
+  // session_created for an already-live session, or on session_ready for a cold
+  // load that was still building); safe to re-request.
   | { type: 'skills_request'; sessionId: string }
   // Client -> server: the user clicked "Continue anyway" on the folder-conflict
   // warning banner. The server lifts this client's read-only flag so it can send

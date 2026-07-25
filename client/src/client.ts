@@ -1225,9 +1225,19 @@ export class WhereverClient {
           // live updates arrive via 'context_usage').
           contextUsage: msg.contextUsage ?? null,
           // Reset skill-command autocomplete for the newly attached session; the
-          // authoritative list is (re-)requested on session_ready.
+          // authoritative list is (re-)requested just below (already-live
+          // session) or on session_ready (cold, still-building agent).
           skills: [],
         }));
+        // A session that is ALREADY live -- a brand-new session (session_new) or
+        // a warm attach -- has its agent (and resource loader) right now, but a
+        // brand-new session never emits session_ready, so waiting for that alone
+        // left `/skill:` autocomplete empty on a fresh session. Request the list
+        // here whenever the agent is not pending; re-requesting is safe (the
+        // server always replies with the full list).
+        if (msg.pending !== true && msg.sessionId) {
+          this.send({type: 'skills_request', sessionId: msg.sessionId});
+        }
         break;
       }
 
