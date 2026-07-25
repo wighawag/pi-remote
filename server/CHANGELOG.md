@@ -1,5 +1,12 @@
 # wherever-dev
 
+## 0.10.7
+
+### Patch Changes
+
+- 012a260: Fix the conversation-mode spoken reply never being heard on mobile Chrome, iOS Safari and installed PWAs. Those browsers only allow the first `speechSynthesis.speak()` of a page from inside a user gesture, and the `say` reply speaks from a WebSocket-driven effect, so mobile silently dropped every utterance (desktop has no such gate, which is why it looked fine there). Speech synthesis is now primed once, silently, from a real tap: the Conversation Mode toggle, and the mic button (which also covers a returning user whose conversation mode was already persisted on). A real `say` reply additionally issues a defensive `resume()` kick, since mobile Chrome can leave the utterance queue paused. The priming utterance is kept off the TTS-settle signal, so `isTtsSpeaking()` / `whenTtsIdle()` still report only real spoken replies and the hands-free mic-reopen loop is unchanged.
+- c1bd6c6: Fix a slow-loading session suddenly replacing the one you switched to. While a session was still loading, tapping a different session in the sidebar could let the old session's late reply clobber the one you were now looking at. The client now stamps every `session_load` with its target file and rejects a stale `session_created` / `message_history` for a session it already switched away from (the latest tap wins), so a superseded load can no longer take over the active view or strand the loading spinner.
+
 ## 0.10.6
 
 ### Patch Changes
