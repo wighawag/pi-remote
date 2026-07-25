@@ -7,6 +7,7 @@
 		isConnected,
 	} from '$lib/wherever';
 	import {playInvitingBeep} from '$lib/core/beep';
+	import {unlockTts} from '$lib/core/speak';
 	import {onMount} from 'svelte';
 
 	let {
@@ -68,6 +69,16 @@
 			collapseLongReplies: localCollapseLongReplies,
 			micReopensAfterReply: localMicReopensAfterReply,
 		});
+		// Enabling spoken replies HERE is a real user gesture (a checkbox onchange),
+		// so it is a valid moment to prime browser TTS. Without this, a mobile user
+		// who turns conversation mode + speak-replies on from settings and then only
+		// types (never tapping the master toggle or the mic) would have their FIRST
+		// `say` reply silently dropped by mobile Chrome / iOS / PWA user-activation
+		// gating. unlockTts() is idempotent (a no-op once primed) and only primes
+		// when spoken replies are actually intended.
+		if (localConversationMode && localSpeakReplies) {
+			unlockTts();
+		}
 	}
 
 	function handleConnect() {
