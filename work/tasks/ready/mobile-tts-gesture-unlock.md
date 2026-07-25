@@ -4,6 +4,7 @@ slug: mobile-tts-gesture-unlock
 spec: conversation-mode
 blockedBy: []
 covers: [8]
+needsAnswers: true
 ---
 
 ## What to build
