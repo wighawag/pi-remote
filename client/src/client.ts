@@ -107,6 +107,15 @@ export class WhereverClient {
   private resumeSessionFile: string | null = null;
   private resumeCwd?: string;
   private resumeModel?: string;
+  // The sessionFile of the most recent session_load we are still waiting on.
+  // A slow load (session A) followed by a switch to another session (B) must not
+  // let A's late session_created reply clobber the now-active B: when the reply's
+  // sessionFile does not match pendingLoadFile, it is a superseded load and is
+  // ignored. Set on every session_load we issue (switch/join/reconnect), cleared
+  // when the matching session_created lands (or on leave/new-session/error).
+  // null means "accept any" (e.g. session_new, whose target file is not known
+  // until the reply). The latest tap always wins.
+  private pendingLoadFile: string | null = null;
   private listeners = new Set<(msg: any) => void>();
   private pendingUploads = new Map<string, {resolve: (val: any) => void, reject: (err: any) => void}>();
   // Per-message confirmation watchdogs. A user message committed optimistically
@@ -237,6 +246,7 @@ export class WhereverClient {
         // blocked until fresh history lands. resyncing is cleared by
         // message_history (or an error/conflict) via the reducer.
         this.stateStore.update(s => (s.resyncing ? s : {...s, resyncing: true}));
+        this.pendingLoadFile = rejoinFile;
         this.send({type: 'session_load', sessionFile: rejoinFile, cwd: rejoinCwd, model: rejoinModel});
         this.armLoadWatchdog();
       } else {
@@ -646,7 +656,19 @@ export class WhereverClient {
     // session_created arrives just before message_history; message_history is the
     // real completion, but an error/destroy/interrupt also resolves it.
     switch (msg.type) {
-      case 'message_history':
+      case 'message_history': {
+        // Only the history for the load we are actually waiting on resolves the
+        // watchdog. A stale history for a superseded session (a slow session A
+        // that finished after we switched to session B) must NOT disarm the
+        // watchdog still guarding B's in-flight load, or a lost B reply could
+        // strand the spinner. Once B's session_created has landed, sessionId is
+        // B's, so a history whose sessionId differs is stale and is skipped. The
+        // initial load has no sessionId yet, so its history still resolves.
+        const active = get(this.stateStore).sessionId;
+        if (active && msg.sessionId && msg.sessionId !== active) break;
+        this.clearLoadWatchdog();
+        break;
+      }
       case 'session_error':
       case 'session_destroyed':
       case 'session_interrupted':
@@ -1133,7 +1155,34 @@ export class WhereverClient {
         break;
       }
 
-      case 'session_created':
+      case 'session_created': {
+        // Guard against a SUPERSEDED load. While a session was slow to load, the
+        // user tapping a different session (or creating a new one) must win: a
+        // late session_created for the abandoned load must not clobber what the
+        // user is now looking at. A session_created is accepted only when it is
+        // the reply we are actually waiting on:
+        //   - a session_load we issued -> matches pendingLoadFile, OR
+        //   - a session_new we issued  -> creatingSession is true (its target
+        //     file is unknown until this reply, so pendingLoadFile is null).
+        // Anything else (pendingLoadFile set but a different file; or no pending
+        // load/create at all yet a file different from the active one) is an
+        // out-of-date or unsolicited reply and is dropped. The load watchdog was
+        // already re-armed for the current target, so ignoring a stale reply
+        // cannot strand the spinner.
+        {
+          const st = get(this.stateStore);
+          const matchesPendingLoad =
+            this.pendingLoadFile !== null &&
+            msg.sessionFile === this.pendingLoadFile;
+          const isRequestedCreate =
+            this.pendingLoadFile === null && st.creatingSession;
+          if (!matchesPendingLoad && !isRequestedCreate) {
+            break;
+          }
+        }
+        // This reply matches the load we were waiting on (or the create we
+        // requested): the load is resolved, so stop guarding against it.
+        this.pendingLoadFile = null;
         this.stateStore.update((s: WhereverState) => ({
           ...s,
           session: msg.sessionFile,
@@ -1167,6 +1216,7 @@ export class WhereverClient {
           skills: [],
         }));
         break;
+      }
 
       case 'session_ready':
         // The live agent finished building for a previously-pending load. Enable
@@ -1324,6 +1374,18 @@ export class WhereverClient {
         break;
 
       case 'message_history': {
+        // Drop history for a session we already switched away from. session_created
+        // sets sessionId for the load we accepted; a message_history whose
+        // sessionId does not match belongs to a superseded load (a slow session A
+        // that finished after the user tapped session B) and must not repaint the
+        // now-active conversation. Only guard once we actually have an active
+        // sessionId (the initial load has none yet until its own created lands).
+        {
+          const active = get(this.stateStore).sessionId;
+          if (active && msg.sessionId && msg.sessionId !== active) {
+            break;
+          }
+        }
         // The server transcript is authoritative for what was actually persisted.
         // Reconcile it against any unconfirmed outbound messages: keep the ones
         // that ARE in history (delivered), and re-surface the ones that are NOT
@@ -2001,6 +2063,7 @@ export class WhereverClient {
       loadingSession: true,
       agentPending: false,
     }));
+    this.pendingLoadFile = sessionFile;
     this.send({type: 'session_load', sessionFile, cwd, model});
     this.armLoadWatchdog();
   }
@@ -2051,6 +2114,7 @@ export class WhereverClient {
     // Switching supersedes any in-flight create; disarm its watchdog so it can't
     // later fire against the newly loaded session.
     this.clearCreateWatchdog();
+    this.pendingLoadFile = sessionFile;
     this.send({type: 'session_load', sessionFile, cwd, model});
     this.armLoadWatchdog();
   }
@@ -2081,6 +2145,10 @@ export class WhereverClient {
       creatingSession: true,
       loadingSession: false,
     }));
+    // A new session supersedes any in-flight load: its session_created must not
+    // be rejected by a stale pendingLoadFile, and a late load reply for the old
+    // target must not clobber the new session.
+    this.pendingLoadFile = null;
     this.send({
       type: 'session_new',
       cwd,
@@ -2129,6 +2197,7 @@ export class WhereverClient {
       pendingSteering: [],
     }));
     this.clearLoadWatchdog();
+    this.pendingLoadFile = null;
     this.resumeSessionFile = null;
     this.resumeCwd = undefined;
     this.resumeModel = undefined;
