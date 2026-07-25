@@ -424,6 +424,47 @@
 		expandedMessages[id] = !currentVal;
 	}
 
+	// Per-assistant-message "show raw source" toggle: when true, the message is
+	// shown as its verbatim markdown text (a <pre>) instead of the rendered HTML.
+	// Keyed by message id so each message toggles independently and the choice
+	// survives re-renders.
+	let rawMessages = $state<Record<string, boolean>>({});
+
+	function toggleRaw(id: string) {
+		rawMessages[id] = !rawMessages[id];
+	}
+
+	// Per-message "copied!" confirmation. Set to the message id briefly after a
+	// successful copy so the button can flash feedback, then cleared.
+	let copiedMessageId = $state<string | null>(null);
+	let copiedTimeout: ReturnType<typeof setTimeout> | null = null;
+
+	async function copyMessage(id: string, content: string) {
+		try {
+			if (navigator.clipboard?.writeText) {
+				await navigator.clipboard.writeText(content);
+			} else {
+				// Fallback for insecure contexts / older browsers.
+				const ta = document.createElement('textarea');
+				ta.value = content;
+				ta.style.position = 'fixed';
+				ta.style.opacity = '0';
+				document.body.appendChild(ta);
+				ta.select();
+				document.execCommand('copy');
+				document.body.removeChild(ta);
+			}
+			copiedMessageId = id;
+			if (copiedTimeout) clearTimeout(copiedTimeout);
+			copiedTimeout = setTimeout(() => {
+				copiedMessageId = null;
+				copiedTimeout = null;
+			}, 1500);
+		} catch (e) {
+			console.error('Failed to copy message', e);
+		}
+	}
+
 	function parseArgsObject(
 		argsStr: string | undefined,
 	): Record<string, any> | null {
@@ -1797,14 +1838,114 @@
 									expanded: replyExpanded,
 									content: msg.content,
 								})}
-								<div class="flex flex-col">
-									<!-- eslint-disable-next-line svelte/no-at-html-tags -- output sanitized via DOMPurify in renderMarkdown -->
+								{@const showRaw = rawMessages[msg.id] === true}
+								<div class="group flex flex-col">
+									{#if showRaw}
+										<!-- Raw view: the verbatim markdown source, unrendered. -->
+										<pre
+											class="chat-selectable overflow-x-auto rounded border border-brand-border/40 bg-brand-dark/60 p-2 font-mono text-xs whitespace-pre-wrap text-brand-text {replyCollapsed
+												? 'relative max-h-40 overflow-hidden [mask-image:linear-gradient(to_bottom,black_60%,transparent)] opacity-80'
+												: ''}">{msg.content}</pre>
+									{:else}
+										<!-- eslint-disable-next-line svelte/no-at-html-tags -- output sanitized via DOMPurify in renderMarkdown -->
+										<div
+											class="chat-selectable markdown-body text-sm leading-relaxed {replyCollapsed
+												? 'relative max-h-40 overflow-hidden [mask-image:linear-gradient(to_bottom,black_60%,transparent)] opacity-80'
+												: ''}"
+										>
+											{@html renderAssistant(msg.id, msg.content)}
+										</div>
+									{/if}
+									<!-- Per-message actions: copy the raw markdown, and toggle
+									     between the rendered view and the raw source. Kept subtle
+									     (muted, revealed on hover) so they don't clutter the
+									     transcript. -->
 									<div
-										class="chat-selectable markdown-body text-sm leading-relaxed {replyCollapsed
-											? 'relative max-h-40 overflow-hidden [mask-image:linear-gradient(to_bottom,black_60%,transparent)] opacity-80'
-											: ''}"
+										class="mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
 									>
-										{@html renderAssistant(msg.id, msg.content)}
+										<button
+											type="button"
+											onclick={() => copyMessage(msg.id, msg.content)}
+											class="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-brand-text-muted transition-colors select-none hover:bg-brand-surface-3/30 hover:text-brand-text"
+											title="Copy this message to the clipboard"
+										>
+											{#if copiedMessageId === msg.id}
+												<svg
+													xmlns="http://www.w3.org/2000/svg"
+													viewBox="0 0 24 24"
+													fill="none"
+													stroke="currentColor"
+													stroke-width="2"
+													stroke-linecap="round"
+													stroke-linejoin="round"
+													class="text-brand-green h-3.5 w-3.5"
+													><path d="M20 6 9 17l-5-5" /></svg
+												>
+												Copied
+											{:else}
+												<svg
+													xmlns="http://www.w3.org/2000/svg"
+													viewBox="0 0 24 24"
+													fill="none"
+													stroke="currentColor"
+													stroke-width="2"
+													stroke-linecap="round"
+													stroke-linejoin="round"
+													class="h-3.5 w-3.5"
+													><rect
+														width="14"
+														height="14"
+														x="8"
+														y="8"
+														rx="2"
+														ry="2"
+													/><path
+														d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"
+													/></svg
+												>
+												Copy
+											{/if}
+										</button>
+										<button
+											type="button"
+											onclick={() => toggleRaw(msg.id)}
+											class="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-brand-text-muted transition-colors select-none hover:bg-brand-surface-3/30 hover:text-brand-text"
+											title={showRaw
+												? 'Show the rendered markdown'
+												: 'Show the raw markdown source'}
+										>
+											{#if showRaw}
+												<svg
+													xmlns="http://www.w3.org/2000/svg"
+													viewBox="0 0 24 24"
+													fill="none"
+													stroke="currentColor"
+													stroke-width="2"
+													stroke-linecap="round"
+													stroke-linejoin="round"
+													class="h-3.5 w-3.5"
+													><path
+														d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"
+													/><circle cx="12" cy="12" r="3" /></svg
+												>
+												Rendered
+											{:else}
+												<svg
+													xmlns="http://www.w3.org/2000/svg"
+													viewBox="0 0 24 24"
+													fill="none"
+													stroke="currentColor"
+													stroke-width="2"
+													stroke-linecap="round"
+													stroke-linejoin="round"
+													class="h-3.5 w-3.5"
+													><path d="m18 16 4-4-4-4" /><path
+														d="m6 8-4 4 4 4"
+													/><path d="m14.5 4-5 16" /></svg
+												>
+												Raw
+											{/if}
+										</button>
 									</div>
 									{#if replyCollapsed}
 										<button
