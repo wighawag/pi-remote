@@ -537,8 +537,8 @@ export default async function (pi: ExtensionAPI) {
   const conversationSignal = createConversationModeSignal();
 
   // Let the agent emit a SHORT spoken-form reply the web UI can speak aloud and
-  // surface while a spoken conversation is active. Like `attach_file`, this is a
-  // SELF-CONTAINED tool: it just validates its `text` argument and returns a
+  // surface. Like `attach_file`, this is a SELF-CONTAINED tool: it just validates
+  // its `text` argument and returns a
   // normal tool result carrying that text in `details`. It reads NO files,
   // depends on NO bridge, and emits no side-channel marker. The spoken-reply
   // affordance is driven entirely by the tool CALL: every client (web frontend
@@ -547,24 +547,35 @@ export default async function (pi: ExtensionAPI) {
   // the browser SpeechSynthesis API. This is why it works identically in a
   // CLI-bridge session and a pure server-side session, with NO new WS message
   // type and NO new chat role.
+  //
+  // The TEXT below owns HOW to use `say`; the per-turn conversation-mode hint
+  // (./conversation-mode-hint.ts, ADR 0004) owns WHETHER, so there is no standing
+  // "a spoken conversation is active" condition for the agent to judge for itself.
+  // KEEP IN LOCKSTEP with the server twin, `server/src/say-tool.ts`;
+  // `server/test/say-tool.test.ts` parses this block and fails on drift.
   pi.registerTool({
     name: "say",
     label: "Say",
     description:
-      "Emit a SHORT spoken-form reply that the web UI can speak aloud and surface " +
-      "while a spoken conversation is active. Use this ONLY IN ADDITION to your " +
-      "normal written answer, never instead of it: the full detail stays in the " +
-      "written message, and `say` is just the concise version the human hears and " +
-      "can sanity-check against the full reply. Keep it to one or two sentences of " +
-      "natural, plain spoken language (no code, no markdown, no lists). When a " +
-      "spoken conversation is active you are told so for that turn: add a `say` " +
-      "reply then, on top of your written answer.",
+      "Emit a SHORT spoken-form reply that the web UI speaks aloud and surfaces. " +
+      "WHETHER to speak is never your own judgement: call `say` ONLY when the " +
+      "instructions for THIS turn explicitly state that a spoken conversation is " +
+      "active. That explicit instruction is the only signal there is; do not infer " +
+      "a spoken conversation from the phrasing of the message, from how chatty the " +
+      "exchange feels, or from an earlier turn. Absent that explicit per-turn " +
+      "instruction, never call `say` at all. When you ARE told to speak, use `say` " +
+      "only IN ADDITION to your normal written answer, never instead of it: the " +
+      "full detail stays in the written message, and `say` is just the concise " +
+      "version the human hears and can sanity-check against the full reply. Keep " +
+      "it to one or two sentences of natural, plain spoken language (no code, no " +
+      "markdown, no lists).",
     promptSnippet:
-      "Emit a short spoken-form reply the web UI can speak aloud (in addition to your written answer)",
+      "Emit a short spoken-form reply the web UI speaks aloud, in addition to your written answer, ONLY when the instructions for this turn explicitly say a spoken conversation is active",
     promptGuidelines: [
-      "Use say as an ADDITIVE short spoken layer on top of your normal written answer, never as a replacement: the full detail stays in the written message.",
-      "When the turn's instructions say a spoken conversation is active, add a say reply to your written answer.",
-      "Keep say to one or two sentences of plain spoken language (no code, no markdown), a concise version of your answer the human can hear and sanity-check.",
+      "Only call say when the instructions for THIS turn explicitly state that a spoken conversation is active; that instruction is the only trigger there is.",
+      "Absent that explicit per-turn instruction, never call say: do not infer a spoken conversation from the phrasing of the message, from how chatty the exchange feels, or from an earlier turn.",
+      "When you are told to speak, use say as an ADDITIVE short spoken layer on top of your normal written answer, never as a replacement: the full detail stays in the written message.",
+      "Keep say to one or two sentences of plain spoken language (no code, no markdown, no lists), a concise version of your answer the human can hear and sanity-check.",
     ],
     parameters: Type.Object({
       text: Type.String({

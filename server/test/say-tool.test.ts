@@ -9,20 +9,117 @@ import { createSayTool } from '../src/say-tool.ts';
 // It rides the existing tool_start/tool_end stream, so these unit tests assert
 // exactly the execute() contract the acceptance criteria pin down.
 
+/** The description + promptSnippet + promptGuidelines blob, lowercased. */
+function textBlob(tool: {
+  description: string;
+  promptSnippet?: string;
+  promptGuidelines?: string[];
+}): string {
+  return [tool.description, tool.promptSnippet || '', ...(tool.promptGuidelines || [])]
+    .join(' ')
+    .toLowerCase();
+}
+
+/**
+ * The CLI-bridge twin's `say` text, parsed out of the extension source.
+ *
+ * `say` is dual-registered (server factory + `pi.registerTool` in
+ * `extension/src/index.ts`), and the extension's registration lives inside a big
+ * default export that needs a whole pi runtime to load, so the drift guard reads
+ * the source and reassembles the three text fields from their string literals.
+ * Mirrors the `conversation-mode-hint` lockstep test.
+ */
+function readExtensionSayText(): {
+  description: string;
+  promptSnippet: string;
+  promptGuidelines: string[];
+} {
+  const source = fs.readFileSync(
+    new URL('../../extension/src/index.ts', import.meta.url),
+    'utf-8',
+  );
+  const start = source.indexOf('name: "say"');
+  if (start < 0) throw new Error('the extension no longer registers a `say` tool');
+  const end = source.indexOf('parameters:', start);
+  const block = source.slice(start, end);
+
+  const slice = (from: string, to: string): string => {
+    const a = block.indexOf(from);
+    const b = block.indexOf(to, a);
+    if (a < 0 || b < 0) throw new Error(`the extension \`say\` block has no ${from} ... ${to}`);
+    return block.slice(a + from.length, b);
+  };
+  const literals = (chunk: string): string[] =>
+    [...chunk.matchAll(/"([^"]*)"/g)].map((m) => m[1]);
+
+  return {
+    description: literals(slice('description:', 'promptSnippet:')).join(''),
+    promptSnippet: literals(slice('promptSnippet:', 'promptGuidelines:')).join(''),
+    promptGuidelines: literals(slice('promptGuidelines: [', ']')),
+  };
+}
+
 describe('createSayTool', () => {
   it('exposes the say tool with a spoken-reply description', () => {
     const tool = createSayTool() as {
       name: string;
       description: string;
+      promptSnippet?: string;
       promptGuidelines?: string[];
     };
     expect(tool.name).toBe('say');
     // The description/guidelines must steer the agent to use it ONLY as a short
-    // spoken reply IN ADDITION to the written answer while a spoken conversation
-    // is active.
-    const blob = (tool.description + ' ' + (tool.promptGuidelines || []).join(' ')).toLowerCase();
+    // spoken reply IN ADDITION to the written answer.
+    const blob = textBlob(tool);
     expect(blob).toContain('spoken');
     expect(blob).toContain('in addition');
+  });
+
+  it('defers WHETHER to speak entirely to the explicit per-turn instruction', () => {
+    const tool = createSayTool() as {
+      description: string;
+      promptSnippet?: string;
+      promptGuidelines?: string[];
+    };
+    const blob = textBlob(tool);
+
+    // The ONLY positive trigger is the per-turn conversation-mode hint injected
+    // into the system prompt (see src/conversation-mode-hint.ts): the text must
+    // say so explicitly, and say that nothing else counts.
+    expect(blob).toContain('explicitly');
+    expect(blob).toContain('the instructions for this turn');
+    expect(blob).toContain('only signal');
+    expect(blob).toContain('never call');
+
+    // No STANDING "while/when a spoken conversation is active" condition for the
+    // agent to evaluate for itself: that is the invitation that made `say` fire
+    // with conversation mode OFF.
+    expect(blob).not.toMatch(/\b(while|when)\s+a\s+spoken\s+conversation\s+is\s+active/);
+  });
+
+  it('still says HOW: a short, additive, plain-spoken layer on the written answer', () => {
+    const tool = createSayTool() as {
+      description: string;
+      promptSnippet?: string;
+      promptGuidelines?: string[];
+    };
+    const blob = textBlob(tool);
+    expect(blob).toContain('one or two sentences');
+    expect(blob).toContain('no code, no markdown, no lists');
+    expect(blob).toContain('never');
+    expect(blob).toContain('written answer');
+  });
+
+  it('keeps the CLI-bridge extension copy in lockstep', () => {
+    const tool = createSayTool() as {
+      description: string;
+      promptSnippet?: string;
+      promptGuidelines?: string[];
+    };
+    const twin = readExtensionSayText();
+    expect(twin.description).toBe(tool.description);
+    expect(twin.promptSnippet).toBe(tool.promptSnippet);
+    expect(twin.promptGuidelines).toEqual(tool.promptGuidelines);
   });
 
   it('returns an error result for blank text and touches no filesystem', async () => {
