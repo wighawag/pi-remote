@@ -55,6 +55,7 @@ Wherever is a TypeScript extension for the [pi coding agent](https://pi.dev) tha
   - ES2022 target, ESNext modules
   - Strict mode enabled
   - Output to `dist/`
+- **`~/.wherever/config.json`** - Server-side runtime config (`getWhereverConfig()`): `sessions.ignore` / `sessions.readOnly`, `uploads`, `downloads`, `beep`, `searchFolder`, remote-repo rules. `WHEREVER_CONFIG_DIR` overrides the directory it is read from; the test harness sets it so an isolated server never picks up the developer's real config (a personal `sessions.ignore: ["/tmp/**"]` would otherwise hide the harness's own temp-dir sessions).
 
 ### Documentation
 
@@ -178,6 +179,16 @@ The reverse of the upload path: files the agent produces (a generated PDF, an ex
    - `tool_start` / `tool_end`
 3. Client sends messages via WebSocket or HTTP
 4. Server forwards to pi via `pi.sendUserMessage()`
+
+### Session-list cost control (`/sessions` cache + `sessions_updated` throttle)
+
+`GET /sessions` is the dashboard's list of every session on disk, and the web refetches it on every `sessions_updated` broadcast. Building it means reading and parsing session `.jsonl` bodies, which on a real sessions directory (measured: ~2,800 files / 1.1 GB / 341k JSON lines) is seconds of work. Three layers keep that from stalling the whole server, and all three must stay in place:
+
+- **The scan is cached and incremental** (`scanDiskSessions` in `server/src/session-pool.ts`). Each file's parsed listing info is cached against its `(mtimeMs, size)` stamp; a session `.jsonl` is only ever appended to, so an unchanged stamp means the cached info is still exactly right. Entries whose files disappear are evicted at the end of each pass, and a per-directory cwd probe (`dirCwdCache`) means the ignore/read-only folder pre-filter costs one header read per folder, ever. Cold pass ~6.9s -> warm pass ~90ms on that same directory. `previewText` FLATTENS the capped preview (`flattenString`, a Buffer round-trip): V8 would otherwise keep each preview as a SlicedString pinning the full first message, which cost ~33 MB of retained parents instead of ~3 MB.
+- **The scan never blocks the event loop.** It is fully async (`fs.promises`) and yields (`setImmediate`) every few parsed files. This is the part that actually fixed "Loading session..." hanging: the old synchronous `readFileSync` loop pinned the single thread for ~7s per request, so the WebSocket could not deliver `session_created` / `message_history` for the session being opened, and the client's 12s load watchdog could fire. Concurrent requests for the same view share one pass (`inFlightScans`), and `SessionPool.initialize()` warms the cache in the background so the first dashboard load after a restart is warm.
+- **Broadcasts are throttled** (`broadcastSessionsUpdated` in `server/src/index.ts`). It listens to `agent_end` only, NOT `message_end` (which fires per message, many times per turn), and is leading+trailing throttled at 2s so structural changes (attach/leave/create/delete) stay instant while a burst collapses into one broadcast. On the web side `fetchSessions()` debounces (150ms, 1s max-wait) and collapses mid-flight requests into exactly one trailing re-fetch.
+
+Note the listing path deliberately does NOT use `SessionManager.listAll()` (pi's own helper) any more, for `/sessions` or for resolving a session by short ID/name: it re-reads and re-parses every session file on every call.
 
 ### Message routing authority (the client-stamped sessionId is authoritative)
 

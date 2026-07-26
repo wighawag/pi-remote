@@ -158,6 +158,8 @@ export function fetchSessions(): Promise<void> {
 
 	// If a fetch is already running, just mark that we need one more pass when it
 	// finishes (collapsing any number of mid-flight requests into a single one).
+	// The resolver we just queued is drained by that trailing pass, so the
+	// returned promise still settles even though we schedule nothing here.
 	if (fetchInFlight) {
 		refetchRequested = true;
 		return promise;
@@ -186,17 +188,28 @@ export function fetchSessions(): Promise<void> {
 }
 
 async function runQueuedFetch(): Promise<void> {
-	const resolves = [...resolveQueue];
-	resolveQueue = [];
 	try {
-		await doFetchSessions();
-		// A request that arrived mid-flight collapses into exactly one re-fetch.
-		while (refetchRequested) {
+		// Each pass claims the resolvers queued so far and settles them with THAT
+		// pass's data. Requests that arrive mid-flight queue their resolver and set
+		// refetchRequested, so the loop runs one more pass and settles them against
+		// fresher data. Claiming the queue up-front instead (the previous shape)
+		// stranded any resolver added during the fetch: nothing scheduled a further
+		// pass for it, so `await fetchSessions()` could hang forever.
+		do {
 			refetchRequested = false;
-			await doFetchSessions();
-		}
+			const resolves = resolveQueue;
+			resolveQueue = [];
+			try {
+				await doFetchSessions();
+			} finally {
+				for (const r of resolves) r();
+			}
+		} while (refetchRequested);
 	} finally {
-		for (const r of resolves) r();
+		// Safety net: never strand a resolver, whatever happens above.
+		const rest = resolveQueue;
+		resolveQueue = [];
+		for (const r of rest) r();
 	}
 }
 

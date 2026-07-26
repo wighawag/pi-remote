@@ -61,8 +61,15 @@ export async function startHarness(opts?: HarnessOptions): Promise<Harness> {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wherever-gate-'));
   const agentDir = path.join(tmpRoot, 'agent');
   const workspace = path.join(tmpRoot, 'workspace');
+  // Where the server reads config.json. A test that supplies its own HOME is
+  // already isolating the config the normal way (~/.wherever under that HOME),
+  // so honour it; otherwise point at a throwaway dir of our own.
+  const whereverConfigDir = opts?.env?.HOME
+    ? path.join(opts.env.HOME, '.wherever')
+    : path.join(tmpRoot, 'wherever-config');
   fs.mkdirSync(agentDir, { recursive: true });
   fs.mkdirSync(workspace, { recursive: true });
+  fs.mkdirSync(whereverConfigDir, { recursive: true });
 
   // Register the fake as the ONLY provider, and make it the default model.
   fs.writeFileSync(
@@ -114,6 +121,11 @@ export async function startHarness(opts?: HarnessOptions): Promise<Harness> {
         PI_REMOTE_HTTP: '',
         PI_REMOTE_HTTP_LOCALHOST_FALLBACK: '',
         PI_CODING_AGENT_DIR: agentDir,
+        // Isolate the wherever config too. Otherwise the harness server reads the
+        // developer's real ~/.wherever/config.json, whose `sessions.ignore` may
+        // well cover /tmp/** -- which is exactly where the harness puts its
+        // workspace, silently hiding the test's own sessions from /sessions.
+        WHEREVER_CONFIG_DIR: whereverConfigDir,
         PI_REMOTE_NO_SSL: 'true',
         ...(opts?.idleTimeoutMs != null ? { PI_IDLE_TIMEOUT: String(opts.idleTimeoutMs) } : {}),
         ...(opts?.env ?? {}),

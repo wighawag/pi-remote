@@ -459,12 +459,37 @@ async function main(): Promise<void> {
     }
   }
 
-  function broadcastSessionsUpdated(): void {
+  // Leading + trailing throttle for `sessions_updated`. Structural changes
+  // (attach/leave/create/delete) stay instant because the first call in a quiet
+  // window fires immediately; a burst (several agents finishing turns at once,
+  // a folder-wide delete) collapses into one trailing broadcast at the window
+  // edge instead of N full-list refetches per connected client.
+  const SESSIONS_UPDATED_THROTTLE_MS = 2000;
+  let lastSessionsUpdatedAt = 0;
+  let sessionsUpdatedTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function emitSessionsUpdated(): void {
+    lastSessionsUpdatedAt = Date.now();
     const updateMsg: ServerMessage = { type: 'sessions_updated' };
     for (const c of clients.values()) {
       sendWS(c.ws, updateMsg);
     }
     broadcastFolderConflicts();
+  }
+
+  function broadcastSessionsUpdated(): void {
+    if (sessionsUpdatedTimer) return; // a trailing broadcast is already queued
+    const elapsed = Date.now() - lastSessionsUpdatedAt;
+    if (elapsed >= SESSIONS_UPDATED_THROTTLE_MS) {
+      emitSessionsUpdated();
+      return;
+    }
+    sessionsUpdatedTimer = setTimeout(() => {
+      sessionsUpdatedTimer = null;
+      emitSessionsUpdated();
+    }, SESSIONS_UPDATED_THROTTLE_MS - elapsed);
+    // Never hold the process open just for a list refresh.
+    sessionsUpdatedTimer.unref?.();
   }
 
   // Tell each attached client whether ANOTHER active session currently exists in
@@ -657,7 +682,12 @@ async function main(): Promise<void> {
       broadcastContextUsage(sessionFile);
     }
 
-    if (event.type === 'message_end' || event.type === 'agent_end') {
+    // Only a FINISHED turn changes what the session list shows (message count,
+    // modified time, first message). `message_end` fires per message, many times
+    // per turn, and every broadcast makes every connected client refetch the
+    // whole /sessions list, so listening to it turned one turn into a burst of
+    // full-list refetches.
+    if (event.type === 'agent_end') {
       broadcastSessionsUpdated();
     }
   }
@@ -1079,13 +1109,10 @@ async function main(): Promise<void> {
           fs.unlinkSync(resolved);
         }
 
-        // Broadcast 'sessions_updated' to all connected websocket clients
-        const updateMsg: ServerMessage = {
-          type: 'sessions_updated'
-        };
-        for (const c of clients.values()) {
-          sendWS(c.ws, updateMsg);
-        }
+        // Tell all connected clients the list changed. Throttled: deleting a
+        // whole folder fires one DELETE per session in parallel, and each one
+        // would otherwise make every client refetch the entire list.
+        broadcastSessionsUpdated();
 
         sendJSON(res, 200, { status: 'deleted' });
       } catch (err) {

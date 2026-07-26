@@ -62,15 +62,32 @@ function isValidDate(d: Date | undefined | null): d is Date {
 const FIRST_MESSAGE_PREVIEW_MAX = 160;
 
 /**
+ * Force a string to be an independent, flat copy.
+ *
+ * V8 represents `big.slice(0, 160)` as a SlicedString that keeps its PARENT
+ * alive. That is free when the preview is transient, but the listing cache
+ * holds one preview per session for the process's lifetime, so an un-flattened
+ * slice would pin every full first message (pasted PRDs, specs) in memory:
+ * measured at ~33 MB of retained parents for ~2800 sessions whose visible
+ * previews total under 1 MB. The Buffer round-trip allocates a fresh string.
+ */
+function flattenString(s: string): string {
+  return s.length === 0 ? s : Buffer.from(s, 'utf8').toString('utf8');
+}
+
+/**
  * Collapse whitespace and cap to a short preview. Keeps the /sessions payload
  * tens-of-KB instead of multi-MB while preserving what the sidebar displays and
- * filters on.
+ * filters on. The result is flattened so caching it cannot retain the (possibly
+ * huge) message it was sliced from.
  */
 function previewText(text: string | undefined | null): string {
   const collapsed = (text || '').replace(/\s+/g, ' ').trim();
-  return collapsed.length > FIRST_MESSAGE_PREVIEW_MAX
-    ? collapsed.slice(0, FIRST_MESSAGE_PREVIEW_MAX) + '\u2026'
-    : collapsed;
+  return flattenString(
+    collapsed.length > FIRST_MESSAGE_PREVIEW_MAX
+      ? collapsed.slice(0, FIRST_MESSAGE_PREVIEW_MAX) + '\u2026'
+      : collapsed,
+  );
 }
 
 /**
@@ -233,19 +250,19 @@ export function makeIgnoreMatcher(patterns: string[] | undefined): (cwd: string)
  * is missing/unreadable. This is the cheap pre-filter that lets us skip an
  * ignored folder before reading its (potentially many, large) file bodies.
  */
-function readSessionCwdFromHeader(filePath: string): string {
+async function readSessionCwdFromHeader(filePath: string): Promise<string> {
   try {
-    const fd = fs.openSync(filePath, 'r');
+    const fh = await fs.promises.open(filePath, 'r');
     try {
       const buf = Buffer.alloc(8192);
-      const bytes = fs.readSync(fd, buf, 0, buf.length, 0);
-      const text = buf.toString('utf8', 0, bytes);
+      const { bytesRead } = await fh.read(buf, 0, buf.length, 0);
+      const text = buf.toString('utf8', 0, bytesRead);
       const nl = text.indexOf('\n');
       const firstLine = nl === -1 ? text : text.slice(0, nl);
       const header = JSON.parse(firstLine);
       return typeof header?.cwd === 'string' ? header.cwd : '';
     } finally {
-      fs.closeSync(fd);
+      await fh.close();
     }
   } catch {
     return '';
@@ -281,14 +298,14 @@ export interface DiskSessionInfo {
 }
 
 /**
- * Parse one session .jsonl into the subset of fields the listing needs. This is
- * the directory-aware path's equivalent of pi's internal buildSessionInfo
- * (which is not exported), used ONLY for folders that survived the ignore
- * pre-filter. Returns null for a non-session / empty / unreadable file.
+ * Parse one session .jsonl body into the subset of fields the listing needs.
+ * This is the directory-aware path's equivalent of pi's internal
+ * buildSessionInfo (which is not exported). Pure: the caller does the IO, so
+ * the result can be cached against the file's (mtime, size) stamp.
+ * Returns null for a non-session / empty / unparseable file.
  */
-function buildDiskSessionInfo(filePath: string): DiskSessionInfo | null {
+function parseDiskSessionInfo(filePath: string, content: string, mtime: Date): DiskSessionInfo | null {
   try {
-    const content = fs.readFileSync(filePath, 'utf8');
     const lines = content.trim().split('\n');
     const entries: any[] = [];
     for (const line of lines) {
@@ -302,7 +319,6 @@ function buildDiskSessionInfo(filePath: string): DiskSessionInfo | null {
     const parentSessionPath = typeof header.parentSession === 'string' && header.parentSession
       ? header.parentSession
       : undefined;
-    const stats = fs.statSync(filePath);
     let messageCount = 0;
     let firstMessage = '';
     let name: string | undefined;
@@ -331,7 +347,7 @@ function buildDiskSessionInfo(filePath: string): DiskSessionInfo | null {
 
     const headerTime = typeof header.timestamp === 'string' ? new Date(header.timestamp).getTime() : NaN;
     const created = Number.isFinite(headerTime) ? new Date(headerTime) : new Date(NaN);
-    const modified = lastMessageTime > 0 ? new Date(lastMessageTime) : stats.mtime;
+    const modified = lastMessageTime > 0 ? new Date(lastMessageTime) : mtime;
     return {
       path: filePath,
       id: typeof header.id === 'string' ? header.id : '',
@@ -340,7 +356,10 @@ function buildDiskSessionInfo(filePath: string): DiskSessionInfo | null {
       created,
       modified,
       messageCount,
-      firstMessage: firstMessage || '(no messages)',
+      // Store the CAPPED preview, never the raw first message: the cache holds
+      // one entry per session on disk, so keeping full first messages (pasted
+      // PRDs, specs) resident would cost megabytes of heap for no benefit.
+      firstMessage: previewText(firstMessage) || '(no messages)',
       ...(parentSessionPath ? { parentSessionPath } : {}),
     };
   } catch {
@@ -348,8 +367,199 @@ function buildDiskSessionInfo(filePath: string): DiskSessionInfo | null {
   }
 }
 
+/**
+ * One cached listing entry. `mtimeMs`+`size` is the validity stamp: a session
+ * .jsonl is only ever APPENDED to, so an unchanged pair means the parsed info
+ * is still exactly right and the (potentially huge) body never has to be read
+ * again. `info: null` caches a known-bad file so it is not re-read either.
+ */
+interface DiskSessionCacheEntry {
+  mtimeMs: number;
+  size: number;
+  info: DiskSessionInfo | null;
+}
+
+/**
+ * Process-wide cache of parsed session-listing info, keyed by absolute file
+ * path. Without it, EVERY `/sessions` request re-read and re-parsed every
+ * session file on disk (measured: ~1.1 GB / 341k JSON lines / ~7s of blocking
+ * work on a real sessions dir), and the dashboard refetches that list on every
+ * `sessions_updated` broadcast. Entries for files that disappear from disk are
+ * evicted at the end of each scan, so the cache stays proportional to the
+ * sessions that actually exist.
+ */
+const diskSessionCache = new Map<string, DiskSessionCacheEntry>();
+
+/**
+ * Per-directory cwd probe cache. A session directory name is a stable encoding
+ * of its cwd and every session inside shares that cwd, so one header probe
+ * decides the whole folder forever (until the directory itself goes away).
+ */
+const dirCwdCache = new Map<string, string>();
+
+/**
+ * Scans currently running, keyed by `sessionsRoot::label`. `label` identifies
+ * the FILTER (the view), so callers that want the same view share one pass
+ * instead of each paying for its own: N dashboard tabs reconnecting at once,
+ * or a burst of requests during the first (cold) scan after a restart, would
+ * otherwise all parse the same files concurrently. A joiner gets the snapshot
+ * of the in-flight pass, so it can be at most one scan-duration stale, which is
+ * the same freshness guarantee a request arriving a moment earlier would get.
+ */
+const inFlightScans = new Map<string, Promise<DiskSessionInfo[]>>();
+
+/** Test seam: drop all cached listing state. */
+export function clearSessionIndexCache(): void {
+  diskSessionCache.clear();
+  dirCwdCache.clear();
+  inFlightScans.clear();
+}
+
+/**
+ * Yield to the event loop. The scan runs on the same thread that serves the
+ * WebSocket, so a cold pass must never hold the loop: a blocked loop is exactly
+ * what made "Loading session..." hang while the browser hammered /sessions.
+ */
+function yieldToEventLoop(): Promise<void> {
+  return new Promise<void>((resolve) => setImmediate(resolve));
+}
+
+/** How many files to parse between event-loop yields during a cold scan. */
+const SCAN_YIELD_EVERY = 8;
+/** Only log scan stats when a pass did real work (avoids a per-request log). */
+const SCAN_LOG_MIN_READS = 10;
+
+/**
+ * Scan the sessions root and return listing info for every session whose folder
+ * passes `folderWanted`. Async, cached and yielding: a warm pass is a `stat`
+ * per file (milliseconds), and even a cold pass never blocks the event loop.
+ */
+export function scanDiskSessions(
+  sessionsRoot: string,
+  folderWanted: (cwd: string) => boolean,
+  label: string,
+): Promise<DiskSessionInfo[]> {
+  const key = `${sessionsRoot}::${label}`;
+  const running = inFlightScans.get(key);
+  if (running) return running;
+  const scan = runDiskScan(sessionsRoot, folderWanted, label).finally(() => {
+    inFlightScans.delete(key);
+  });
+  inFlightScans.set(key, scan);
+  return scan;
+}
+
+async function runDiskScan(
+  sessionsRoot: string,
+  folderWanted: (cwd: string) => boolean,
+  label: string,
+): Promise<DiskSessionInfo[]> {
+  let dirEntries: fs.Dirent[];
+  try {
+    dirEntries = await fs.promises.readdir(sessionsRoot, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const started = Date.now();
+  const seenFiles = new Set<string>();
+  const seenDirs = new Set<string>();
+  const infos: DiskSessionInfo[] = [];
+  let prunedFolders = 0;
+  let readCount = 0;
+  let parsedSinceYield = 0;
+
+  for (const dirEntry of dirEntries) {
+    if (!dirEntry.isDirectory()) continue;
+    const dirPath = path.join(sessionsRoot, dirEntry.name);
+    let files: string[];
+    try {
+      files = (await fs.promises.readdir(dirPath)).filter((f) => f.endsWith('.jsonl'));
+    } catch {
+      continue;
+    }
+    if (files.length === 0) continue;
+    seenDirs.add(dirPath);
+    for (const f of files) seenFiles.add(path.join(dirPath, f));
+
+    // Cheap pre-filter: one header probe (cached per directory) recovers the
+    // authoritative cwd for the whole folder. Unwanted folders are skipped
+    // before any file body is read.
+    let probeCwd = dirCwdCache.get(dirPath);
+    if (probeCwd === undefined) {
+      probeCwd = resolveSessionCwd(await readSessionCwdFromHeader(path.join(dirPath, files[0])));
+      dirCwdCache.set(dirPath, probeCwd);
+    }
+    if (probeCwd && !folderWanted(probeCwd)) {
+      prunedFolders++;
+      continue;
+    }
+
+    for (const f of files) {
+      const filePath = path.join(dirPath, f);
+      let stats: fs.Stats;
+      try {
+        stats = await fs.promises.stat(filePath);
+      } catch {
+        continue;
+      }
+      const cached = diskSessionCache.get(filePath);
+      let info: DiskSessionInfo | null;
+      if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
+        info = cached.info;
+      } else {
+        let content: string;
+        try {
+          content = await fs.promises.readFile(filePath, 'utf8');
+        } catch {
+          continue;
+        }
+        info = parseDiskSessionInfo(filePath, content, stats.mtime);
+        diskSessionCache.set(filePath, { mtimeMs: stats.mtimeMs, size: stats.size, info });
+        readCount++;
+        if (++parsedSinceYield >= SCAN_YIELD_EVERY) {
+          parsedSinceYield = 0;
+          await yieldToEventLoop();
+        }
+      }
+      if (!info) continue;
+      // Defensive per-session re-check (mixed/edge cases the folder probe missed).
+      if (!folderWanted(resolveSessionCwd(info.cwd))) continue;
+      infos.push(info);
+    }
+  }
+
+  // Evict entries whose files/directories are gone (deleted sessions).
+  for (const key of diskSessionCache.keys()) {
+    if (!seenFiles.has(key)) diskSessionCache.delete(key);
+  }
+  for (const key of dirCwdCache.keys()) {
+    if (!seenDirs.has(key)) dirCwdCache.delete(key);
+  }
+
+  if (readCount >= SCAN_LOG_MIN_READS) {
+    console.log(
+      `[wherever] ${label}: parsed ${readCount} changed session file(s) of ${seenFiles.size}` +
+        `${prunedFolders > 0 ? `, skipped ${prunedFolders} folder(s)` : ''} in ${Date.now() - started}ms`,
+    );
+  }
+  return infos;
+}
+
+/**
+ * Directory holding `config.json`. `WHEREVER_CONFIG_DIR` overrides the default
+ * `~/.wherever` so a test server can run in FULL isolation (ADR 0001): without
+ * it, an isolated harness still reads the developer's real config, so e.g. a
+ * personal `sessions.ignore: ["/tmp/**"]` silently hid the harness's own
+ * temp-dir sessions from /sessions.
+ */
+function getWhereverConfigDir(): string {
+  const override = process.env.WHEREVER_CONFIG_DIR;
+  return override && override.trim() ? path.resolve(override.trim()) : path.join(os.homedir(), '.wherever');
+}
+
 export function getWhereverConfig(): WhereverConfig {
-  const configDir = path.join(os.homedir(), '.wherever');
+  const configDir = getWhereverConfigDir();
   const configPath = path.join(configDir, 'config.json');
   if (!fs.existsSync(configPath)) {
     try {
@@ -639,6 +849,21 @@ export class SessionPool {
 
   async initialize(): Promise<void> {
     this.modelRegistry.refresh();
+    this.warmSessionIndex();
+  }
+
+  /**
+   * Populate the session-listing cache in the background at startup, so the
+   * first dashboard load does not pay for the one cold pass over the sessions
+   * directory (seconds on a large one). Deliberately not awaited: the scan
+   * yields to the event loop, so the server accepts connections throughout, and
+   * a request arriving mid-warm-up joins this same pass instead of duplicating
+   * it (see inFlightScans).
+   */
+  private warmSessionIndex(): void {
+    void this.listSessions('default').catch(() => {
+      /* warm-up is best-effort: a real request will retry and report. */
+    });
   }
 
   /**
@@ -695,8 +920,7 @@ export class SessionPool {
       if (active) {
         resolvedFile = active.sessionFile;
       } else {
-        const diskSessions = await SessionManager.listAll();
-        const found = diskSessions.find(s => s.id === sessionFile || s.name === sessionFile);
+        const found = await this.findDiskSessionByIdOrName(sessionFile);
         if (found) {
           resolvedFile = found.path;
         } else {
@@ -790,8 +1014,7 @@ export class SessionPool {
         resolvedFile = active.sessionFile;
       } else {
         // 2. Scan the disk to find the session with the matching ID/name
-        const diskSessions = await SessionManager.listAll();
-        const found = diskSessions.find(s => s.id === sessionFile || s.name === sessionFile);
+        const found = await this.findDiskSessionByIdOrName(sessionFile);
         if (found) {
           resolvedFile = found.path;
         } else {
@@ -1417,35 +1640,17 @@ export class SessionPool {
    *   tagged `readOnly: true`.
    * In both cases, excluded folders are pruned BEFORE their file bodies are
    *   read (cheap one-header probe per folder), so they cost nothing to scan.
+   *
+   * Backed by `scanDiskSessions`, which caches each file's parsed info against
+   * its (mtime, size) stamp and yields to the event loop between parses. The
+   * dashboard refetches this list on every `sessions_updated`, so an uncached
+   * re-read of the whole sessions dir here stalls the WebSocket (and with it
+   * any in-flight session load) for as long as the scan takes.
    */
   async listSessions(view: 'default' | 'readonly' = 'default'): Promise<FolderWithSessions[]> {
     const cfg = getWhereverConfig().sessions;
-    const ignorePatterns = cfg?.ignore;
-    const readOnlyPatterns = cfg?.readOnly;
-    const isIgnored = makeIgnoreMatcher(ignorePatterns);
-    const isReadOnly = makeIgnoreMatcher(readOnlyPatterns);
-    const hasIgnore = !!ignorePatterns && ignorePatterns.length > 0;
-    const hasReadOnly = !!readOnlyPatterns && readOnlyPatterns.length > 0;
-
-    // Fast path: no ignore AND no read-only patterns, and the caller wants the
-    // default view -> keep pi's listAll() exactly as before (zero behaviour or
-    // perf change for users who haven't opted in).
-    if (view === 'default' && !hasIgnore && !hasReadOnly) {
-      const diskSessions = await SessionManager.listAll();
-      return this.buildFolders(
-        diskSessions.map((s) => ({
-          path: s.path,
-          id: s.id,
-          cwd: s.cwd,
-          name: s.name,
-          created: s.created,
-          modified: s.modified,
-          messageCount: s.messageCount,
-          firstMessage: s.firstMessage,
-          parentSessionPath: s.parentSessionPath,
-        })),
-      );
-    }
+    const isIgnored = makeIgnoreMatcher(cfg?.ignore);
+    const isReadOnly = makeIgnoreMatcher(cfg?.readOnly);
 
     // A folder is KEPT only if its cwd belongs in the requested view:
     // - default: not ignored AND not read-only.
@@ -1455,56 +1660,27 @@ export class SessionPool {
       return view === 'readonly' ? isReadOnly(cwd) : !isReadOnly(cwd);
     };
 
-    // Directory-aware path: prune unwanted folders BEFORE reading their file
-    // bodies, so the excluded sessions do not slow down /sessions.
-    const sessionsRoot = path.join(this.agentDir, 'sessions');
-    let dirNames: string[] = [];
-    try {
-      dirNames = fs
-        .readdirSync(sessionsRoot, { withFileTypes: true })
-        .filter((e) => e.isDirectory())
-        .map((e) => e.name);
-    } catch {
-      return [];
-    }
-
-    const survivingFiles: string[] = [];
-    let prunedFolders = 0;
-    for (const dirName of dirNames) {
-      const dirPath = path.join(sessionsRoot, dirName);
-      let files: string[];
-      try {
-        files = fs.readdirSync(dirPath).filter((f) => f.endsWith('.jsonl'));
-      } catch {
-        continue;
-      }
-      if (files.length === 0) continue;
-
-      // Cheap pre-filter: read ONLY the header of the first file to recover the
-      // authoritative cwd. All sessions in one folder share a cwd, so one header
-      // decides the whole folder. If the folder is not wanted in this view, skip
-      // it entirely (its file bodies are never read).
-      const probeCwd = resolveSessionCwd(readSessionCwdFromHeader(path.join(dirPath, files[0])));
-      if (probeCwd && !folderWanted(probeCwd)) {
-        prunedFolders++;
-        continue;
-      }
-      for (const f of files) survivingFiles.push(path.join(dirPath, f));
-    }
-
-    const infos: DiskSessionInfo[] = [];
-    for (const file of survivingFiles) {
-      const info = buildDiskSessionInfo(file);
-      if (!info) continue;
-      // Defensive per-session re-check (mixed/edge cases the folder probe missed).
-      if (!folderWanted(resolveSessionCwd(info.cwd))) continue;
-      infos.push(info);
-    }
-
-    if (prunedFolders > 0) {
-      console.log(`[wherever] /sessions (${view}): skipped ${prunedFolders} folder(s) before reading file bodies`);
-    }
+    const infos = await scanDiskSessions(
+      path.join(this.agentDir, 'sessions'),
+      folderWanted,
+      `/sessions (${view})`,
+    );
     return this.buildFolders(infos, view === 'readonly' ? isReadOnly : undefined);
+  }
+
+  /**
+   * Find a session on disk by short ID or name, using the same cached scan as
+   * listSessions(). Replaces `SessionManager.listAll()` on this lookup path:
+   * that helper re-reads and re-parses every session file, which is seconds of
+   * blocking work just to resolve one deep-linked session ID.
+   */
+  private async findDiskSessionByIdOrName(idOrName: string): Promise<DiskSessionInfo | undefined> {
+    const infos = await scanDiskSessions(
+      path.join(this.agentDir, 'sessions'),
+      () => true,
+      'session lookup',
+    );
+    return infos.find((s) => s.id === idOrName || s.name === idOrName);
   }
 
   /** True when the given (raw or resolved) cwd matches a sessions.readOnly glob. */
