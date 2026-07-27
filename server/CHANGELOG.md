@@ -1,5 +1,17 @@
 # wherever-dev
 
+## 0.10.10
+
+### Patch Changes
+
+- 5a3e325: Show messages that are still queued as mid-stream steers after a reload. A message sent while the agent is streaming is queued by pi and injected at the next step, but until then it lives only in the agent's memory: it is not in the session file, so a reloaded client painted history with no trace of it. The text simply disappeared from the UI while the agent still had it and went on to act on it.
+
+  Attaching to a session (`session_load`, which also serves reload and reconnect resync) now replies with a `queue_update` snapshot of the current steer queue, and the client re-materializes any queued message its history does not contain, so it renders with the "Queued (not yet sent to the agent)" badge and stays cancellable. When the queued message is finally injected, the server's echo reconciles onto that bubble instead of appending a duplicate.
+
+- c7b9999: Fix a session opened from a URL hash deep link (`https://host/#<sessionId>`) hanging forever on "Loading session...", while the same session opened instantly from the sidebar.
+
+  The sidebar joins a session by FILE path, but the URL hash carries the session ID. `session_load` accepts either (the server resolves an ID to its file) yet always replies with the resolved file path. The client's superseded-load guard matched a `session_created` reply against the pending load target by file path only, so an ID-issued load never recognised its own reply: it was dropped as a stale/superseded load, no session ever became active, and the hash-driven spinner never cleared. The pending load target now matches its reply by session file OR session ID, while still rejecting late replies for genuinely abandoned loads.
+
 ## 0.10.9
 
 ### Patch Changes
