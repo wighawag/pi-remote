@@ -532,8 +532,9 @@ export default async function (pi: ExtensionAPI) {
 
   // Whether the turn started by the NEXT relayed user message should carry the
   // conversation-mode hint (see ./conversation-mode-hint.ts, kept in lockstep with
-  // the server's twin). Armed from every `cli_message` and consumed by the
-  // before_agent_start handler below.
+  // the server's twin). Armed from every `cli_message`, consumed by the
+  // before_agent_start handler below (which also opens the spoken turn the
+  // `context` handler adds its tail reminder to), and closed on agent_end.
   const conversationSignal = createConversationModeSignal();
 
   // Let the agent emit a SHORT spoken-form reply the web UI can speak aloud and
@@ -1049,6 +1050,20 @@ export default async function (pi: ExtensionAPI) {
     return { systemPrompt };
   });
 
+  // The other half of the same signal: the TAIL reminder, added before EVERY LLM
+  // call of a spoken turn (including the post-tool-result synthesis call, which is
+  // exactly where a system-prompt-only hint gets ignored). The SDK hands us a
+  // structuredClone and passes the result straight to convertToLlm, so this never
+  // touches session state, the transcript or the TUI.
+  pi.on("context", async (event: any) => {
+    const messages = conversationSignal.applyToContext(event.messages);
+    if (messages === undefined) return;
+    // The structural ContextMessageLike[] this module works in IS the SDK's
+    // AgentMessage[] at runtime (the same objects, with at most one cloned tail);
+    // the cast is only to keep the shared twin free of SDK type imports.
+    return { messages } as any;
+  });
+
   // Subscribe and forward Agent Events to the Standalone Server
   pi.on("agent_start", async () => {
     // The agent is running again (the user took over / continued the session), so
@@ -1073,6 +1088,9 @@ export default async function (pi: ExtensionAPI) {
   });
 
   pi.on("agent_end", async (event: any) => {
+    // The spoken turn is over: stop adding the tail reminder until the next
+    // flagged message opens a new one.
+    conversationSignal.endTurn();
     sendCliEvent({
       type: "agent_end",
       messages: event.messages,

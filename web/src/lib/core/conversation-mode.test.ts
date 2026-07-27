@@ -4,6 +4,7 @@ import {
 	KNOB_STORAGE,
 	isKnobActive,
 	bundleOn,
+	resolveConversationMode,
 	shouldSignalConversationMode,
 	type ConversationKnobs,
 } from './conversation-mode.js';
@@ -171,5 +172,29 @@ describe('bundleOn: flipping the mode ON bundles the configured knobs', () => {
 		const next = {...allOn, conversationMode: false};
 		expect(next.autoSendOnSpeechEnd).toBe(true);
 		expect(isKnobActive('autoSendOnSpeechEnd', next)).toBe(true);
+	});
+});
+
+// The master toggle is scoped PER CONVERSATION over a global default: the bar
+// toggle sets the conversation you are in, Connection Settings sets the default
+// for conversations that have not been toggled. "Unset" is a real state (mirror
+// of the waiting-for-human beep's per-session override).
+describe('resolveConversationMode', () => {
+	it('follows the default when this conversation has no choice of its own', () => {
+		expect(resolveConversationMode(undefined, true)).toBe(true);
+		expect(resolveConversationMode(undefined, false)).toBe(false);
+	});
+
+	it("uses this conversation's own choice when it has one, either way", () => {
+		// Turned ON here while the default is off: only this conversation speaks.
+		expect(resolveConversationMode(true, false)).toBe(true);
+		// Turned OFF here while the default is on: only this conversation is quiet.
+		expect(resolveConversationMode(false, true)).toBe(false);
+	});
+
+	it("a conversation's own choice STICKS when the default later changes", () => {
+		const chosen = false;
+		expect(resolveConversationMode(chosen, false)).toBe(false);
+		expect(resolveConversationMode(chosen, true)).toBe(false);
 	});
 });

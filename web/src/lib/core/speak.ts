@@ -111,6 +111,10 @@ export function resetTtsSettleSignal(): void {
 // INSIDE that handler, and the browser then permits the later gesture-less
 // utterances for the rest of the session.
 let ttsUnlocked = false;
+// Whether the document-wide "prime on the first gesture, whatever it is" net is
+// currently armed (see armTtsGestureUnlock).
+let gestureUnlockArmed = false;
+let disarmGestureUnlock: (() => void) | null = null;
 
 // Best-effort "un-pause the queue" kick. Mobile Chrome can leave the
 // speechSynthesis queue in a paused state, which swallows subsequent utterances
@@ -123,6 +127,51 @@ function resumeQueue(synth: SpeechSynthesis): void {
 	} catch {
 		// A spoken reply is a nicety: never surface a browser-side failure.
 	}
+}
+
+// Inaudible (volume 0) but NOT blank: mobile Chrome drops whitespace-only
+// utterances outright, so a blank prime can fail to consume the user activation
+// it was issued under. See unlockTts.
+const PRIMING_TEXT = '.';
+
+/**
+ * Ask the engine for its voices, tolerating implementations that lack/throw on
+ * getVoices(). Returns [] when the list is not (yet) known, which callers must
+ * treat as "no information", never as "no voices exist".
+ */
+function loadVoices(synth: SpeechSynthesis): SpeechSynthesisVoice[] {
+	try {
+		if (typeof synth.getVoices !== 'function') return [];
+		return synth.getVoices() ?? [];
+	} catch {
+		return [];
+	}
+}
+
+/**
+ * The `lang` to set on an utterance, or '' to leave the browser default alone.
+ *
+ * Setting a lang the engine has NO voice for is a known way to get silence on
+ * mobile: the engine finds no match and simply says nothing. So the configured
+ * speech locale is applied only when the voice list actually offers that language
+ * (matched on the primary subtag, so `en-GB` is served by an `en-US` voice). When
+ * the list is empty -- unknown, e.g. voices not loaded yet, or an engine without
+ * getVoices() -- we have no information, so the locale is applied as before.
+ *
+ * Exported for unit testing; production callers go through speakUtterance.
+ */
+export function resolveUtteranceLang(
+	lang: string | undefined,
+	voices: readonly {lang?: string}[],
+): string {
+	const wanted = (lang ?? '').trim();
+	if (!wanted) return '';
+	if (voices.length === 0) return wanted;
+	const primary = wanted.toLowerCase().split(/[-_]/)[0];
+	const supported = voices.some(
+		(voice) => (voice.lang ?? '').toLowerCase().split(/[-_]/)[0] === primary,
+	);
+	return supported ? wanted : '';
 }
 
 /**
@@ -143,12 +192,18 @@ function resumeQueue(synth: SpeechSynthesis): void {
  * The gesture-less hands-free re-open path (startRecordingProgrammatically) does
  * NOT unlock, since there is no user activation there.
  *
- * The priming utterance is SILENT (volume 0, whitespace text) so the user hears
- * nothing, and it is deliberately NOT tracked by the TTS-settle signal: some
- * browsers never fire onend for an empty utterance, which would wedge
- * isTtsSpeaking() at true forever and stop the hands-free loop from ever
- * re-opening the mic. Keeping it off the tracked path means isTtsSpeaking() /
- * whenTtsIdle() keep reporting ONLY real `say` replies.
+ * The priming utterance is SILENT (volume 0) so the user hears nothing, but its
+ * text is deliberately NOT blank: mobile Chrome DISCARDS a whitespace-only
+ * utterance without ever running the speech pipeline, so an empty prime can be
+ * dropped without consuming the user activation it was issued under -- priming
+ * that never primes, which is the mobile silence this is meant to fix. A single
+ * period at volume 0 is inaudible and still exercises the pipeline.
+ *
+ * It is deliberately NOT tracked by the TTS-settle signal: some browsers never
+ * fire onend for a priming utterance, which would wedge isTtsSpeaking() at true
+ * forever and stop the hands-free loop from ever re-opening the mic. Keeping it
+ * off the tracked path means isTtsSpeaking() / whenTtsIdle() keep reporting ONLY
+ * real `say` replies.
  *
  * We do NOT call speechSynthesis.cancel() around the priming: cancel drops
  * queued utterances without firing their onend, which would leak the settle
@@ -168,12 +223,17 @@ export function unlockTts(deps: SpeechDeps = browserSpeechDeps()): boolean {
 
 	try {
 		resumeQueue(synth);
-		const priming = new Utterance(' ');
+		// Nudge the voice list into loading while we are here: some engines only
+		// populate getVoices() lazily, and a first utterance issued before any voice
+		// exists can be dropped.
+		loadVoices(synth);
+		const priming = new Utterance(PRIMING_TEXT);
 		priming.volume = 0;
 		// No onend/onerror wiring and no outstandingUtterances++ on purpose: this
 		// utterance must stay invisible to the settle signal.
 		synth.speak(priming);
 		ttsUnlocked = true;
+		disarmGestureUnlock?.();
 		return true;
 	} catch {
 		// Could not prime (e.g. the browser refused outside an activation window):
@@ -197,6 +257,89 @@ export function isTtsUnlocked(): boolean {
  */
 export function resetTtsUnlock(): void {
 	ttsUnlocked = false;
+	disarmGestureUnlock?.();
+}
+
+/** The minimal event-target surface armTtsGestureUnlock needs (injectable for tests). */
+export interface GestureTarget {
+	addEventListener(
+		type: string,
+		listener: () => void,
+		options?: {capture?: boolean; passive?: boolean},
+	): void;
+	removeEventListener(
+		type: string,
+		listener: () => void,
+		options?: {capture?: boolean},
+	): void;
+}
+
+// Any of these means "a human is driving this page right now", which is all the
+// browser asks for before it will let the page speak.
+const GESTURE_EVENTS = ['pointerdown', 'touchend', 'mousedown', 'keydown'];
+
+/**
+ * Arm a one-shot, document-wide net that primes TTS from the user's NEXT gesture,
+ * whatever that gesture is.
+ *
+ * WHY, on top of the explicit unlock call sites: those are the Conversation Mode
+ * toggle, the mic button and settings-save -- all of which assume the user TOUCHES
+ * one of them in this page load. A returning user whose conversation mode is
+ * already persisted ON does not: they open the (installed) PWA, type or dictate,
+ * and the first `say` reply arrives with no gesture ever having primed, so mobile
+ * drops it silently while desktop speaks. That is exactly the reported "no voice on
+ * the phone, voice on the desktop" gap, and it is why priming must not depend on
+ * the user happening to tap one specific control.
+ *
+ * Listeners are capture-phase and passive (they never preventDefault, never
+ * stopPropagation, and do not care which element was hit), and they remove
+ * themselves as soon as priming succeeds, so this costs one gesture at most.
+ * Idempotent: arming twice, or arming when already unlocked, does nothing.
+ *
+ * Returns true only if it actually armed the net.
+ */
+export function armTtsGestureUnlock(
+	target: GestureTarget | null = typeof document === 'undefined'
+		? null
+		: document,
+	deps: SpeechDeps = browserSpeechDeps(),
+): boolean {
+	if (ttsUnlocked || gestureUnlockArmed || !target) return false;
+
+	const onGesture = () => {
+		// unlockTts() disarms us on success; if it could not prime (no speech
+		// synthesis, or the browser refused), stay armed for the next gesture.
+		unlockTts(deps);
+	};
+
+	disarmGestureUnlock = () => {
+		if (!gestureUnlockArmed) return;
+		gestureUnlockArmed = false;
+		disarmGestureUnlock = null;
+		for (const type of GESTURE_EVENTS) {
+			try {
+				target.removeEventListener(type, onGesture, {capture: true});
+			} catch {
+				// Never let listener bookkeeping surface as an app error.
+			}
+		}
+	};
+
+	gestureUnlockArmed = true;
+	try {
+		for (const type of GESTURE_EVENTS) {
+			target.addEventListener(type, onGesture, {capture: true, passive: true});
+		}
+	} catch {
+		disarmGestureUnlock?.();
+		return false;
+	}
+	return true;
+}
+
+/** Whether the first-gesture priming net is currently armed (test/diagnostic use). */
+export function isTtsGestureUnlockArmed(): boolean {
+	return gestureUnlockArmed;
 }
 
 function browserSpeechDeps(): SpeechDeps {
@@ -221,7 +364,9 @@ function browserSpeechDeps(): SpeechDeps {
  *   throw — so callers need no guard of their own.
  * - `lang`: when a non-empty speech locale is provided it is set on the
  *   utterance so the voice matches the configured speech language; when omitted
- *   the browser default voice/lang is used.
+ *   the browser default voice/lang is used. A locale the engine has NO voice for
+ *   is DROPPED rather than set, because setting it is a known way to get silence
+ *   on mobile (see resolveUtteranceLang).
  * - A defensive `resume()` kick is issued first: mobile Chrome can leave the
  *   utterance queue paused, which drops the utterance even once the session has
  *   been gesture-unlocked (see unlockTts). On desktop / an unpaused queue this is
@@ -258,8 +403,9 @@ export function speakUtterance(
 	try {
 		resumeQueue(synth);
 		const utterance = new Utterance(spoken);
-		if (lang && lang.trim()) {
-			utterance.lang = lang.trim();
+		const resolvedLang = resolveUtteranceLang(lang, loadVoices(synth));
+		if (resolvedLang) {
+			utterance.lang = resolvedLang;
 		}
 		utterance.onend = settleOnce;
 		utterance.onerror = settleOnce;

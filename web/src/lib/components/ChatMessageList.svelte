@@ -20,6 +20,7 @@
 		beepSessionOverride,
 		setBeepSessionOverride,
 		conversationMode,
+		conversationModeSessionOverride,
 		setConversationModeBundle,
 		speakReplies,
 		collapseLongReplies,
@@ -29,7 +30,16 @@
 		forkSession,
 	} from '$lib/wherever';
 	import {mediaKind, extractDownloadablePath} from '$lib/core/media-kind';
-	import {extractSayText, speakUtterance, unlockTts} from '$lib/core/speak';
+	import {
+		armTtsGestureUnlock,
+		extractSayText,
+		speakUtterance,
+		unlockTts,
+	} from '$lib/core/speak';
+	import {
+		shouldSpeakFallback,
+		spokenFallbackText,
+	} from '$lib/core/speak-fallback';
 	import {shouldCollapseReply, isLongReply} from '$lib/core/collapse-reply';
 	import {isKnobActive} from '$lib/core/conversation-mode';
 	import {
@@ -342,6 +352,12 @@
 	// of knobs ON at once (and back OFF). The knobs it gates are edited
 	// individually in Connection Settings.
 	let conversationOn = $derived($conversationMode);
+	// Whether THIS conversation is just following the global default (no explicit
+	// choice of its own). Surfaced in the toggle's tooltip so the per-conversation
+	// scope is legible: the same bar toggle in another conversation is independent.
+	let conversationFollowsDefault = $derived(
+		$conversationModeSessionOverride === undefined,
+	);
 	// This click handler is ALSO the TTS gesture-unlock point. Mobile Chrome / iOS
 	// Safari / installed PWAs only allow the FIRST speechSynthesis.speak() from
 	// inside a user gesture, and the `say` reply is spoken from a gesture-less
@@ -388,6 +404,10 @@
 	// message has finished streaming so the text is final. With speakReplies off,
 	// no utterance fires.
 	const spokenSayIds = new Set<string>();
+	// Whether a `say` reply has been spoken for the turn currently in flight. The
+	// spoken-reply FALLBACK below only speaks a turn the agent left unspoken, so
+	// the agent's own `say` line always wins.
+	let spokeThisTurn = false;
 
 	function speechLocale(): string {
 		if (typeof localStorage === 'undefined') return '';
@@ -409,8 +429,76 @@
 			if (!isKnobActive('speakReplies', getConversationKnobs())) continue;
 			const parsed = parseToolMessage(msg);
 			if (!parsed.sayText) continue;
+			spokeThisTurn = true;
 			speakUtterance(parsed.sayText, speechLocale());
 		}
+	});
+
+	// Prime browser TTS from the user's FIRST gesture whenever spoken replies are
+	// active. The explicit unlock points (the Conversation Mode toggle, the mic
+	// button, settings-save) all assume the user TOUCHES one of them in this page
+	// load; a returning user whose conversation mode is already persisted ON does
+	// not, so on mobile every reply was dropped by the user-activation gate while
+	// desktop spoke fine. See core/speak.ts armTtsGestureUnlock.
+	$effect(() => {
+		void $conversationMode;
+		void $speakReplies;
+		if (!isKnobActive('speakReplies', getConversationKnobs())) return;
+		armTtsGestureUnlock();
+	});
+
+	// The spoken-reply FALLBACK. `say` is a REQUEST to the model, and compliance is
+	// a model property: smaller models skip it for entire turns (measured ~50% on a
+	// local 35B, and almost never right after a tool result), which left conversation
+	// mode silent exactly when the user was listening. So when a turn SETTLES with
+	// spoken replies active and nothing was spoken, speak a short plain lead-in of
+	// the written reply instead. Additive and display-only-adjacent: the written
+	// reply in the transcript is never modified, and a turn the agent DID speak is
+	// never re-spoken. Keyed off the same isStreaming true->false settle edge the
+	// waiting-for-human beep and the hands-free mic-reopen use.
+	let prevStreamingForSpeech = false;
+	const fallbackSpokenIds = new Set<string>();
+
+	function lastAssistantReply(
+		list: ChatMessage[],
+	): {id: string; text: string} | null {
+		for (let i = list.length - 1; i >= 0; i--) {
+			const msg = list[i];
+			if (msg.role === 'user') return null; // nothing said since the human spoke
+			if (msg.role !== 'assistant' || msg.isStreaming) continue;
+			return {
+				id: msg.id,
+				text: typeof msg.content === 'string' ? msg.content : '',
+			};
+		}
+		return null;
+	}
+
+	$effect(() => {
+		const list = $messages;
+		const streamingNow = $isStreaming;
+		void $speakReplies;
+
+		if (streamingNow && !prevStreamingForSpeech) {
+			// A new turn began: it has not spoken yet.
+			spokeThisTurn = false;
+		} else if (!streamingNow && prevStreamingForSpeech) {
+			const reply = lastAssistantReply(list);
+			if (reply && !fallbackSpokenIds.has(reply.id)) {
+				fallbackSpokenIds.add(reply.id);
+				if (
+					shouldSpeakFallback({
+						active: isKnobActive('speakReplies', getConversationKnobs()),
+						spokeThisTurn,
+						reply: reply.text,
+					})
+				) {
+					speakUtterance(spokenFallbackText(reply.text), speechLocale());
+				}
+			}
+			spokeThisTurn = false;
+		}
+		prevStreamingForSpeech = streamingNow;
 	});
 	function cycleBeep() {
 		if (beepOverride === undefined) setBeepSessionOverride(true);
@@ -2208,17 +2296,28 @@
 			{/if}
 
 			<!-- Conversation Mode master toggle: flips the configured knob bundle on
-			     at once (speak replies, collapse long replies, hands-free mic re-open).
-			     Individual knobs are edited in Connection Settings. -->
+			     at once (speak replies, collapse long replies, hands-free mic re-open)
+			     FOR THIS CONVERSATION ONLY -- other conversations keep their own state,
+			     and untouched ones follow the default. With no conversation open there is
+			     nothing to scope to, so it edits that default instead. Individual knobs
+			     (and the default) are edited in Connection Settings. -->
 			<button
 				type="button"
 				onclick={toggleConversationMode}
 				class="flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs select-none hover:text-brand-text {conversationOn
 					? 'text-brand-blue'
 					: 'text-brand-text-muted'}"
-				title={conversationOn
-					? 'Conversation Mode: ON. Click to turn off (the configured knobs go dormant).'
-					: 'Conversation Mode: OFF. Click to flip your configured bundle of speech/voice knobs on at once.'}
+				title={`Conversation Mode for THIS conversation: ${
+					conversationOn ? 'ON' : 'OFF'
+				}${
+					conversationFollowsDefault
+						? ' (following your default)'
+						: ' (set for this conversation)'
+				}. ${
+					conversationOn
+						? 'Click to turn it off here (the configured knobs go dormant); other conversations are unaffected.'
+						: 'Click to flip your configured bundle of speech/voice knobs on here; other conversations are unaffected.'
+				} The default for conversations you have not toggled is in Connection Settings.`}
 				aria-label="Toggle conversation mode"
 			>
 				<span>{conversationOn ? '🗣️' : '💬'}</span>

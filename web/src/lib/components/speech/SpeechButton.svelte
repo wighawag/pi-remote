@@ -2,6 +2,11 @@
 	import {onMount} from 'svelte';
 	import {autoSendOnSpeechEnd, setAutoSendOnSpeechEnd} from '$lib/wherever';
 	import {unlockTts} from '$lib/core/speak';
+	import {
+		createAutoStopDetector,
+		frameLevel,
+		type AutoStopDetector,
+	} from '$lib/core/hands-free';
 
 	let {
 		text = $bindable(),
@@ -13,10 +18,10 @@
 		disabled: boolean;
 		onSend?: () => void;
 		// The speech engine currently in use, mirrored out to the parent so the
-		// hands-free mic-reopen loop can pick the right action (browser -> auto
-		// reopen the mic; cloud -> re-focus the composer). Bindable so a parent can
-		// read it reactively; SpeechButton owns the value (the settings popover sets
-		// it), the parent only observes.
+		// hands-free mic-reopen loop can see it (both engines auto-record; the cloud
+		// one additionally auto-STOPS, see autoStopDetector below). Bindable so a
+		// parent can read it reactively; SpeechButton owns the value (the settings
+		// popover sets it), the parent only observes.
 		activeEngine?: 'browser' | 'cloud';
 	} = $props();
 
@@ -54,6 +59,13 @@
 	let scriptProcessor: any = null;
 	let audioStream: MediaStream | null = null;
 	let pcmChunks: Float32Array[] = [];
+	// Set ONLY for a recording the hands-free loop opened on the CLOUD engine.
+	// That engine has no endpointing of its own (it records until told to stop), so
+	// an auto-opened recording needs an auto-stop: silence after speech ends the
+	// turn, and a hard ceiling means a hot mic can never run away. A recording the
+	// user opened by TAPPING is left alone -- their next tap is the stop, and
+	// taking that away would be the surprising behaviour.
+	let autoStopDetector: AutoStopDetector | null = null;
 
 	let baseText = '';
 	let textModified = false;
@@ -309,6 +321,19 @@
 				const inputBuffer = event.inputBuffer.getChannelData(0);
 				// Push a snapshot/copy of Float32 audio samples
 				pcmChunks.push(new Float32Array(inputBuffer));
+				// Hands-free auto-stop, driven by the audio we are already capturing (a
+				// wall-clock timer would keep running while a backgrounded tab is
+				// throttled and the mic is not actually delivering frames).
+				if (!autoStopDetector) return;
+				const sampleRate = event.inputBuffer.sampleRate || 44100;
+				const frameMs = (inputBuffer.length / sampleRate) * 1000;
+				if (
+					autoStopDetector.push(frameLevel(inputBuffer), frameMs) !==
+					'keep-recording'
+				) {
+					autoStopDetector = null;
+					stopRecording();
+				}
 			};
 
 			micSource.connect(scriptProcessor);
@@ -326,6 +351,7 @@
 			speechError = err.message || 'Microphone access denied';
 			isRecording = false;
 			isProcessing = false;
+			autoStopDetector = null;
 		}
 	}
 
@@ -444,11 +470,16 @@
 	// ==========================================
 	// GESTURE & INTERACTION DISPATCHERS
 	// ==========================================
-	function startRecording() {
+	// `autoStop` is set ONLY by the hands-free loop (see
+	// startRecordingProgrammatically). A manual tap always clears the detector, so a
+	// user-opened recording is never ended for them.
+	function startRecording(autoStop = false) {
 		if (disabled || isRecording || isProcessing) return;
 		speechError = null;
 		textModified = false;
 		baseText = text;
+		autoStopDetector =
+			autoStop && engine === 'cloud' ? createAutoStopDetector() : null;
 
 		if (engine === 'cloud') {
 			startCloudRecording();
@@ -458,15 +489,21 @@
 	}
 
 	// Public: programmatically start recording, for the hands-free mic-reopen loop
-	// (browser engine only; the parent gates on the engine + knob before calling).
-	// Exposed via bind:this so the settle-edge driver in ChatInput can auto-restart
-	// streaming recognition after a reply settles, exactly as a manual tap would.
-	// Guarded by the same disabled/recording checks as a user gesture.
+	// (BOTH engines: the user's consent lives in the micReopensAfterReply config
+	// knob, not in a per-conversation gesture; see core/hands-free.ts). Exposed via
+	// bind:this so the settle-edge driver in ChatInput can re-open the mic after a
+	// reply settles, exactly as a manual tap would. Guarded by the same
+	// disabled/recording checks as a user gesture.
+	//
+	// The cloud engine additionally gets an auto-STOP for this recording, since it
+	// would otherwise record until a tap -- the very tap the hands-free loop exists
+	// to remove.
 	export function startRecordingProgrammatically() {
-		startRecording();
+		startRecording(true);
 	}
 
 	function stopRecording() {
+		autoStopDetector = null;
 		if (engine === 'cloud') {
 			stopCloudRecording();
 		} else {

@@ -259,10 +259,12 @@
 	// isStreaming true->false edge (the moment the agent settles and is waiting for
 	// the human). When the `micReopensAfterReply` knob is active we wait for any
 	// in-flight `say` TTS to finish (whenTtsIdle) so the spoken reply is not
-	// captured as mic input, then either auto-reopen the mic (browser engine) or
-	// re-focus the composer (cloud engine fallback, no auto-record). When the knob
-	// is inactive (conversation mode off, or the knob off) nothing happens.
-	// decideMicReopen is the pure, unit-tested engine-scope rule.
+	// captured as mic input, then re-open the mic. BOTH engines auto-record: the
+	// user's consent lives in the config knob they turned on, not in a
+	// per-conversation gesture, and the cloud engine's missing stop condition is
+	// solved by its auto-stop detector rather than by refusing to start (see
+	// core/hands-free.ts). When the knob is inactive (conversation mode off for this
+	// conversation, or the knob off) nothing happens.
 	let prevStreamingForReopen = false;
 	$effect(() => {
 		const nowStreaming = $isStreaming;
@@ -281,11 +283,7 @@
 			// Re-check: the user may have started streaming again, or the composer may
 			// have been disabled, while TTS was finishing.
 			if ($isStreaming || effectivelyDisabled) return;
-			if (action === 'reopen-mic') {
-				speechButton?.startRecordingProgrammatically();
-			} else {
-				focusInput();
-			}
+			speechButton?.startRecordingProgrammatically();
 		});
 	});
 

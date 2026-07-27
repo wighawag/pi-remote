@@ -55,6 +55,11 @@ export type GatedKnob = (typeof GATED_KNOBS)[number];
  * - `store: 'config'` knobs live as a boolean field in the single
  *   `wherever-config` localStorage entry via getConfig()/saveConfig() (the
  *   beepDefault pattern).
+ *
+ * NOTE for `conversationMode` (the master): its config field is the per-session
+ * DEFAULT, not the effective value. The master is scoped PER CONVERSATION (see
+ * resolveConversationMode + the override map in wherever.ts), so the config field
+ * answers "what should a conversation that has not been toggled use?".
  */
 export const KNOB_STORAGE: {
 	readonly [K in ConversationKnob]:
@@ -120,4 +125,33 @@ export function shouldSignalConversationMode(
  */
 export function bundleOn(knobs: ConversationKnobs): ConversationKnobs {
 	return {...knobs, conversationMode: true};
+}
+
+/**
+ * The effective master toggle for ONE conversation.
+ *
+ * The master is PER CONVERSATION, not global: a spoken exchange is a property of
+ * the conversation you are having, not of the app. Turning it on in the bar while
+ * talking to one session must not start speaking replies in every other session
+ * (and, on the wire, must not stamp the conversation-mode signal on messages sent
+ * from them). So each session can hold its OWN explicit choice, and the config
+ * flag is the DEFAULT a session uses until it is toggled.
+ *
+ * "Unset" is a real, distinct state, exactly as it is for the waiting-for-human
+ * beep (whose per-session override this mirrors deliberately):
+ * - a session with NO override FOLLOWS the default, live: change the default and
+ *   that session changes with it;
+ * - once toggled, the session's own choice STICKS and later default changes do
+ *   not move it, until it is cleared back to "follow default".
+ *
+ * The gated knobs (speakReplies, collapseLongReplies, micReopensAfterReply) stay
+ * GLOBAL settings: they describe HOW a spoken conversation behaves, and the user
+ * configures that once. Only WHETHER this conversation is a spoken one is per
+ * conversation.
+ */
+export function resolveConversationMode(
+	override: boolean | undefined,
+	defaultOn: boolean,
+): boolean {
+	return override === undefined ? defaultOn : override;
 }

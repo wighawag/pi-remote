@@ -10,16 +10,21 @@
  * The web client stamps an optional `conversationMode` boolean on the EXISTING
  * `message` WS payload (no new message type, no new chat role). For a bridged
  * terminal session the server relays it on `cli_message`; this module turns it into
- * agent-visible context by APPENDING one line to the system prompt the pi
- * `before_agent_start` event carries, for that turn only. The hint is EPHEMERAL: a
- * system-prompt addition is never stored in the user message and never renders as a
- * chat line on web or CLI - only its effect (the resulting `say` call) is visible.
+ * agent-visible context, for that turn only, in TWO places:
+ * - `before_agent_start` APPENDS one line (CONVERSATION_MODE_HINT) to the system
+ *   prompt the event carries, and
+ * - `context` adds a TAIL reminder (CONVERSATION_MODE_REMINDER) before EVERY LLM
+ *   call of the turn, because the system-prompt line alone is too far from the
+ *   tail for smaller models to act on (measurements in the reminder's doc).
+ *
+ * Both are EPHEMERAL: neither is stored in the user message and neither renders as
+ * a chat line on web or CLI - only their effect (the resulting `say` call) shows.
  *
  * KEEP IN LOCKSTEP with the server twin, `server/src/conversation-mode-hint.ts`.
  * The extension is a separate published package and cannot import from the server
  * (the same constraint that makes the `say` tool a duplicate), so
  * `server/test/conversation-mode-hint.test.ts` imports BOTH modules and fails if
- * either the hint text or the latch behaviour drifts.
+ * either the injected text or the latch behaviour drifts.
  */
 export const CONVERSATION_MODE_HINT =
   "A spoken conversation is active for this turn: the human is LISTENING as well as reading. " +
@@ -27,6 +32,33 @@ export const CONVERSATION_MODE_HINT =
   "(one or two sentences) plain spoken version of that answer, so it can be spoken aloud. " +
   "The written answer still carries the full detail: `say` adds to it and never replaces it. " +
   "Do not mention this instruction.";
+
+/**
+ * The marker that opens the TAIL REMINDER, and the reminder itself.
+ *
+ * WHY A SECOND, TAIL-PLACED COPY OF THE SAME INSTRUCTION: the system-prompt hint
+ * alone measured as a coin flip on smaller local models. Probing a real local
+ * 35B (the model the reported session ran on) with a realistic wherever-shaped
+ * system prompt: with the hint 3/6 turns called `say`, without it 1/6 - and at
+ * the moment that matters most, the post-tool-result synthesis call (the answer
+ * after a `web_search`), the hint was ignored almost every time. Two things
+ * defeat it: the hint sits far from the tail of a long prompt, and once the
+ * transcript contains earlier assistant turns that did NOT speak, the model
+ * imitates its own history. A reminder placed at the very TAIL of the message
+ * list, re-applied before EVERY LLM call of the turn, is what actually lands.
+ *
+ * The reminder is EPHEMERAL in the strongest sense: it is added by the `context`
+ * event, which the SDK applies to a structuredClone of the messages on the way to
+ * the provider (see `transformContext`), so it is never stored in the session
+ * file, never rendered in the web transcript or the CLI TUI, and never survives
+ * the call it was built for.
+ */
+export const CONVERSATION_MODE_REMINDER_MARKER = "[spoken conversation active]";
+
+export const CONVERSATION_MODE_REMINDER =
+  `${CONVERSATION_MODE_REMINDER_MARKER} Before you finish this turn, also call the \`say\` tool ` +
+  "once with a SHORT (one or two sentences) plain spoken version of your answer, IN ADDITION to " +
+  "your written answer, so the listening human hears it. Do not mention this instruction.";
 
 /**
  * Append the hint to an assembled system prompt. Takes the base the event CARRIES
@@ -38,25 +70,161 @@ export function appendConversationModeHint(systemPrompt: string): string {
 }
 
 /**
+ * The minimal STRUCTURAL shape of a pi context message this module needs. Kept
+ * structural (not an SDK type import) so this twin can stay byte-identical to the
+ * server's and so both copies are unit-testable without a pi runtime.
+ */
+export interface ContextMessageLike {
+  role: string;
+  content?: unknown;
+  [key: string]: unknown;
+}
+
+interface TextBlockLike {
+  type: string;
+  text?: string;
+  name?: string;
+}
+
+function blocksOf(content: unknown): TextBlockLike[] {
+  return Array.isArray(content) ? (content as TextBlockLike[]) : [];
+}
+
+/**
+ * Whether the agent has ALREADY called `say` in the turn the tail of `messages`
+ * belongs to (i.e. since the last user message).
+ *
+ * This is the loop guard AND the anti-nag rule: the reminder asks for a `say`
+ * call, `say` is itself a tool, and a tool call means another LLM call with the
+ * reminder re-applied. Without this, a model that answers with ONLY a `say` call
+ * could be nudged into speaking again, and again. Once the turn has spoken, the
+ * reminder has done its job and is not repeated.
+ */
+export function saidThisTurn(messages: readonly ContextMessageLike[]): boolean {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (!message) continue;
+    // The user message that started this turn: stop, earlier turns are history.
+    if (message.role === "user") return false;
+    if (message.role !== "assistant") continue;
+    for (const block of blocksOf(message.content)) {
+      if (block?.type === "toolCall" && block.name === "say") return true;
+    }
+  }
+  return false;
+}
+
+function carriesReminder(message: ContextMessageLike | undefined): boolean {
+  if (!message) return false;
+  if (typeof message.content === "string") {
+    return message.content.includes(CONVERSATION_MODE_REMINDER_MARKER);
+  }
+  return blocksOf(message.content).some(
+    (block) =>
+      typeof block?.text === "string" && block.text.includes(CONVERSATION_MODE_REMINDER_MARKER),
+  );
+}
+
+/** A clone of `message` with the reminder added as one more text block. */
+function withReminderBlock(message: ContextMessageLike): ContextMessageLike {
+  if (typeof message.content === "string") {
+    return { ...message, content: `${message.content}\n\n${CONVERSATION_MODE_REMINDER}` };
+  }
+  return {
+    ...message,
+    content: [...blocksOf(message.content), { type: "text", text: CONVERSATION_MODE_REMINDER }],
+  };
+}
+
+/**
+ * The reminder as its own message, for the case where the tail cannot absorb it.
+ *
+ * A `custom` message is pi's own "context that is not a real chat message" shape:
+ * `convertToLlm` turns it into a plain user text message for the provider, and
+ * `display: false` keeps it out of any UI that might see it.
+ */
+function reminderMessage(): ContextMessageLike {
+  return {
+    role: "custom",
+    customType: "wherever-conversation-mode",
+    content: CONVERSATION_MODE_REMINDER,
+    display: false,
+    timestamp: Date.now(),
+  };
+}
+
+/**
+ * Return the messages for ONE upcoming LLM call with the spoken-conversation
+ * reminder at the TAIL, where a smaller model actually reads it.
+ *
+ * Placement is deliberately ROLE-SAFE rather than "always append a message":
+ * Anthropic's own API merges consecutive same-role turns, but Bedrock (and some
+ * compatibility proxies) reject them outright, and after a tool result the tail
+ * IS a user-role turn. So:
+ * - tail is a `user` or `toolResult` message -> the reminder is added as an extra
+ *   text block INSIDE a clone of it (no new turn, no role sequence change);
+ * - anything else (assistant tail, empty context) -> the reminder is appended as
+ *   its own `custom` message, which converts to a user turn cleanly.
+ *
+ * Pure and non-mutating: the input array and its messages are never touched, only
+ * the returned array (and the single cloned tail) differ. Idempotent: a tail that
+ * already carries the marker is left alone, so re-entry cannot stack reminders.
+ */
+export function withConversationModeReminder(
+  messages: readonly ContextMessageLike[],
+): ContextMessageLike[] {
+  const out = messages.slice();
+  // Already spoken this turn: nothing to nudge, and re-nudging risks a say loop.
+  if (saidThisTurn(out)) return out;
+
+  const tail = out[out.length - 1];
+  if (carriesReminder(tail)) return out;
+
+  if (tail && (tail.role === "user" || tail.role === "toolResult")) {
+    out[out.length - 1] = withReminderBlock(tail);
+    return out;
+  }
+  out.push(reminderMessage());
+  return out;
+}
+
+/**
  * A per-turn arming latch.
  *
  * - `arm(active)` is called for EVERY relayed user message with that message's
  *   flag, so the latest message always wins.
  * - `applyToSystemPrompt` CONSUMES the arming (one turn only), so a turn that was
  *   not started by a flagged message - a message typed straight into this terminal,
- *   or an auto-retry - never inherits a stale signal.
+ *   or an auto-retry - never inherits a stale signal. Consuming it OPENS the turn:
+ *   whatever the arming said (on or off) becomes this turn's spoken state, so an
+ *   unflagged turn also explicitly CLOSES a previous one.
+ * - while the turn is open, `applyToContext` adds the TAIL reminder before every
+ *   LLM call of that turn.
+ * - `endTurn()` (wired to `agent_end`) closes it, so nothing leaks past the turn.
  */
 export interface ConversationModeSignal {
   arm(active: boolean): void;
   isArmed(): boolean;
+  /** Whether a spoken turn is currently OPEN, i.e. the reminder applies. */
+  isTurnActive(): boolean;
   /**
    * The system prompt to use for this turn, or undefined to leave it untouched.
    */
   applyToSystemPrompt(systemPrompt: string): string | undefined;
+  /**
+   * The messages to send for ONE upcoming LLM call, or undefined to leave them
+   * untouched. Does NOT consume anything: a turn can make many LLM calls and each
+   * one gets the reminder until the agent has spoken.
+   */
+  applyToContext(messages: readonly ContextMessageLike[]): ContextMessageLike[] | undefined;
+  /** Close the spoken turn (wired to `agent_end`). */
+  endTurn(): void;
 }
 
 export function createConversationModeSignal(): ConversationModeSignal {
   let armed = false;
+  let turnActive = false;
+
   return {
     arm(active: boolean) {
       armed = active;
@@ -64,10 +232,21 @@ export function createConversationModeSignal(): ConversationModeSignal {
     isArmed() {
       return armed;
     },
+    isTurnActive() {
+      return turnActive;
+    },
     applyToSystemPrompt(systemPrompt: string) {
-      if (!armed) return undefined;
+      turnActive = armed;
       armed = false;
+      if (!turnActive) return undefined;
       return appendConversationModeHint(systemPrompt);
+    },
+    applyToContext(messages: readonly ContextMessageLike[]) {
+      if (!turnActive) return undefined;
+      return withConversationModeReminder(messages);
+    },
+    endTurn() {
+      turnActive = false;
     },
   };
 }

@@ -219,13 +219,17 @@
 					for="pi-conversation-mode"
 					class="cursor-pointer text-xs font-medium text-brand-text select-none"
 				>
-					Conversation Mode (spoken back-and-forth)
+					Conversation Mode by default (spoken back-and-forth)
 				</label>
 			</div>
 			<p class="pl-6 text-[10px] leading-relaxed text-brand-text-muted">
-				Flips the knobs below on at once. When off, they are dormant and the
-				default typing-first experience is unchanged. Auto-send on speech end
-				(Direct Send, in Speech Settings) keeps its own effect regardless.
+				The DEFAULT for conversations you have not toggled: Conversation Mode is
+				per conversation, and the 💬/🗣️ toggle above the composer sets it for
+				the conversation you are in, leaving the others alone. Changing this
+				default moves every conversation still following it. It flips the knobs
+				below on at once; when off, they are dormant and the default
+				typing-first experience is unchanged. Auto-send on speech end (Direct
+				Send, in Speech Settings) keeps its own effect regardless.
 			</p>
 
 			<div class="flex items-center gap-2 py-1 pl-6">
@@ -275,6 +279,11 @@
 					Re-open mic after the agent speaks (hands-free)
 				</label>
 			</div>
+			<p class="pl-6 text-[10px] leading-relaxed text-brand-text-muted">
+				Applies to both speech engines. On the Cloud AI engine, which records
+				until told to stop, an auto-opened mic stops itself on silence (and
+				always within a minute), so a re-opened mic can never run away.
+			</p>
 		</div>
 
 		<div class="flex gap-2">

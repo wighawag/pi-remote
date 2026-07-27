@@ -6,7 +6,10 @@ import {
 	type ChatMessage,
 	type WhereverState,
 } from '@wherever-dev/client';
-import {shouldSignalConversationMode} from './core/conversation-mode';
+import {
+	resolveConversationMode,
+	shouldSignalConversationMode,
+} from './core/conversation-mode';
 import {
 	setCurrentSession,
 	getBaseUrl,
@@ -281,8 +284,59 @@ export function setAutoSendOnSpeechEnd(value: boolean) {
 	autoSendOnSpeechEnd.set(value);
 }
 
-// The master toggle + the purely-conversation knobs, backed by wherever-config.
-const conversationModeStore = writable<boolean>(!!getConfig().conversationMode);
+// --- The master toggle: PER CONVERSATION, over a global default -------------
+// A spoken exchange is a property of the CONVERSATION you are having, not of the
+// app: turning conversation mode on in the bar while talking to one session must
+// not start speaking replies in every other session (nor stamp the per-turn
+// conversation-mode signal on messages sent from them). So this mirrors the
+// waiting-for-human beep exactly: a persisted config flag is the DEFAULT for
+// every conversation, and each session may hold its OWN explicit choice that
+// wins over it. Absence of a per-session key = "follow the default", live.
+//
+// Only WHETHER a conversation is spoken is per conversation. The gated knobs
+// (speakReplies, collapseLongReplies, micReopensAfterReply) describe HOW a spoken
+// conversation behaves and stay GLOBAL settings.
+const conversationModeDefaultStore = writable<boolean>(
+	!!getConfig().conversationMode,
+);
+
+const CONVERSATION_MODE_OVERRIDES_KEY = 'wherever-conversation-mode-overrides';
+
+function loadConversationModeOverrides(): Record<string, boolean> {
+	try {
+		const raw = localStorage.getItem(CONVERSATION_MODE_OVERRIDES_KEY);
+		if (raw) {
+			const parsed = JSON.parse(raw);
+			if (parsed && typeof parsed === 'object') return parsed;
+		}
+	} catch {}
+	return {};
+}
+
+function saveConversationModeOverrides(map: Record<string, boolean>) {
+	try {
+		localStorage.setItem(CONVERSATION_MODE_OVERRIDES_KEY, JSON.stringify(map));
+	} catch {}
+}
+
+const conversationModeOverridesStore = writable<Record<string, boolean>>(
+	typeof localStorage !== 'undefined' ? loadConversationModeOverrides() : {},
+);
+// The active session's key ('' when no session). Drives which override applies.
+const conversationModeSessionKeyStore = writable<string>('');
+
+// This session's explicit choice, or undefined when it follows the default.
+// Tri-state: true | false | undefined, so the UI can signal "not set".
+export const conversationModeSessionOverride = derived(
+	[conversationModeSessionKeyStore, conversationModeOverridesStore],
+	([$key, $overrides]) =>
+		$key && $key in $overrides ? $overrides[$key] : undefined,
+);
+
+export const conversationModeDefault = {
+	subscribe: conversationModeDefaultStore.subscribe,
+};
+
 const speakRepliesStore = writable<boolean>(!!getConfig().speakReplies);
 const collapseLongRepliesStore = writable<boolean>(
 	!!getConfig().collapseLongReplies,
@@ -291,7 +345,13 @@ const micReopensAfterReplyStore = writable<boolean>(
 	!!getConfig().micReopensAfterReply,
 );
 
-export const conversationMode = {subscribe: conversationModeStore.subscribe};
+// The EFFECTIVE master for the conversation being viewed: this session's own
+// choice if it made one, otherwise the default. Recomputes when the session, its
+// override, or the default changes.
+export const conversationMode = derived(
+	[conversationModeSessionOverride, conversationModeDefaultStore],
+	([$override, $default]) => resolveConversationMode($override, $default),
+);
 export const speakReplies = {subscribe: speakRepliesStore.subscribe};
 export const collapseLongReplies = {
 	subscribe: collapseLongRepliesStore.subscribe,
@@ -300,20 +360,53 @@ export const micReopensAfterReply = {
 	subscribe: micReopensAfterReplyStore.subscribe,
 };
 
+// The effective master for the CURRENT conversation (override, else default).
 export function getConversationMode(): boolean {
-	return get(conversationModeStore);
+	return get(conversationMode);
 }
 
-// Set the master toggle. Persists to config AND updates the reactive store.
+export function getConversationModeDefault(): boolean {
+	return get(conversationModeDefaultStore);
+}
+
+// Set the DEFAULT master for conversations that have not been toggled. Persists
+// to config AND updates the reactive store, so every session still following the
+// default flips with it, live.
+//
 // This does NOT force the purely-conversation knobs on/off: they keep their
 // configured values and become active only while the master is on (the gating
 // lives in isKnobActive; see core/conversation-mode.ts). It also does NOT touch
 // autoSendOnSpeechEnd (= directSend), whose standalone effect must survive the
 // master being off.
-export function setConversationMode(value: boolean) {
+export function setConversationModeDefault(value: boolean) {
 	const config = getConfig();
 	saveConfig({...config, conversationMode: value});
-	conversationModeStore.set(value);
+	conversationModeDefaultStore.set(value);
+}
+
+// Set THIS conversation's explicit choice (true/false), or pass undefined to
+// CLEAR it back to "follow the default". Persisted per session, so a choice made
+// in conversation A survives visiting B and coming back, and survives a reload.
+export function setConversationModeSessionOverride(value: boolean | undefined) {
+	const key = get(conversationModeSessionKeyStore);
+	if (!key) return; // no active session to attach the choice to
+	conversationModeOverridesStore.update((map) => {
+		const next = {...map};
+		if (value === undefined) {
+			delete next[key];
+		} else {
+			next[key] = value;
+		}
+		saveConversationModeOverrides(next);
+		return next;
+	});
+}
+
+// Point the conversation-mode state at a session (its id/file). Called when the
+// active session changes. Does NOT clear any stored per-session choice: an unset
+// session follows the default; a session with a stored choice keeps it.
+export function setConversationModeSessionKey(key: string | null) {
+	conversationModeSessionKeyStore.set(key ?? '');
 }
 
 export function setSpeakReplies(value: boolean) {
@@ -352,16 +445,27 @@ export function getConversationKnobs(): {
 	};
 }
 
-// Flip the master ON (bundling in the configured knobs) or OFF. Mirrors
-// bundleOn() from core/conversation-mode.ts: turning it off dormant-izes the
-// gated knobs but does NOT force autoSendOnSpeechEnd off.
+// Flip the master ON (bundling in the configured knobs) or OFF FOR THE
+// CONVERSATION BEING VIEWED. Mirrors bundleOn() from core/conversation-mode.ts:
+// turning it off dormant-izes the gated knobs but does NOT force
+// autoSendOnSpeechEnd off. This is what the top-bar toggle calls, so it writes
+// this session's own choice and never moves the global default (which lives in
+// Connection Settings as "default for new conversations").
 export function setConversationModeBundle(on: boolean) {
-	setConversationMode(on);
+	if (get(conversationModeSessionKeyStore)) {
+		setConversationModeSessionOverride(on);
+		return;
+	}
+	// No conversation is open, so there is nothing to scope the choice TO: the
+	// only thing the user can mean is the default. This also keeps the toggle from
+	// silently doing nothing on the empty state.
+	setConversationModeDefault(on);
 }
 
 // Per-send options for every outbound user message: stamp the PER-TURN
 // conversation-mode signal from the knobs as they are right now (the mode can be
-// flipped mid-session). This is the only place the web decides it, so send and
+// flipped mid-session, and the master is per CONVERSATION, so this reads the
+// session being viewed). This is the only place the web decides it, so send and
 // resend can never disagree. With the mode (or speakReplies) off the flag is
 // false and the client omits the field entirely, leaving today's behaviour intact.
 function sendOptions(): {conversationMode: boolean} {
@@ -398,10 +502,12 @@ state.subscribe((s) => {
 	const sessionKey = s.sessionId ?? s.activeSessionFile ?? null;
 	if (sessionKey !== prevSessionKey) {
 		prevSessionKey = sessionKey;
-		// New/changed session: retarget the beep state at it (its stored choice, if
-		// any, else the default) and do not treat the session's initial streaming
-		// state as a finished-turn edge.
+		// New/changed session: retarget the per-session state (the beep AND the
+		// conversation-mode master, both of which resolve to that session's stored
+		// choice if it made one, else the default) and do not treat the session's
+		// initial streaming state as a finished-turn edge.
 		setBeepSessionKey(sessionKey);
+		setConversationModeSessionKey(sessionKey);
 		prevIsStreaming = s.isStreaming;
 		return;
 	}
@@ -723,7 +829,9 @@ export function setConfig(config: {
 		beepDefaultStore.set(!!config.beepDefault);
 	}
 	if (config.conversationMode !== undefined) {
-		conversationModeStore.set(!!config.conversationMode);
+		// The config field is the DEFAULT for conversations that have not been
+		// toggled; a session's own choice still wins over it.
+		conversationModeDefaultStore.set(!!config.conversationMode);
 	}
 	if (config.speakReplies !== undefined) {
 		speakRepliesStore.set(!!config.speakReplies);

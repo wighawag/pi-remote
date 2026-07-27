@@ -8,6 +8,10 @@ import {
 	unlockTts,
 	isTtsUnlocked,
 	resetTtsUnlock,
+	armTtsGestureUnlock,
+	isTtsGestureUnlockArmed,
+	resolveUtteranceLang,
+	type GestureTarget,
 } from './speak.js';
 
 // The `say` tool call carries a SHORT spoken-form reply in its args ({ text }).
@@ -277,7 +281,16 @@ describe('TTS gesture-unlock (unlockTts)', () => {
 		const {synth, spoken} = fakeSynth();
 		unlockTts({synth, Utterance});
 		expect(spoken[0].volume).toBe(0);
-		expect(spoken[0].text.trim()).toBe('');
+	});
+
+	it('primes with NON-blank text (mobile Chrome discards a blank utterance)', () => {
+		// A whitespace-only utterance can be dropped before the speech pipeline runs,
+		// which wastes the user activation it was issued under: the page then believes
+		// it is primed while every later gesture-less reply is still silently dropped.
+		const {synth, spoken} = fakeSynth();
+		unlockTts({synth, Utterance});
+		expect(spoken[0].text.trim()).not.toBe('');
+		expect(spoken[0].volume).toBe(0);
 	});
 
 	it('kicks a paused queue (resume) before the priming utterance', () => {
@@ -391,5 +404,199 @@ describe('speakUtterance resume kick (real reply)', () => {
 		expect(speakUtterance('   ', undefined, {synth, Utterance})).toBe(false);
 		expect(calls).toEqual([]);
 		expect(isTtsSpeaking()).toBe(false);
+	});
+});
+
+// A returning mobile user with conversation mode already persisted ON never taps
+// the toggle, the mic or settings-save in that page load, so none of the explicit
+// unlock call sites fire -- and every gesture-less `say` reply is dropped by the
+// browser's user-activation gate. This net primes from the FIRST gesture, whatever
+// it is (tapping the composer, a keypress, a scroll-stopping tap).
+describe('TTS first-gesture unlock net (armTtsGestureUnlock)', () => {
+	beforeEach(() => {
+		resetTtsUnlock();
+		resetTtsSettleSignal();
+	});
+	afterEach(() => {
+		resetTtsUnlock();
+		resetTtsSettleSignal();
+		vi.restoreAllMocks();
+	});
+
+	class FakeUtterance {
+		text: string;
+		lang = '';
+		volume = 1;
+		onend: (() => void) | null = null;
+		onerror: (() => void) | null = null;
+		constructor(text: string) {
+			this.text = text;
+		}
+	}
+	const Utterance = FakeUtterance as unknown as typeof SpeechSynthesisUtterance;
+
+	function fakeSynth() {
+		const spoken: FakeUtterance[] = [];
+		const synth = {
+			speak(u: FakeUtterance) {
+				spoken.push(u);
+			},
+			resume() {},
+		} as unknown as SpeechSynthesis;
+		return {synth, spoken};
+	}
+
+	/** A minimal EventTarget stand-in that records listeners and can fire them. */
+	function fakeTarget() {
+		const listeners = new Map<string, Set<() => void>>();
+		const target: GestureTarget = {
+			addEventListener(type, listener) {
+				const set = listeners.get(type) ?? new Set();
+				set.add(listener);
+				listeners.set(type, set);
+			},
+			removeEventListener(type, listener) {
+				listeners.get(type)?.delete(listener);
+			},
+		};
+		return {
+			target,
+			types: () =>
+				[...listeners.keys()].filter((t) => (listeners.get(t)?.size ?? 0) > 0),
+			fire: (type: string) => {
+				for (const listener of listeners.get(type) ?? []) listener();
+			},
+			count: () => [...listeners.values()].reduce((n, set) => n + set.size, 0),
+		};
+	}
+
+	it('primes on the first gesture and then removes itself', () => {
+		const {synth, spoken} = fakeSynth();
+		const t = fakeTarget();
+
+		expect(armTtsGestureUnlock(t.target, {synth, Utterance})).toBe(true);
+		expect(isTtsGestureUnlockArmed()).toBe(true);
+		expect(isTtsUnlocked()).toBe(false);
+
+		t.fire('pointerdown');
+		expect(isTtsUnlocked()).toBe(true);
+		expect(spoken).toHaveLength(1);
+		// One gesture at most: every listener is gone once primed.
+		expect(t.count()).toBe(0);
+		expect(isTtsGestureUnlockArmed()).toBe(false);
+	});
+
+	it('listens for touch, mouse and keyboard gestures alike', () => {
+		const {synth} = fakeSynth();
+		const t = fakeTarget();
+		armTtsGestureUnlock(t.target, {synth, Utterance});
+		// Typing into the composer is a gesture too: a phone user who dictates
+		// nothing and types everything must still get spoken replies.
+		expect(t.types()).toContain('keydown');
+		expect(t.types()).toContain('pointerdown');
+		expect(t.types()).toContain('touchend');
+	});
+
+	it('stays armed when priming could not happen (no speech synthesis yet)', () => {
+		const t = fakeTarget();
+		armTtsGestureUnlock(t.target, {synth: null, Utterance: null});
+		t.fire('pointerdown');
+		expect(isTtsUnlocked()).toBe(false);
+		expect(isTtsGestureUnlockArmed()).toBe(true);
+		expect(t.count()).toBeGreaterThan(0);
+	});
+
+	it('is idempotent, and a no-op once TTS is already unlocked', () => {
+		const {synth} = fakeSynth();
+		const t = fakeTarget();
+		expect(armTtsGestureUnlock(t.target, {synth, Utterance})).toBe(true);
+		expect(armTtsGestureUnlock(t.target, {synth, Utterance})).toBe(false);
+		const before = t.count();
+
+		unlockTts({synth, Utterance});
+		// The explicit unlock (toggle / mic / settings-save) disarms the net.
+		expect(t.count()).toBe(0);
+		expect(before).toBeGreaterThan(0);
+		expect(armTtsGestureUnlock(t.target, {synth, Utterance})).toBe(false);
+	});
+
+	it('is a no-op without a document (SSR)', () => {
+		const {synth} = fakeSynth();
+		expect(armTtsGestureUnlock(null, {synth, Utterance})).toBe(false);
+		expect(isTtsGestureUnlockArmed()).toBe(false);
+	});
+});
+
+// Setting a `lang` the engine has no voice for is a known way to get SILENCE on
+// mobile: the engine finds no match and says nothing at all.
+describe('resolveUtteranceLang', () => {
+	it('keeps the locale when a voice for that language exists', () => {
+		expect(
+			resolveUtteranceLang('en-GB', [{lang: 'en-US'}, {lang: 'fr-FR'}]),
+		).toBe('en-GB');
+	});
+
+	it('drops the locale when the engine has no voice for that language', () => {
+		expect(
+			resolveUtteranceLang('fr-FR', [{lang: 'en-US'}, {lang: 'en-GB'}]),
+		).toBe('');
+	});
+
+	it('keeps the locale when the voice list is unknown (not yet loaded)', () => {
+		expect(resolveUtteranceLang('fr-FR', [])).toBe('fr-FR');
+	});
+
+	it('is empty for a missing/blank locale (browser default voice)', () => {
+		expect(resolveUtteranceLang(undefined, [{lang: 'en-US'}])).toBe('');
+		expect(resolveUtteranceLang('  ', [{lang: 'en-US'}])).toBe('');
+	});
+});
+
+describe('speakUtterance voice-aware lang', () => {
+	beforeEach(() => {
+		resetTtsSettleSignal();
+	});
+	afterEach(() => {
+		resetTtsSettleSignal();
+	});
+
+	class FakeUtterance {
+		text: string;
+		lang = '';
+		volume = 1;
+		onend: (() => void) | null = null;
+		onerror: (() => void) | null = null;
+		constructor(text: string) {
+			this.text = text;
+		}
+	}
+	const Utterance = FakeUtterance as unknown as typeof SpeechSynthesisUtterance;
+
+	function synthWithVoices(voices: {lang: string}[] | null) {
+		const spoken: FakeUtterance[] = [];
+		const synth = {
+			speak(u: FakeUtterance) {
+				spoken.push(u);
+			},
+			resume() {},
+			getVoices: voices ? () => voices : undefined,
+		} as unknown as SpeechSynthesis;
+		return {synth, spoken};
+	}
+
+	it('drops an unsupported locale rather than speaking into the void', () => {
+		const {synth, spoken} = synthWithVoices([{lang: 'en-US'}]);
+		expect(speakUtterance('Bonjour.', 'fr-FR', {synth, Utterance})).toBe(true);
+		expect(spoken[0].lang).toBe('');
+	});
+
+	it('keeps a supported locale, and any locale when voices are unknown', () => {
+		const supported = synthWithVoices([{lang: 'fr-FR'}]);
+		speakUtterance('Bonjour.', 'fr-FR', {synth: supported.synth, Utterance});
+		expect(supported.spoken[0].lang).toBe('fr-FR');
+
+		const unknown = synthWithVoices(null);
+		speakUtterance('Bonjour.', 'fr-FR', {synth: unknown.synth, Utterance});
+		expect(unknown.spoken[0].lang).toBe('fr-FR');
 	});
 });
