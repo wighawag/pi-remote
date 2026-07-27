@@ -803,17 +803,22 @@ export class WhereverClient {
         }
         break;
 
-      case 'queue_update':
+      case 'queue_update': {
         // The server relayed pi's current steer queue. Replace our pending-steer
         // set outright (it is the full queue): a message whose content is still
         // in this set is a queued steer that has NOT yet been injected, so the
         // UI can offer to cancel it. When a queued steer is delivered or
         // cancelled, a fresh queue_update arrives with it removed.
+        const steering: string[] = Array.isArray(msg.steering)
+          ? [...msg.steering]
+          : [];
         this.stateStore.update((s: WhereverState) => ({
           ...s,
-          pendingSteering: Array.isArray(msg.steering) ? [...msg.steering] : [],
+          pendingSteering: steering,
+          messages: this.withRestoredQueuedMessages(s.messages, steering),
         }));
         break;
+      }
 
       case 'message_end':
         this.stateStore.update((s: WhereverState) => {
@@ -855,6 +860,26 @@ export class WhereverClient {
               if (confirmedPending) {
                 // Re-read: confirmDeliveredByContent already updated the store.
                 return get(this.stateStore);
+              }
+              // A steer we restored from the queue snapshot has now been injected:
+              // this echo IS that bubble, so reconcile onto it (drop the marker)
+              // rather than appending a duplicate. Oldest first, since pi delivers
+              // the queue in order.
+              const restoredQueued = newMessages.find(
+                (m) =>
+                  m.role === 'user' &&
+                  m.restoredFromQueue &&
+                  m.content === msg.content,
+              );
+              if (restoredQueued) {
+                return {
+                  ...s,
+                  messages: newMessages.map((m) =>
+                    m.id === restoredQueued.id
+                      ? {...m, restoredFromQueue: undefined}
+                      : m,
+                  ),
+                };
               }
             }
             // Skill invocations arrive TWICE from the server: first the RAW
@@ -1881,6 +1906,52 @@ export class WhereverClient {
     this.armConfirm(message.id);
     this.persistPending(s.sessionId);
     return true;
+  }
+
+  // Re-materialize queued steers the message list does not have. A queued
+  // message lives ONLY in the agent's memory until pi injects it at the next
+  // step: it is not in the session file, so message_history cannot contain it.
+  // On attach (a reload, or a second device) the server sends the queue as a
+  // snapshot; without this the text would be invisible until it was delivered,
+  // even though it was still going to be sent. Any queued entry with no matching
+  // user message is appended so the UI can render it with the "Queued" badge and
+  // the session-level cancel.
+  //
+  // Matching is by CONTENT, because the queue is a list of strings (pi exposes
+  // no per-entry id). Occurrences are COUNTED, so a text queued twice restores
+  // two bubbles, and a locally-sent (optimistic) steer already on screen is not
+  // duplicated by the snapshot that follows it.
+  private withRestoredQueuedMessages(
+    messages: ChatMessage[],
+    steering: string[],
+  ): ChatMessage[] {
+    if (steering.length === 0) return messages;
+    const have = new Map<string, number>();
+    for (const m of messages) {
+      if (m.role !== 'user') continue;
+      have.set(m.content, (have.get(m.content) ?? 0) + 1);
+    }
+    const restored: ChatMessage[] = [];
+    for (const text of steering) {
+      const remaining = have.get(text) ?? 0;
+      if (remaining > 0) {
+        have.set(text, remaining - 1);
+        continue;
+      }
+      restored.push({
+        id: this.generateId(),
+        role: 'user',
+        content: text,
+        timestamp: Date.now(),
+        isStreaming: false,
+        restoredFromQueue: true,
+        // NOT delivery-tracked: the server already holds this message, so it is
+        // delivered as far as we are concerned. Tagging it pending would arm a
+        // confirmation watchdog and wrongly offer "Retry" for a message that is
+        // queued and will be sent.
+      });
+    }
+    return restored.length > 0 ? [...messages, ...restored] : messages;
   }
 
   // ==========================================================================

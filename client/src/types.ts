@@ -64,6 +64,14 @@ export interface ChatMessage {
 	// e.g. one loaded from server history). Confirmed on the server's user echo
 	// (message_end role:user) or when it reappears in loaded history.
 	delivery?: 'sending' | 'failed';
+	// True on a user message this client RESTORED from the server's steer-queue
+	// snapshot rather than from history or its own send (see queue_update). Such a
+	// message is queued in the agent but not yet in the session file, so when pi
+	// finally injects it the server's user echo must RECONCILE onto this bubble
+	// (clearing the flag) instead of appending a duplicate. Content-matching the
+	// last user message is not enough: with several messages queued they are
+	// delivered oldest-first, so the echoed one is usually not the last bubble.
+	restoredFromQueue?: boolean;
 }
 
 export interface SessionNotice {

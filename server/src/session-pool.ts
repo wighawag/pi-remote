@@ -2057,6 +2057,25 @@ export class SessionPool {
   // (so the web's pending-steer set clears itself). Only server-type sessions
   // have this API; CLI-bridge sessions only expose abort, so this is a no-op for
   // them and they never surface a cancel affordance.
+  /**
+   * Snapshot of pi's CURRENT pending steer queue, for a client that is
+   * attaching (a fresh load, a reload, or a reconnect resync). `queue_update`
+   * is otherwise a live-only event, emitted at the moment the queue changes, so
+   * a client that was not connected then would show nothing queued while pi
+   * still holds the message and injects it at the next step. The queued text is
+   * NOT in the session file yet (pi appends it on injection), so this snapshot
+   * is the only way an attaching client can learn about it.
+   *
+   * Returns null when the session has no readable queue -- not resident, or a
+   * CLI-bridge session (those never report a queue at all, so a null keeps the
+   * client's state untouched rather than asserting an empty queue).
+   */
+  getSteeringQueue(sessionFileOrId: string): string[] | null {
+    const tracked = this.getSession(sessionFileOrId);
+    if (!tracked || tracked.type !== 'server') return null;
+    return [...tracked.agentSession.getSteeringMessages()];
+  }
+
   async cancelSteerQueue(sessionFileOrId: string): Promise<void> {
     const tracked = this.getSession(sessionFileOrId);
     if (!tracked) return;

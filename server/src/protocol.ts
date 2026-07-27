@@ -81,9 +81,14 @@ export type ServerMessage =
   | { type: 'message_ack'; sessionId: string; content: string }
   // Server -> client: the set of mid-stream STEER messages currently queued for
   // this session (pi injects them at the next step boundary). Sent whenever the
-  // queue changes (pi's queue_update). `steering` is the full current queue, so
-  // the client replaces its pending-steer set outright. An empty array means
-  // nothing is queued (e.g. the queued steers were just delivered or cancelled).
+  // queue changes (pi's queue_update), AND as a snapshot when a client attaches
+  // (session_load, which is also the reload/resync path): a queued message is
+  // only in the agent's memory, not the session file, so an attaching client
+  // would otherwise see nothing queued while pi still holds (and will inject)
+  // the text. `steering` is the full current queue, so the client replaces its
+  // pending-steer set outright and re-materializes any queued message its
+  // history does not contain. An empty array means nothing is queued (e.g. the
+  // queued steers were just delivered or cancelled).
   // Only server-type sessions emit this; CLI bridges do not, so their steers are
   // not individually cancellable from the web (the button simply never appears).
   | { type: 'queue_update'; sessionId: string; steering: string[] }

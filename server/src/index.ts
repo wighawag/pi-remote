@@ -1596,6 +1596,24 @@ function switchClientSession(client: WSClient, newSessionFile: string | null, po
   }
 }
 
+// Send an attaching client the session's CURRENT steer queue, so a reload (or a
+// second device) renders the messages pi has queued but not yet injected. The
+// live `queue_update` event only fires when the queue CHANGES, and a queued
+// message is not written to the session file until it is delivered, so without
+// this snapshot a fresh client sees nothing queued while pi still holds (and
+// will inject) the text. Sessions with no readable queue (CLI bridges) send
+// nothing, leaving the client's state untouched.
+function sendQueueSnapshot(
+  client: WSClient,
+  sessionFile: string,
+  sessionId: string,
+  pool: SessionPool,
+): void {
+  const steering = pool.getSteeringQueue(sessionFile);
+  if (!steering) return;
+  sendWS(client.ws, { type: 'queue_update', sessionId, steering });
+}
+
 async function handleWSMessage(
   msg: ClientMessage,
   client: WSClient,
@@ -1758,6 +1776,12 @@ async function handleWSMessage(
           isStreaming: pool.isStreaming(meta.sessionFile),
           contextUsage: pool.getContextUsage(meta.sessionFile) ?? null,
         });
+        // Snapshot pi's pending steer queue for the attaching client. Attaching
+        // mid-stream (a reload, a second device) otherwise shows nothing queued:
+        // queue_update is a live-only event, and a queued message is not in the
+        // session file until pi injects it at the next step. Without this the
+        // user's queued text is invisible right up to the moment it is delivered.
+        sendQueueSnapshot(client, meta.sessionFile, meta.sessionId, pool);
         break;
       }
 
@@ -1789,6 +1813,10 @@ async function handleWSMessage(
           isStreaming: pool.isStreaming(result.tracked.sessionFile),
           contextUsage: pool.getContextUsage(result.tracked.sessionFile) ?? null,
         });
+        // A cold build starts with an empty queue, but the session may have been
+        // taken over by another client mid-build; send the authoritative snapshot
+        // for the same reason as the warm path above.
+        sendQueueSnapshot(client, result.tracked.sessionFile, result.tracked.sessionId, pool);
       })();
       break;
     }
