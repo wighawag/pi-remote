@@ -1174,7 +1174,11 @@ export class WhereverClient {
         // late session_created for the abandoned load must not clobber what the
         // user is now looking at. A session_created is accepted only when it is
         // the reply we are actually waiting on:
-        //   - a session_load we issued -> matches pendingLoadFile, OR
+        //   - a session_load we issued -> matches pendingLoadFile, by FILE or by
+        //     ID (a load may be requested by session ID, e.g. the URL-hash deep
+        //     link `/#<sessionId>`; the server resolves it and always replies
+        //     with the resolved FILE, so a file-only comparison would reject the
+        //     load's own reply and hang the "Loading session..." spinner), OR
         //   - a session_new we issued  -> creatingSession is true (its target
         //     file is unknown until this reply, so pendingLoadFile is null).
         // Anything else (pendingLoadFile set but a different file; or no pending
@@ -1186,7 +1190,8 @@ export class WhereverClient {
           const st = get(this.stateStore);
           const matchesPendingLoad =
             this.pendingLoadFile !== null &&
-            msg.sessionFile === this.pendingLoadFile;
+            (msg.sessionFile === this.pendingLoadFile ||
+              msg.sessionId === this.pendingLoadFile);
           const isRequestedCreate =
             this.pendingLoadFile === null && st.creatingSession;
           if (!matchesPendingLoad && !isRequestedCreate) {
