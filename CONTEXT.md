@@ -200,6 +200,10 @@ On the client, `queue_update` both replaces `pendingSteering` AND re-materialize
 
 Every WS `message` (and `abort`) carries the `sessionId` of the session the client is actually viewing (`{ type: 'message'; message; sessionId }`). The server treats that stamp as AUTHORITATIVE: in `server/src/index.ts` the `message`/`abort` handlers resolve `msg.sessionId` through the pool and verify it resolves to the SAME `TrackedSession` this connection is attached to (`client.sessionId`). On a mismatch the message is REFUSED with a `session_error` (the client surfaces it as a recoverable, retryable failure via its delivery watchdog + Retry) instead of being delivered to whatever `client.sessionId` currently points at. This closes a switch/reconnect/resync race: `client.sessionId` is per-connection and is only (re)attached when a `session_load` completes (for a cold load, seconds later inside the async agent-build block; a reconnected socket starts with `client.sessionId = null`), so it could be stale relative to the session the client had already painted and targeted, silently misrouting a message into another session's agent. Never route a `message`/`abort` by `client.sessionId` alone without validating it against the client-stamped `msg.sessionId`.
 
+### Version reporting (frontend build id + server version)
+
+The two halves of the app version independently and can drift: the web build carries the short git commit baked in at build time (`web/svelte.config.js` sets `kit.version.name` from `git rev-parse --short HEAD`, plus a `-dirty` suffix), while the server is an installed npm package (`wherever-dev`) whose version is read at runtime from its own `package.json` (`getVersion()` in `server/src/index.ts`). A stale server behind a fresh frontend looks exactly like a frontend bug, so BOTH are surfaced: the `connected` WS message carries `serverVersion`, the client stores it in `WhereverState.serverVersion` (null until connected, and for servers old enough not to send it), and the connection panel renders `v<build> / srv <version>`.
+
 ## Current Status
 
 ✅ **Completed:**

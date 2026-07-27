@@ -67,7 +67,10 @@ export type ClientMessage =
   | { type: 'bash_sudo_cancel'; sessionId: string; promptId: string };
 
 export type ServerMessage =
-  | { type: 'connected'; clientId: string }
+  // `serverVersion` is the running server package version (`wherever-dev`'s
+  // package.json version), sent on connect so the UI can show which server it is
+  // talking to next to its own build id. Optional so older servers still parse.
+  | { type: 'connected'; clientId: string; serverVersion?: string }
 | { type: 'agent_start'; sessionId: string }
  | { type: 'thinking_update'; sessionId: string; delta: string }
  | { type: 'message_update'; sessionId: string; delta: string }

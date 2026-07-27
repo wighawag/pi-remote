@@ -128,6 +128,10 @@ export interface WhereverState {
 	isStreaming: boolean;
 	messages: ChatMessage[];
 	clientId: string | null;
+	// Version of the server we are connected to (the `wherever-dev` package
+	// version), as reported in its `connected` message. null until connected, or
+	// when talking to a server old enough not to report it.
+	serverVersion: string | null;
 	folderConflict: FolderConflictInfo | null;
 	isInterrupted: boolean;
 	// A dismissible, non-fatal notice about the active session (e.g. a CLI bridge

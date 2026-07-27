@@ -37,6 +37,7 @@ const defaultState: WhereverState = {
 	isStreaming: false,
 	messages: [],
 	clientId: null,
+	serverVersion: null,
 	folderConflict: null,
 	isInterrupted: false,
 	notice: null,
@@ -706,6 +707,7 @@ export class WhereverClient {
           connected: true,
           connecting: false,
           clientId: msg.clientId,
+          serverVersion: msg.serverVersion ?? null,
           error: null,
         }));
         break;

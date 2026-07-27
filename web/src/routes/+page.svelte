@@ -463,9 +463,15 @@
 					</span>
 					<span
 						class="ml-auto font-mono text-xs text-brand-text-muted"
-						title="App build version"
+						title={appState.serverVersion
+							? `App build ${version} · server ${appState.serverVersion}`
+							: `App build ${version}`}
 					>
-						v{version}
+						v{version}{#if appState.serverVersion}<span
+								class="text-brand-text-muted/70"
+							>
+								&nbsp;/ srv {appState.serverVersion}</span
+							>{/if}
 					</span>
 				</div>
 				{#if sessionInfo.sessionFile}

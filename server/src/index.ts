@@ -1449,7 +1449,7 @@ async function main(): Promise<void> {
       liveSockets.add(ws);
     });
 
-    sendWS(ws, { type: 'connected', clientId });
+    sendWS(ws, { type: 'connected', clientId, serverVersion: getVersion() });
 
     ws.on('message', async (data) => {
       let msg: ClientMessage;
