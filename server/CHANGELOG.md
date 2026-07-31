@@ -1,5 +1,24 @@
 # wherever-dev
 
+## 0.10.12
+
+### Patch Changes
+
+- 6c3ea26: Conversation Mode is now per CONVERSATION, and the hands-free mic re-opens on both speech engines.
+
+  **Per-conversation mode.** The 💬/🗣️ toggle above the composer used to flip one global flag, so turning conversation mode on while talking to one session turned it on everywhere, and every other session started stamping "a spoken conversation is active" on its messages too. A spoken back-and-forth is a property of the conversation you are having, not of the app. The toggle now sets the conversation you are in and leaves the others alone, exactly like the waiting-for-human beep's per-session control: the setting in Connection Settings became the DEFAULT for conversations you have not toggled, a conversation with no choice of its own follows that default live, and one you have toggled keeps its own choice. With no conversation open the toggle edits the default, since there is nothing else it could mean. The individual knobs (speak replies, collapse long replies, hands-free mic re-open) stay global: they describe how a spoken conversation behaves, while only whether THIS conversation is spoken is per conversation.
+
+  **Hands-free on the cloud engine.** "Re-open mic after the agent speaks" only ever auto-recorded on the browser speech engine; on the Cloud AI engine it just re-focused the composer, so a phone user (the most likely to be on that engine) still tapped the mic every single turn, which is the tap the knob exists to remove. The confirmation belongs in the config the user already set, not in a per-conversation gesture, so the mic now re-opens on both engines. What the cloud engine actually lacked is a stop condition, since it records until told to stop: an auto-opened recording now ends itself after about two seconds of silence once you have spoken, gives up after six if nobody speaks at all, and can never run past a one-minute ceiling. Recordings you start by tapping are untouched: your next tap is still the stop.
+
+- 6c3ea26: Make conversation mode actually speak, instead of only when the user asks it to.
+
+  The per-turn conversation-mode signal (telling the agent a spoken conversation is active) was reaching the model, but only as one line appended to a long system prompt, and that turned out to be a coin flip. Measured against the local 35B a reported session ran on, with a realistic system prompt: with the hint 3/6 turns called `say`, without it 1/6, and at the moment that matters most, the synthesis call right after a tool result, the hint was ignored almost every time. Two things defeat it: the line sits far from the tail, and once the transcript contains earlier assistant turns that did not speak, the model imitates its own history. The result was the reported symptom, an agent that stayed silent unless nagged every turn.
+
+  Three changes, from the model outwards:
+  - **The signal now also rides the TAIL of every LLM call.** On top of the system-prompt line, a short reminder is added via pi's `context` event, which fires before EVERY provider call of the turn (including the post-tool-result one) rather than once per user prompt. It is ephemeral by construction: the SDK applies the handler to a clone on the way to the provider, so nothing reaches the session file, the web transcript or the CLI TUI. Placement is role-safe (it rides inside a clone of a `user`/`toolResult` tail rather than opening a second consecutive user turn, which Anthropic merges but Bedrock and some proxies reject), and it stops the moment the agent has actually called `say` in that turn, so it can neither nag nor drive a `say` loop.
+  - **Spoken replies no longer depend on the model complying at all.** When a turn settles with spoken replies active and no `say` was spoken, the web app now speaks a short plain-text lead-in of the written reply (code fences, links, bare URLs and markdown markers stripped, cut to whole sentences). The agent's own `say` line always wins when there is one, and the written transcript is never modified.
+  - **Mobile priming no longer depends on tapping one specific control.** Browsers gate the first `speechSynthesis.speak()` of a page behind a user gesture, and the existing priming points (the Conversation Mode toggle, the mic button, settings-save) all assume the user touches one of them in that page load. A returning user whose conversation mode is already persisted ON touches none, so on a phone every reply was dropped while desktop spoke fine. Priming now also happens from the user's first gesture of any kind, the priming utterance is silent but no longer blank (mobile Chrome discards a blank one without consuming the activation it was issued under), and a configured speech locale the engine has no voice for is dropped rather than set, since that is another known way to get silence on mobile.
+
 ## 0.10.11
 
 ### Patch Changes
