@@ -21,7 +21,7 @@
 		"prettier": "^3.7.3",
 		"prettier-plugin-svelte": "^3.4.1",
 		"prettier-plugin-tailwindcss": "^0.7.2",
-		"pwag": "^0.5.0",
+		"pwag": "^0.6.0",
 		"svelte": "^5.0.0",
 		"svelte-check": "^4.0.0",
 		"tailwindcss": "^4.1.17",
@@ -32,7 +32,7 @@
 	},
 	"scripts": {
 		"prepare": "pnpm generate-pwa-icons-and-tags && svelte-kit sync",
-		"generate-pwa-icons-and-tags": "pwag static/logo.svg src/web-config.json && node scripts/pwa-postprocess.mjs",
+		"generate-pwa-icons-and-tags": "pwag static/logo.svg src/web-config.json",
 		"dev": "vite dev --host",
 		"build": "vite build",
 		"preview": "vite preview",

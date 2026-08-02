@@ -8,5 +8,19 @@
 	"themeColor": "#000000",
 	"appleStatusBarStyle": "black-translucent",
 	"icon": "static/logo.svg",
-	"maskable": true
+	"maskable": true,
+	"screenshots": [
+		{
+			"src": "pwa-assets/screenshots/desktop.png",
+			"out": "screenshot-desktop.png",
+			"form_factor": "wide",
+			"label": "Wherever dashboard on desktop"
+		},
+		{
+			"src": "pwa-assets/screenshots/mobile.png",
+			"out": "screenshot-mobile.png",
+			"form_factor": "narrow",
+			"label": "Wherever dashboard on mobile"
+		}
+	]
 }
