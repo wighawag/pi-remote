@@ -1,5 +1,5 @@
 ---
-"@wherever-dev/web": patch
+"wherever-dev": patch
 ---
 
 Fix the shrunken Android home-screen PWA icon and remove the fragile PWA post-process.
