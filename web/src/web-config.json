@@ -7,5 +7,6 @@
 	"ENSName": null,
 	"themeColor": "#000000",
 	"appleStatusBarStyle": "black-translucent",
-	"icon": "static/logo.svg"
+	"icon": "static/logo.svg",
+	"maskable": true
 }

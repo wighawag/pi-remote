@@ -228,8 +228,8 @@ importers:
         specifier: ^0.7.2
         version: 0.7.4(prettier-plugin-svelte@3.5.2(prettier@3.8.3)(svelte@5.55.9))(prettier@3.8.3)
       pwag:
-        specifier: ^0.4.0
-        version: 0.4.0
+        specifier: ^0.5.0
+        version: 0.5.0
       svelte:
         specifier: ^5.0.0
         version: 5.55.9
@@ -3461,8 +3461,8 @@ packages:
   pure-rand@6.1.0:
     resolution: {integrity: sha512-bVWawvoZoBYpp6yIoQtQXHZjmz35RSVHnUOTefl8Vcjr8snTPY1wnpSPMWekcFwbxI6gtmT7rSYPFvz71ldiOA==}
 
-  pwag@0.4.0:
-    resolution: {integrity: sha512-tosWmfrZxiVog+/WamBlLVrN3no/tVVpsDBOOAUsSejK5J+wDmVQ5L+srkQkSUMqrO7bUwd2NwIR7Ra4/AO2sw==}
+  pwag@0.5.0:
+    resolution: {integrity: sha512-E4SCUFZOJ8/dz7lvfo3W2F54VO6wtwm7+bUjnhFrruVF7tFglgMiEcKptXQdKcQSNXjttd/Utjisfdg2Ledr/g==}
     engines: {node: '>= 16'}
     hasBin: true
 
@@ -7263,7 +7263,7 @@ snapshots:
 
   pure-rand@6.1.0: {}
 
-  pwag@0.4.0:
+  pwag@0.5.0:
     dependencies:
       commander: 12.1.0
       sharp: 0.33.5

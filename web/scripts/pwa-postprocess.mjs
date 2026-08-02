@@ -1,19 +1,22 @@
 #!/usr/bin/env node
-// Post-process the pwag output to add things pwag does not generate natively:
-//   1. A padded "maskable" icon (rendered from static/logo.svg on a solid
-//      background with a safe-zone margin) so the installed app icon looks good
-//      inside Android's circular/rounded mask instead of being clipped.
-//   2. PWA `screenshots` entries (for Chrome's richer install UI) copied from
-//      committed source files under static/pwa-src/.
+// Post-process the pwag output to add PWA `screenshots` entries (for Chrome's
+// richer install UI), copied from committed source files under pwa-assets/.
 //
-// pwag writes static/pwa/manifest.webmanifest (gitignored). We mutate the
-// generated icons array + add screenshots, and emit the extra image files into
-// the same gitignored static/pwa/ folder. Source assets that must survive a
-// clean checkout live (committed) under web/pwa-assets/ -- deliberately OUTSIDE
-// static/ so SvelteKit does NOT serve the raw sources (only the generated
-// copies under static/pwa/ are served).
+// As of pwag 0.5.0, maskable icon generation AND explicit `purpose: "any"` on
+// the regular icons are handled natively by pwag (driven by `maskable: true` in
+// web-config.json). So this script no longer generates maskable icons and no
+// longer rewrites the manifest `icons` array -- pwag already emits both the
+// `any` and `maskable` entries correctly. This script now only copies
+// screenshots and appends them to the manifest.
 //
-// Requires ImageMagick (`convert`) which is already used in this environment.
+// pwag writes static/pwa/manifest.webmanifest (gitignored). Source assets that
+// must survive a clean checkout live (committed) under web/pwa-assets/ --
+// deliberately OUTSIDE static/ so SvelteKit does NOT serve the raw sources (only
+// the generated copies under static/pwa/ are served).
+//
+// Requires ImageMagick (`identify`) only to read screenshot dimensions; this
+// will be replaced by `sharp` in a follow-up so the whole pipeline has zero
+// external (non-node) dependencies.
 
 import {execFileSync} from 'node:child_process';
 import {
@@ -33,17 +36,6 @@ const pwaDir = join(staticDir, 'pwa');
 // Committed source assets, intentionally outside static/ so they are not served.
 const srcDir = join(webDir, 'pwa-assets');
 const manifestPath = join(pwaDir, 'manifest.webmanifest');
-const logoSvg = join(staticDir, 'logo.svg');
-
-// Background used behind the (transparent, thin-stroke) logo for the maskable
-// icon. Matches the app theme/background color.
-const MASKABLE_BG = '#000000';
-// Safe zone: the logo must fit within the inner ~80% (Android masks ~10% on
-// each side). We render the logo at ~62% of the canvas, centered.
-// Generate maskable icons at both launcher sizes: some browsers (notably
-// Firefox Android) prefer/expect a maskable icon at 192, not only 512.
-const MASKABLE_SIZES = [192, 512];
-const LOGO_SCALE = 0.62;
 
 function fail(msg) {
 	console.error(`[pwa-postprocess] ${msg}`);
@@ -55,56 +47,26 @@ if (!existsSync(manifestPath)) {
 		`manifest not found at ${manifestPath}. Run pwag first (pnpm generate-pwa-icons-and-tags).`,
 	);
 }
-if (!existsSync(logoSvg)) {
-	fail(`logo source not found at ${logoSvg}.`);
-}
 
 mkdirSync(pwaDir, {recursive: true});
 
-// --- 1. Generate padded maskable icons (192 + 512) from the logo -------------
-const maskableIcons = [];
-for (const size of MASKABLE_SIZES) {
-	const name = `maskable-${size}.png`;
-	const outPath = join(pwaDir, name);
-	const logoSize = Math.round(size * LOGO_SCALE);
-	try {
-		// Render the SVG logo to a transparent PNG at the inner size, then
-		// composite it centered onto a solid-color size x size background.
-		const tmpLogo = join(pwaDir, `.logo-tmp-${size}.png`);
-		execFileSync('convert', [
-			'-background',
-			'none',
-			'-density',
-			'384',
-			'-resize',
-			`${logoSize}x${logoSize}`,
-			logoSvg,
-			tmpLogo,
-		]);
-		execFileSync('convert', [
-			'-size',
-			`${size}x${size}`,
-			`xc:${MASKABLE_BG}`,
-			tmpLogo,
-			'-gravity',
-			'center',
-			'-composite',
-			outPath,
-		]);
-		execFileSync('rm', ['-f', tmpLogo]);
-		maskableIcons.push({
-			src: name,
-			type: 'image/png',
-			sizes: `${size}x${size}`,
-			purpose: 'maskable',
-		});
-		console.log(`[pwa-postprocess] wrote ${name}`);
-	} catch (err) {
-		fail(`failed to generate maskable icon ${name}: ${err.message}`);
-	}
+// `identify` (ImageMagick) is only used to read screenshot dimensions and is the
+// sole non-node dependency left. It is non-critical (screenshots only affect
+// Chrome's richer install UI), so if it is missing we warn and skip screenshots
+// rather than failing the build / `pnpm install`. Maskable icon generation no
+// longer needs ImageMagick (it is native to pwag 0.5.0 via sharp), so a missing
+// `identify` can never silently ship broken home-screen icons.
+let identifyAvailable = true;
+try {
+	execFileSync('identify', ['--version'], {stdio: 'ignore'});
+} catch {
+	identifyAvailable = false;
+	console.warn(
+		'[pwa-postprocess] ImageMagick `identify` not found: skipping screenshots (install ImageMagick to enable Chrome richer install UI).',
+	);
 }
 
-// --- 2. Copy screenshots (committed sources -> gitignored static/pwa) --------
+// --- Copy screenshots (committed sources -> gitignored static/pwa) ------------
 const screenshots = [
 	{
 		src: join(srcDir, 'screenshots', 'desktop.png'),
@@ -122,6 +84,7 @@ const screenshots = [
 
 const manifestScreenshots = [];
 for (const s of screenshots) {
+	if (!identifyAvailable) break;
 	if (!existsSync(s.src)) {
 		console.warn(
 			`[pwa-postprocess] screenshot source missing, skipping: ${s.src}`,
@@ -134,36 +97,25 @@ for (const s of screenshots) {
 	const dims = execFileSync('identify', ['-format', '%wx%h', outPath])
 		.toString()
 		.trim();
-	const entry = {
+	manifestScreenshots.push({
 		src: s.out,
 		sizes: dims,
 		type: 'image/png',
 		form_factor: s.form_factor,
 		label: s.label,
-	};
-	manifestScreenshots.push(entry);
+	});
 	console.log(
 		`[pwa-postprocess] added screenshot ${s.out} (${dims}, ${s.form_factor})`,
 	);
 }
 
-// --- 3. Patch the manifest ---------------------------------------------------
+// --- Patch the manifest: append screenshots only (icons are pwag's job now) ---
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-
-// Keep the non-maskable (regular) icons pwag produced, and give them an
-// explicit `purpose: "any"`. Although the spec defaults missing purpose to
-// "any", some browsers (notably Firefox Android) are more reliable at adopting
-// the icon when it is explicit, instead of falling back to a generated letter
-// icon.
-manifest.icons = (manifest.icons || [])
-	.filter((i) => !(i.purpose && i.purpose.includes('maskable')))
-	.map((i) => ({...i, purpose: i.purpose || 'any'}));
-
-// Append the generated maskable icons (192 + 512).
-manifest.icons.push(...maskableIcons);
 
 if (manifestScreenshots.length > 0) {
 	manifest.screenshots = manifestScreenshots;
+} else {
+	delete manifest.screenshots;
 }
 
 writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
