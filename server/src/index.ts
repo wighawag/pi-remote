@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import {
   runInstall,
   runUninstall,
@@ -24,6 +24,14 @@ const __dirname = path.dirname(__filename);
 const devStaticPath = path.resolve(__dirname, '../../web/build');
 const prodStaticPath = path.resolve(__dirname, '../public');
 const staticDir = fs.existsSync(devStaticPath) ? devStaticPath : prodStaticPath;
+
+// When true (set via --debug), the served dashboard index.html is rewritten so
+// eruda's custom-plugin loader is enabled. Plugin loading is the only eruda
+// feature that takes a URL parameter into a <script src>, so it is kept off by
+// default to avoid a DOM-XSS vector; the operator flips it on locally to debug.
+let debugEnabled = false;
+const ERUDA_PLUGINS_META_FALSE = 'wherever-eruda-plugins" content="false"';
+const ERUDA_PLUGINS_META_TRUE = 'wherever-eruda-plugins" content="true"';
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html',
@@ -140,6 +148,15 @@ function parseRangeHeader(
 function expandTilde(p: string): string {
   if (p.startsWith('~')) return path.join(os.homedir(), p.slice(1));
   return p;
+}
+
+/** True iff `p` resolves to the home directory or somewhere beneath it. Used to
+ * scope /check-path and /autocomplete-path so an authenticated caller cannot use
+ * them to enumerate arbitrary directories outside the home folder. */
+function isWithinHome(p: string): boolean {
+  const home = os.homedir();
+  const normalized = path.resolve(p);
+  return normalized === home || normalized.startsWith(home + path.sep);
 }
 
 // Match a folder path against a remoteRepoRules `pattern`. The path is an
@@ -263,6 +280,12 @@ function serveStaticFile(reqPath: string, res: ServerResponse) {
       res.writeHead(500);
       res.end(`Server Error: ${err.code}`);
     } else {
+      // --debug: flip the eruda custom-plugin flag in the served HTML shell so
+      // the dashboard can load eruda plugins from ?eruda=<pkg>. Off otherwise,
+      // which closes the DOM-XSS vector for any non-debug deployment.
+      if (debugEnabled && filePath.endsWith('index.html')) {
+        data = Buffer.from(data.toString().replace(ERUDA_PLUGINS_META_FALSE, ERUDA_PLUGINS_META_TRUE));
+      }
       res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': cacheControl });
       res.end(data);
     }
@@ -281,7 +304,7 @@ function generateId(): string {
   return Math.random().toString(36).substring(2) + Date.now().toString(36);
 }
 
-function parseArgs(): { port: number; host: string; token?: string; idleTimeout: number; sslKey?: string; sslCert?: string; noSsl: boolean; httpLocalhostFallbackPort?: number } {
+function parseArgs(): { port: number; host: string; token?: string; idleTimeout: number; sslKey?: string; sslCert?: string; noSsl: boolean; httpLocalhostFallbackPort?: number; debug: boolean } {
   const args = process.argv.slice(2);
   let port = parseInt(process.env.PI_REMOTE_PORT || '31415', 10);
   let host = process.env.PI_REMOTE_HOST || '127.0.0.1';
@@ -296,6 +319,10 @@ function parseArgs(): { port: number; host: string; token?: string; idleTimeout:
   let sslCert = process.env.PI_REMOTE_SSL_CERT || undefined;
   let noSsl = process.env.PI_REMOTE_NO_SSL === 'true' || process.env.PI_REMOTE_HTTP === 'true';
   let httpLocalhostFallbackPort: number | undefined = undefined;
+  // Enables the eruda custom-plugin loader in the served dashboard (local
+  // debugging only). Off by default: plugin loading takes a URL param into a
+  // <script src>, which is a DOM-XSS vector unless explicitly opted into.
+  let debug = process.env.PI_DEBUG === 'true' || process.env.WHEREVER_DEBUG === 'true';
 
   if (process.env.PI_REMOTE_HTTP_LOCALHOST_FALLBACK) {
     const envVal = process.env.PI_REMOTE_HTTP_LOCALHOST_FALLBACK;
@@ -331,6 +358,9 @@ function parseArgs(): { port: number; host: string; token?: string; idleTimeout:
       case '--http':
         noSsl = true;
         break;
+      case '--debug':
+        debug = true;
+        break;
       case '--http-localhost-fallback': {
         const nextArg = args[i + 1];
         if (nextArg && !nextArg.startsWith('--')) {
@@ -349,7 +379,7 @@ function parseArgs(): { port: number; host: string; token?: string; idleTimeout:
     }
   }
 
-  return { port, host, token, idleTimeout, sslKey, sslCert, noSsl, httpLocalhostFallbackPort };
+  return { port, host, token, idleTimeout, sslKey, sslCert, noSsl, httpLocalhostFallbackPort, debug };
 }
 
 function authenticate(req: IncomingMessage, token?: string): boolean {
@@ -411,7 +441,8 @@ function sendWS(ws: WebSocket, msg: ServerMessage): void {
 }
 
 async function main(): Promise<void> {
-  const { port, host, token, idleTimeout, sslKey, sslCert, noSsl, httpLocalhostFallbackPort } = parseArgs();
+  const { port, host, token, idleTimeout, sslKey, sslCert, noSsl, httpLocalhostFallbackPort, debug } = parseArgs();
+  debugEnabled = debug;
   const sessionPool = new SessionPool(idleTimeout);
   await sessionPool.initialize();
 
@@ -433,8 +464,7 @@ async function main(): Promise<void> {
         console.log('Generating self-signed SSL certificates for secure HTTPS/WSS...');
         try {
           fs.mkdirSync(certsDir, { recursive: true });
-          const cmd = `openssl req -x509 -newkey rsa:2048 -keyout "${defaultKeyPath}" -out "${defaultCertPath}" -sha256 -days 3650 -nodes -subj "/CN=localhost"`;
-          execSync(cmd, { stdio: 'ignore' });
+          execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-keyout', defaultKeyPath, '-out', defaultCertPath, '-sha256', '-days', '3650', '-nodes', '-subj', '/CN=localhost'], { stdio: 'ignore' });
           console.log(`Self-signed certificates generated successfully in ${certsDir}`);
         } catch (err) {
           console.warn('Failed to generate self-signed certificates using OpenSSL. Falling back to HTTP.', (err as Error).message);
@@ -734,6 +764,7 @@ async function main(): Promise<void> {
                           pathname.startsWith('/models') || 
                           pathname.startsWith('/config') || 
                           pathname.startsWith('/check-path') || 
+                          pathname.startsWith('/check-remote-repo') || 
                           pathname.startsWith('/autocomplete-path') || 
                           pathname.startsWith('/session/');
 
@@ -794,6 +825,13 @@ async function main(): Promise<void> {
         resolved = path.join(os.homedir(), qPath);
       } else {
         resolved = path.resolve(qPath);
+      }
+
+      // Scope to the home folder so this endpoint cannot be used to probe
+      // arbitrary paths elsewhere on the server.
+      if (!isWithinHome(resolved)) {
+        sendJSON(res, 403, { error: 'Path is outside the home directory' });
+        return;
       }
 
       const exists = fs.existsSync(resolved);
@@ -879,6 +917,13 @@ async function main(): Promise<void> {
         resolvedParent = path.join(os.homedir(), parentPath);
       } else {
         resolvedParent = path.resolve(parentPath);
+      }
+
+      // Scope to the home folder so this endpoint cannot be used to enumerate
+      // directories elsewhere on the server.
+      if (!isWithinHome(resolvedParent)) {
+        sendJSON(res, 403, { error: 'Path is outside the home directory' });
+        return;
       }
 
       const config = getWhereverConfig();
@@ -1080,9 +1125,11 @@ async function main(): Promise<void> {
           resolved = path.resolve(sessionFile);
         }
 
-        // Security check: only allow deleting files ending with .jsonl
-        if (!resolved.endsWith('.jsonl')) {
-          sendJSON(res, 400, { error: 'Invalid session file format' });
+        // Security check: only allow deleting session .jsonl files that live
+        // inside the server's sessions directory, so an authenticated caller
+        // cannot unlink arbitrary .jsonl files elsewhere on disk.
+        if (!sessionPool.isSessionFile(resolved)) {
+          sendJSON(res, 400, { error: 'Invalid session file: not a session in the sessions directory' });
           return;
         }
 

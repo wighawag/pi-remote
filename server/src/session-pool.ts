@@ -1,7 +1,7 @@
 import path from 'path';
 import os from 'node:os';
 import fs from 'node:fs';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
 /**
  * Normalize a path to prevent duplicate session folders.
@@ -633,18 +633,18 @@ export function setupUpstreamTracking(resolvedCwd: string) {
   try {
     let defaultBranch = '';
     try {
-      defaultBranch = execSync('git symbolic-ref --short HEAD', { cwd: resolvedCwd }).toString().trim();
+      defaultBranch = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], { cwd: resolvedCwd }).toString().trim();
     } catch (e) {
       try {
-        defaultBranch = execSync('git config --get init.defaultBranch', { cwd: resolvedCwd }).toString().trim();
+        defaultBranch = execFileSync('git', ['config', '--get', 'init.defaultBranch'], { cwd: resolvedCwd }).toString().trim();
       } catch (e2) {}
     }
     if (!defaultBranch) {
       defaultBranch = 'main'; // fallback
     }
 
-    execSync(`git config branch.${defaultBranch}.remote origin`, { cwd: resolvedCwd, stdio: 'ignore' });
-    execSync(`git config branch.${defaultBranch}.merge refs/heads/${defaultBranch}`, { cwd: resolvedCwd, stdio: 'ignore' });
+    execFileSync('git', ['config', `branch.${defaultBranch}.remote`, 'origin'], { cwd: resolvedCwd, stdio: 'ignore' });
+    execFileSync('git', ['config', `branch.${defaultBranch}.merge`, `refs/heads/${defaultBranch}`], { cwd: resolvedCwd, stdio: 'ignore' });
     console.log(`Successfully pre-configured branch '${defaultBranch}' upstream tracking to origin`);
   } catch (err) {
     console.error('Failed to pre-configure upstream tracking branch:', err);
@@ -658,10 +658,10 @@ export function setupUpstreamTracking(resolvedCwd: string) {
  */
 function resolveGiteaUser(): string {
   try {
-    return execSync('tea whoami').toString().trim().split(/\s+/).pop() || '';
+    return execFileSync('tea', ['whoami']).toString().trim().split(/\s+/).pop() || '';
   } catch (e) {
     try {
-      return execSync('cb auth whoami').toString().trim().split(/\s+/).pop() || '';
+      return execFileSync('cb', ['auth', 'whoami']).toString().trim().split(/\s+/).pop() || '';
     } catch (e2) {
       return '';
     }
@@ -685,7 +685,7 @@ export function detectRemoteRepo(rule: RemoteRepoRule, repoName: string): Remote
     if (provider === 'github') {
       // `gh repo view` resolves the owner to the authenticated user just like
       // `gh repo create "<name>"` does. --json sshUrl gives us the SSH remote.
-      const out = execSync(`gh repo view "${repoName}" --json sshUrl -q .sshUrl`, {
+      const out = execFileSync('gh', ['repo', 'view', repoName, '--json', 'sshUrl', '-q', '.sshUrl'], {
         stdio: ['ignore', 'pipe', 'ignore'],
       }).toString().trim();
       if (out) return { exists: true, sshUrl: out };
@@ -700,18 +700,21 @@ export function detectRemoteRepo(rule: RemoteRepoRule, repoName: string): Remote
       // exists; construct the SSH URL the same way the create path does.
       let exists = false;
       try {
-        execSync(`tea repo ls --output simple 2>/dev/null | grep -qi "${user}/${repoName}$"`, {
-          stdio: 'ignore',
-          shell: '/bin/bash',
-        });
-        exists = true;
+        const teaList = execFileSync('tea', ['repo', 'ls', '--output', 'simple'], {
+          stdio: ['ignore', 'pipe', 'ignore'],
+        }).toString();
+        const target = `${user}/${repoName}`.toLowerCase();
+        if (teaList.split('\n').some(l => l.trim().toLowerCase().endsWith(target))) {
+          exists = true;
+        }
       } catch (e) {
         try {
-          execSync(`cb repo list 2>/dev/null | grep -qi "${user}/${repoName}"`, {
-            stdio: 'ignore',
-            shell: '/bin/bash',
-          });
-          exists = true;
+          const cbList = execFileSync('cb', ['repo', 'list'], {
+            stdio: ['ignore', 'pipe', 'ignore'],
+          }).toString();
+          if (cbList.toLowerCase().includes(`${user}/${repoName}`.toLowerCase())) {
+            exists = true;
+          }
         } catch (e2) {}
       }
       if (exists) {
@@ -747,7 +750,7 @@ export function cloneRemoteRepo(resolvedCwd: string, sshUrl: string): string | u
       fs.mkdirSync(parent, { recursive: true });
     }
     console.log(`Cloning existing repository ${sshUrl} into ${resolvedCwd}...`);
-    execSync(`git clone "${sshUrl}" "${path.basename(resolvedCwd)}"`, {
+    execFileSync('git', ['clone', sshUrl, path.basename(resolvedCwd)], {
       cwd: parent,
       stdio: 'ignore',
     });
@@ -850,6 +853,21 @@ export class SessionPool {
   async initialize(): Promise<void> {
     this.modelRegistry.refresh();
     this.warmSessionIndex();
+  }
+
+  /** Resolve the on-disk sessions directory (agentDir/sessions). Session files
+   * always live here as <subdir>/*.jsonl, so deletion/operations on a session
+   * file are scoped to this root to prevent deleting arbitrary .jsonl files. */
+  getSessionsDir(): string {
+    return path.join(this.agentDir, 'sessions');
+  }
+
+  /** True iff `resolvedFile` is a .jsonl file inside the sessions directory. */
+  isSessionFile(resolvedFile: string): boolean {
+    if (!resolvedFile.endsWith('.jsonl')) return false;
+    const sessionsDir = this.getSessionsDir();
+    const normalized = path.resolve(resolvedFile);
+    return normalized === sessionsDir || normalized.startsWith(sessionsDir + path.sep);
   }
 
   /**
@@ -1183,7 +1201,7 @@ export class SessionPool {
         if (gitInit && !cloned) {
           try {
             if (!fs.existsSync(path.join(resolvedCwd, '.git'))) {
-              execSync('git init', { cwd: resolvedCwd, stdio: 'ignore' });
+              execFileSync('git', ['init'], { cwd: resolvedCwd, stdio: 'ignore' });
               console.log(`Initialized empty Git repository in ${resolvedCwd}`);
             }
           } catch (err) {
@@ -1204,7 +1222,7 @@ export class SessionPool {
             // Initialize Git if matching rules and not yet a Git repo
             if (!fs.existsSync(path.join(resolvedCwd, '.git'))) {
               try {
-                execSync('git init', { cwd: resolvedCwd, stdio: 'ignore' });
+                execFileSync('git', ['init'], { cwd: resolvedCwd, stdio: 'ignore' });
                 console.log(`Initialized empty Git repository in ${resolvedCwd} (due to matching remote rule)`);
               } catch (e) {
                 console.error(`Failed to initialize git repository in ${resolvedCwd} for remote rule:`, e);
@@ -1214,7 +1232,7 @@ export class SessionPool {
             // Check if remote already exists
             let hasOrigin = false;
             try {
-              const remotes = execSync('git remote', { cwd: resolvedCwd }).toString();
+              const remotes = execFileSync('git', ['remote'], { cwd: resolvedCwd }).toString();
               hasOrigin = remotes.split('\n').map(r => r.trim()).includes('origin');
             } catch (e) {}
 
@@ -1222,7 +1240,7 @@ export class SessionPool {
               if (provider === 'github') {
                 try {
                   console.log(`Creating GitHub repository: ${repoName} (${visibility})...`);
-                  execSync(`gh repo create "${repoName}" --${visibility} --source=. --remote=origin`, { cwd: resolvedCwd, stdio: 'ignore' });
+                  execFileSync('gh', ['repo', 'create', repoName, `--${visibility}`, '--source=.', '--remote=origin'], { cwd: resolvedCwd, stdio: 'ignore' });
                   console.log(`Successfully created GitHub repo ${repoName} and added remote 'origin'`);
                   setupUpstreamTracking(resolvedCwd);
                 } catch (err) {
@@ -1236,14 +1254,14 @@ export class SessionPool {
 
                   try {
                     // Try tea CLI
-                    const output = execSync(`tea repo create --name "${repoName}" ${visibility === 'private' ? '--private' : ''}`, { cwd: resolvedCwd }).toString();
+                    const output = execFileSync('tea', ['repo', 'create', '--name', repoName, ...(visibility === 'private' ? ['--private'] : [])], { cwd: resolvedCwd }).toString();
                     created = true;
                     const urlMatch = output.match(/https?:\/\/\S+/i) || output.match(/git@\S+/i);
                     if (urlMatch) repoUrl = urlMatch[0];
                   } catch (err) {
                     try {
                       // Try cb CLI
-                      const output = execSync(`cb repo create --name "${repoName}" ${visibility === 'private' ? '--private' : ''}`, { cwd: resolvedCwd }).toString();
+                      const output = execFileSync('cb', ['repo', 'create', '--name', repoName, ...(visibility === 'private' ? ['--private'] : [])], { cwd: resolvedCwd }).toString();
                       created = true;
                       const urlMatch = output.match(/https?:\/\/\S+/i) || output.match(/git@\S+/i);
                       if (urlMatch) repoUrl = urlMatch[0];
@@ -1258,10 +1276,10 @@ export class SessionPool {
                       const domain = provider === 'codeberg' ? 'codeberg.org' : 'gitea.com';
                       let user = '';
                       try {
-                        user = execSync('tea whoami').toString().trim().split(/\s+/).pop() || '';
+                        user = execFileSync('tea', ['whoami']).toString().trim().split(/\s+/).pop() || '';
                       } catch (e) {
                         try {
-                          const cbWho = execSync('cb auth whoami').toString().trim();
+                          const cbWho = execFileSync('cb', ['auth', 'whoami']).toString().trim();
                           user = cbWho.split(/\s+/).pop() || '';
                         } catch (e2) {}
                       }
@@ -1270,7 +1288,7 @@ export class SessionPool {
                       }
                       repoUrl = `git@${domain}:${user}/${repoName}.git`;
                     }
-                    execSync(`git remote add origin "${repoUrl}"`, { cwd: resolvedCwd, stdio: 'ignore' });
+                    execFileSync('git', ['remote', 'add', 'origin', repoUrl], { cwd: resolvedCwd, stdio: 'ignore' });
                     console.log(`Successfully created Codeberg/Gitea repo and added remote origin: ${repoUrl}`);
                     setupUpstreamTracking(resolvedCwd);
                   }

@@ -296,6 +296,7 @@ Both the server and CLI bridge extension accept standard flags to customize port
 - `--ssl-key`, `PI_REMOTE_SSL_KEY` (Path to SSL private key file for HTTPS/WSS)
 - `--ssl-cert`, `PI_REMOTE_SSL_CERT` (Path to SSL certificate file for HTTPS/WSS)
 - `--no-ssl` / `--http`, `PI_REMOTE_NO_SSL` / `PI_REMOTE_HTTP` (Disables SSL, falling back to standard HTTP/WS)
+- `--debug`, `PI_DEBUG` / `WHEREVER_DEBUG` (Enables the eruda custom-plugin loader in the dashboard for local mobile debugging — see [Debugging](#debugging). Off by default; only enable locally, since it permits loading eruda plugins from a `?eruda=<pkg>` URL parameter)
 
 ### CLI Bridge Settings
 
@@ -495,6 +496,24 @@ ssh -L 31415:localhost:31415 user@your-pi-ip
 ```
 
 Once connected, you can open `https://localhost:31415` locally on your client computer.
+
+---
+
+## Debugging
+
+The dashboard ships with [eruda](https://github.com/liriliri/eruda) for debugging on devices where you don't have devtools (e.g. your phone). Append `?eruda` to the dashboard URL to load the eruda console:
+
+```
+https://your-host:31415/?eruda
+```
+
+Loading **custom eruda plugins** via `?eruda=<plugin-package>` is disabled by default, because that parameter is interpolated into a `<script src>` and would otherwise be a DOM-XSS vector on a deployed instance. To enable it, run the server with `--debug` (local only):
+
+```
+wherever start --debug
+```
+
+Then `?eruda=eruda-dom,eruda-code` loads those plugins from the jsdelivr CDN. Never run `--debug` on an exposed/host network deployment.
 
 ---
 
