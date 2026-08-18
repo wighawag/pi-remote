@@ -42,8 +42,9 @@ export interface Harness {
   /** The isolated PI_CODING_AGENT_DIR (sessions land under here). */
   agentDir: string;
   setNext(b: FakeBehavior): void;
-  /** Open a WS client and wait for the socket to open. */
-  connect(): Promise<TestClient>;
+  /** Open a WS client and wait for the socket to open. `clientKey` is the stable
+   *  per-viewer identity the server uses to retire a superseded connection. */
+  connect(clientKey?: string): Promise<TestClient>;
   cleanup(): Promise<void>;
 }
 
@@ -155,8 +156,8 @@ export async function startHarness(opts?: HarnessOptions): Promise<Harness> {
     workspace,
     agentDir,
     setNext: (b) => fake.setNext(b),
-    async connect() {
-      const c = await TestClient.open(port, workspace);
+    async connect(clientKey?: string) {
+      const c = await TestClient.open(port, workspace, clientKey);
       clients.push(c);
       return c;
     },
@@ -196,9 +197,10 @@ export class TestClient {
     });
   }
 
-  static open(port: number, workspace: string): Promise<TestClient> {
+  static open(port: number, workspace: string, clientKey?: string): Promise<TestClient> {
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+      const query = clientKey ? `?clientKey=${encodeURIComponent(clientKey)}` : '';
+      const ws = new WebSocket(`ws://127.0.0.1:${port}/ws${query}`);
       const c = new TestClient(ws, workspace);
       ws.on('open', () => resolve(c));
       ws.on('error', reject);
@@ -249,5 +251,17 @@ export class TestClient {
     try {
       this.ws.close();
     } catch {}
+  }
+
+  /** Resolves when the SERVER (or anything else) closes this socket. */
+  closedPromise(timeoutMs = 10_000): Promise<void> {
+    if (this.ws.readyState === WebSocket.CLOSED) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('socket was not closed')), timeoutMs);
+      this.ws.once('close', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
   }
 }

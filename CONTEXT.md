@@ -97,11 +97,14 @@ Wherever is a TypeScript extension for the [pi coding agent](https://pi.dev) tha
 
 ### Server Endpoints
 
-**WebSocket:** `ws://host:port/ws?token=XXX`
+**WebSocket:** `ws://host:port/ws?token=XXX&clientKey=YYY`
 
 - Real-time bidirectional communication
 - Streams agent responses, tool events
 - Accepts messages, abort commands
+- Folder conflicts are tracked PER CLIENT (`conflictObserver`), not per folder: a client that asked for a session in an occupied folder is attached read-only to the occupant's own session file, which a folder-level scan cannot see. The live `folder_conflict` message carries `readOnly` so the client mirrors the server's verdict, and read-only is released when the conflict resolves. "Continue anyway" is recorded as a durable intent (`conflictContinued`) and answered with an authoritative `folder_conflict` on the same socket, so it holds whether it lands before the paint, during a cold load's agent build, or after the attach.
+- `connection_superseded` tells a connection it is being retired because a newer one arrived with the same `clientKey`. A client that receives it is alive, so the key was shared by accident (duplicating a tab clones `sessionStorage`): it regenerates its key before reconnecting instead of evicting the other connection back.
+- `clientKey` (optional) is a stable per-viewer identity carried across reconnects. On connect the server retires any still-registered connection with the same key (detaching it from its session), so a viewer whose socket dropped silently is never counted as a second viewer. Without it, a half-open socket lingers until the heartbeat reaper (up to 60s) and makes `session_new` in that folder resolve as a folder conflict (read-only attach). The web client scopes the key per TAB via `sessionStorage`, so separate tabs remain separate viewers.
 
 **HTTP REST:**
 

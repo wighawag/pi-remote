@@ -131,7 +131,18 @@ export type ServerMessage =
   // appear/disappear as other clients open or leave sessions in the folder.
   // There is no take-over/read-only protection: this is purely a heads-up that
   // two sessions in one folder are (or are no longer) live simultaneously.
-  | { type: 'folder_conflict'; cwd: string; active: boolean }
+  // `readOnly` is the server's authoritative verdict for THIS client right after
+  // re-evaluating the conflict, so a resolved conflict releases the composer and
+  // a hard sessions.readOnly folder keeps it locked. Optional for back-compat
+  // with clients that predate it.
+  | { type: 'folder_conflict'; cwd: string; active: boolean; readOnly?: boolean }
+  // Server -> client: this connection is being closed because a NEWER connection
+  // arrived carrying the same `clientKey`, i.e. the server took it for this
+  // viewer's own reconnect. A client that receives this is demonstrably alive, so
+  // the key was shared by accident (a duplicated browser tab clones
+  // sessionStorage): it must regenerate its key before reconnecting, otherwise
+  // the two connections evict each other forever.
+  | { type: 'connection_superseded' }
   | { type: 'session_interrupted'; sessionId: string; reason: string }
   // A non-fatal, dismissible notice about the active session that the UI should
   // surface as a banner (e.g. a CLI bridge took over a mid-run session and its

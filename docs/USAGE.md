@@ -236,6 +236,8 @@ Send a raw WAV voice recording to be transcribed using the configured server-sid
 
 Establish a connection via `ws://127.0.0.1:31415/ws?token=YOUR_TOKEN`.
 
+Optionally add `&clientKey=YOUR_STABLE_KEY` (max 128 chars): a stable identity for one viewer, reused across reconnects. When a new connection arrives with a key that is already registered, the server sends the older connection a `connection_superseded` message and retires it (detaching it from its session) instead of treating it as an additional viewer. A client that actually receives `connection_superseded` is alive, so it must regenerate its key before reconnecting, otherwise two viewers sharing a key would evict each other indefinitely. Keys longer than 128 characters are ignored (with a server-side warning), leaving that connection without supersede protection. This is what keeps a reconnect after a silent drop (phone sleep, network switch) from being mistaken for a second viewer, which would otherwise turn "new session in this folder" into a read-only folder conflict. Use one key per independent viewer (the web app uses one per browser tab).
+
 ### Client $\rightarrow$ Server Messages
 
 ```typescript
@@ -390,10 +392,10 @@ Establish a connection via `ws://127.0.0.1:31415/ws?token=YOUR_TOKEN`.
 
 ### Folder Overlap Warning Banner
 If you load or start a session in `/project-a` while another client already has an active session in that same directory, the Standalone Server does **not** block you with a dialog. Instead it attaches you as a **read-only observer** and shows a non-blocking **warning banner**:
-* **Observing (default):** You see all agent updates, tool executions, and logs in real-time, but message input is disabled while you observe.
+* **Observing (default):** You see all agent updates, tool executions, and logs in real-time, but message input is disabled while you observe. A message sent anyway is refused with a visible `session_error`, never silently dropped.
 * **Continue anyway:** Lifts read-only so you can send into the session. The other session is **not** interrupted or taken over — both run concurrently (changes may conflict). The banner then remains as a passive warning and disappears automatically once no other session is active in the folder.
 
-There is no longer any take-over / abort protection: the server sends a live `folder_conflict` update as sessions open and leave the folder, driving the banner's appearance and dismissal.
+There is no longer any take-over / abort protection: the server sends a live `folder_conflict` update as sessions open and leave the folder, driving the banner's appearance and dismissal. That update carries the server's authoritative `readOnly` for the receiving client, so read-only is released automatically when the conflict resolves rather than outliving the banner that could lift it. Every `folder_conflict_continue` is answered with one of these updates on the same socket, which by ordering settles any conflicting update that was already in flight. Note that a conflict is tracked per CLIENT: asking for a new session in an occupied folder attaches you to the occupant's own session file, so the banner stays up for exactly as long as the other client is still there.
 
 ### Security Reminders
 * **Bind Binding:** By default, the Standalone Server binds only to `127.0.0.1`. Never expose to `0.0.0.0` unless you set a highly secure `--token` in your startup configuration.

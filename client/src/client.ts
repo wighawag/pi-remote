@@ -22,6 +22,29 @@ export interface WhereverClientConfig {
   WebSocketCtor?: any;
   hideThinking?: boolean;
   hideTools?: boolean;
+  // Stable identity for THIS viewer across reconnects. The server keys its
+  // per-connection client records by socket, so a silently dropped socket (phone
+  // sleep, network switch, half-open TCP) leaves a PHANTOM client attached to
+  // the session until the heartbeat reaper notices, up to a minute later. In
+  // that window the phantom counts as "another viewer", which turns an explicit
+  // "New Session Here" into a folder conflict (read-only attach to the existing
+  // session). Sending a stable key lets the server evict this viewer's own
+  // previous connection the moment it reconnects. Callers should scope the key
+  // per TAB (e.g. sessionStorage), never per browser: two real tabs must stay
+  // two distinct viewers. Omitted -> a per-instance key is generated, which
+  // already covers in-process reconnects.
+  clientKey?: string;
+  // Called when the client had to take a NEW clientKey because the server
+  // reported this one as superseded (two viewers ended up sharing it). Persist it
+  // wherever `clientKey` came from, so the collision is resolved for good rather
+  // than re-created on the next reconnect.
+  onClientKeyChange?: (key: string) => void;
+}
+
+// Per-instance fallback identity: stable for the lifetime of this client object,
+// which is exactly the lifetime across which reconnects happen.
+function generateClientKey(): string {
+  return `ck-${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
 }
 
 const defaultState: WhereverState = {
@@ -60,6 +83,10 @@ const defaultState: WhereverState = {
 export class WhereverClient {
   private ws: any = null;
   private config: WhereverClientConfig;
+  // Identity sent on every connect so the server can retire this viewer's own
+  // stale/phantom connection instead of counting it as a second viewer. Replaced
+  // (once) if the server reports it as superseded by another live connection.
+  private clientKey: string;
   public stateStore: Writable<WhereverState>;
   private reconnectTimer: any = null;
   private agentEndTimeout: any = null;
@@ -145,6 +172,7 @@ export class WhereverClient {
       secure: true,
       ...config
     };
+    this.clientKey = this.config.clientKey || generateClientKey();
     this.stateStore = writable<WhereverState>({
       ...defaultState,
       hideThinking: !!this.config.hideThinking,
@@ -179,8 +207,13 @@ export class WhereverClient {
     const host = this.config.host.startsWith('http')
       ? this.config.host.replace(/^https?:\/\//, '')
       : this.config.host;
-    const tokenQuery = this.config.token ? `?token=${encodeURIComponent(this.config.token)}` : "";
-    const wsUrl = `${protocol}://${host}:${this.config.port}/ws${tokenQuery}`;
+    // clientKey rides on the URL (not a post-connect frame) so the server can
+    // evict this viewer's previous connection BEFORE any session traffic is
+    // handled, closing the phantom-viewer window entirely.
+    const params: string[] = [];
+    if (this.config.token) params.push(`token=${encodeURIComponent(this.config.token)}`);
+    params.push(`clientKey=${encodeURIComponent(this.clientKey)}`);
+    const wsUrl = `${protocol}://${host}:${this.config.port}/ws?${params.join('&')}`;
 
     const WebSocketImpl = this.config.WebSocketCtor || (typeof globalThis !== 'undefined' ? (globalThis as any).WebSocket : null);
     
@@ -710,6 +743,21 @@ export class WhereverClient {
           serverVersion: msg.serverVersion ?? null,
           error: null,
         }));
+        break;
+
+      case 'connection_superseded':
+        // A newer connection arrived carrying OUR clientKey, so the server is
+        // retiring this socket as a superseded duplicate. Receiving this proves we
+        // are alive, i.e. the key is being shared by accident (a duplicated tab
+        // clones sessionStorage). Take a fresh identity BEFORE the reconnect the
+        // imminent close will schedule, so the two connections stop evicting each
+        // other; the owner of the key keeps it and we come back as our own viewer.
+        this.clientKey = generateClientKey();
+        try {
+          this.config.onClientKeyChange?.(this.clientKey);
+        } catch (err) {
+          console.error('onClientKeyChange failed:', err);
+        }
         break;
 
       case 'file_uploaded': {
@@ -1386,15 +1434,25 @@ export class WhereverClient {
         this.stateStore.update((s: WhereverState) => {
           if (!s.sessionId) return s;
           if (s.activeCwd && msg.cwd !== s.activeCwd) return s;
+          // The server re-evaluates this client's read-only state on every
+          // conflict update, so mirror it when reported. This is what releases
+          // the composer once the conflict resolves (the banner alone cannot: it
+          // disappears, taking its "Continue anyway" button with it) and what
+          // keeps a hard sessions.readOnly folder locked. Older servers omit the
+          // field, leaving read-only untouched as before.
+          const readOnly = msg.readOnly ?? s.readOnly;
           if (!msg.active) {
             // No other session remains: fully resolved, drop the banner.
-            return s.folderConflict ? {...s, folderConflict: null} : s;
+            return s.folderConflict || readOnly !== s.readOnly
+              ? {...s, folderConflict: null, readOnly}
+              : s;
           }
           if (s.folderConflict) {
             // Already showing: just refresh, preserving the user's `continued`
             // choice (so we don't re-disable a composer they already enabled).
             return {
               ...s,
+              readOnly,
               folderConflict: {...s.folderConflict, cwd: msg.cwd, active: true},
             };
           }
@@ -1404,6 +1462,7 @@ export class WhereverClient {
           // than yanking the composer into read-only underneath the user.
           return {
             ...s,
+            readOnly,
             folderConflict: {cwd: msg.cwd, active: true, continued: true},
           };
         });

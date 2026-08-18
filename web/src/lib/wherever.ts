@@ -474,12 +474,52 @@ function sendOptions(): {conversationMode: boolean} {
 	};
 }
 
+// Stable identity for THIS TAB, carried across reconnects and across reloads of
+// the same tab. sessionStorage (not localStorage) is deliberate: every tab is a
+// genuinely distinct viewer and must keep its own key, otherwise opening a
+// second tab would kick the first one off. The server uses this key to retire
+// this tab's own superseded connection instead of counting a phantom (silently
+// dropped) socket as a second viewer, which used to turn an explicit "New
+// Session Here" into a read-only folder conflict.
+const CLIENT_KEY_STORAGE = 'wherever-client-key';
+
+function getClientKey(): string | undefined {
+	if (typeof sessionStorage === 'undefined') return undefined;
+	try {
+		const existing = sessionStorage.getItem(CLIENT_KEY_STORAGE);
+		if (existing) return existing;
+		const key = `tab-${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+		sessionStorage.setItem(CLIENT_KEY_STORAGE, key);
+		return key;
+	} catch {
+		// Private-mode / blocked storage: fall back to the client's per-instance
+		// key, which still covers in-page reconnects.
+		return undefined;
+	}
+}
+
+// "Duplicate tab" CLONES sessionStorage, so two live tabs can start out sharing
+// one key. The server then treats the second as the first's reconnect and
+// retires it, which would ping-pong forever. It tells the retired (but alive)
+// connection so the client can take a fresh key: persist it here so the
+// collision is resolved once, not re-created on the next reconnect.
+function persistClientKey(key: string): void {
+	try {
+		sessionStorage.setItem(CLIENT_KEY_STORAGE, key);
+	} catch {
+		// Storage unavailable: the in-memory key still resolves the collision for
+		// this page's lifetime.
+	}
+}
+
 // Instantiate the isomorphic WhereverClient
 const initialConfig = getConfig();
 export const client = new WhereverClient({
 	host: initialConfig.host,
 	port: initialConfig.port,
 	token: initialConfig.token,
+	clientKey: getClientKey(),
+	onClientKeyChange: persistClientKey,
 	secure:
 		typeof window !== 'undefined' &&
 		window.location &&

@@ -731,8 +731,13 @@
 			</div>
 		{/if}
 
-		<!-- Read-only banner -->
-		{#if readOnly && !interrupted}
+		<!-- Read-only banner. Suppressed only while the DISMISSIBLE folder-conflict
+		     banner is up: that one already explains why this session is read-only and
+		     carries the "Continue anyway" escape, so showing both reads as a dead end.
+		     Once continued, the conflict banner has no button left, so a read-only
+		     that SURVIVED the continue (a hard sessions.readOnly folder, which the
+		     server refuses to lift) must still explain itself here. -->
+		{#if readOnly && !interrupted && !(fConflict?.active && !fConflict.continued)}
 			<div
 				class="border border-yellow-500/30 bg-yellow-500/10 px-4 py-2 text-center text-sm text-yellow-400"
 			>

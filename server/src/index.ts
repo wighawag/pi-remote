@@ -298,6 +298,71 @@ interface WSClient {
   sessionId: string | null;
   readOnly: boolean;
   isCliBridge?: boolean;
+  // True while this client is attached to its session as a FOLDER-CONFLICT
+  // observer: it asked for a session in an occupied folder and was attached
+  // read-only until it clicks "Continue anyway". The conflict is a property of
+  // THIS client, not of the folder: session_new attaches the observer to the
+  // very same session file as the occupant, so a folder-level "is there another
+  // session file here" scan cannot see it. Without this flag the live
+  // folder_conflict broadcast reported active:false immediately after attaching,
+  // which tore the warning banner (and its "Continue anyway" button) back down
+  // and left the client stuck read-only with no way out.
+  conflictObserver?: boolean;
+  // The cwd of the session this client is CURRENTLY loading, recorded at the
+  // fast-paint step and valid before the attach completes. A cold load paints the
+  // conversation (possibly read-only for a folder conflict) seconds before the
+  // agent finishes building and the client is attached, so during that window
+  // client.sessionId is still null. Without this, "Continue anyway" clicked while
+  // the agent builds could not be honoured: it had no session to resolve, no way
+  // to check the sessions.readOnly rule, and was silently dropped.
+  pendingCwd?: string;
+  // The user clicked "Continue anyway" for the session this client is attached to
+  // or currently loading. Kept as a durable INTENT rather than acted on once,
+  // because the click can land at any point of a cold load -- before the paint,
+  // between paint and attach, or after -- and every one of those orderings must
+  // end with the same answer. Reset whenever a new session load/create starts, so
+  // a decision never leaks into a different session.
+  conflictContinued?: boolean;
+  // Stable identity supplied by the client on connect, carried across
+  // reconnects. Used to retire this viewer's own superseded connection so a
+  // dropped-and-reconnected client is never mistaken for a second viewer.
+  clientKey?: string;
+}
+
+// Retire any still-registered VIEWER connection carrying the same clientKey: it
+// is the SAME viewer's superseded socket (a reconnect), not a second viewer.
+// Detach it from its session synchronously so the very next message on the new
+// socket sees an accurate client count, then terminate the dead socket.
+//
+// CLI bridges are deliberately left ALONE: their re-registration is already
+// handled by registerCliSession/unregisterCliSession, and tearing one down here
+// would race a cli_register arriving on the new socket against the old socket's
+// async close teardown, which could unregister the session that was just
+// re-registered.
+function evictPreviousConnection(
+  clientKey: string,
+  clients: Map<string, WSClient>,
+  pool: SessionPool,
+  onSessionsUpdated: () => void,
+): void {
+  for (const prev of Array.from(clients.values())) {
+    if (prev.clientKey !== clientKey || prev.isCliBridge) continue;
+    if (prev.sessionId) {
+      pool.removeClient(prev.sessionId, prev.id);
+      prev.sessionId = null;
+    }
+    clearConflictState(prev);
+    clients.delete(prev.id);
+    // Tell the superseded connection WHY it is going away, and only then kill it.
+    // If it is in fact alive (two tabs that ended up sharing a key, e.g. a
+    // duplicated tab cloning sessionStorage), it regenerates its key and comes
+    // back as a distinct viewer instead of evicting the other one right back in
+    // an endless ping-pong. Losing this frame would restore exactly that
+    // ping-pong, with no backstop, so it must not be discarded by the teardown.
+    // A genuinely dead socket never reads it and is reaped on the flush timeout.
+    sendThenTerminate(prev.ws, { type: 'connection_superseded' });
+    onSessionsUpdated();
+  }
 }
 
 function generateId(): string {
@@ -440,6 +505,42 @@ function sendWS(ws: WebSocket, msg: ServerMessage): void {
   }
 }
 
+// Send a final message and THEN kill the socket, without losing the message.
+// terminate() destroys the socket and discards whatever is still buffered; over
+// TLS (this server's default) a small frame is frequently still buffered when
+// the send call returns, so terminating in the same tick can drop it. Wait for
+// the write callback, with a timer so a socket that never flushes (the usual
+// case here: the peer is gone) is still reaped promptly.
+function sendThenTerminate(ws: WebSocket, msg: ServerMessage, flushTimeoutMs = 1_000): void {
+  let done = false;
+  const kill = () => {
+    if (done) return;
+    done = true;
+    try {
+      // terminate() (not close()) because a superseded socket is typically
+      // half-open: a close handshake would never complete.
+      if (typeof (ws as any).terminate === 'function') (ws as any).terminate();
+      else ws.close();
+    } catch {}
+  };
+  const timer = setTimeout(kill, flushTimeoutMs);
+  timer.unref?.();
+  if (ws.readyState !== WebSocket.OPEN) {
+    clearTimeout(timer);
+    kill();
+    return;
+  }
+  try {
+    ws.send(JSON.stringify(msg), () => {
+      clearTimeout(timer);
+      kill();
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    kill();
+  }
+}
+
 async function main(): Promise<void> {
   const { port, host, token, idleTimeout, sslKey, sslCert, noSsl, httpLocalhostFallbackPort, debug } = parseArgs();
   debugEnabled = debug;
@@ -528,20 +629,10 @@ async function main(): Promise<void> {
   // gone. Sent on every session-set change (open/leave/create/destroy). CLI
   // bridge connections are skipped (they have no banner UI).
   function broadcastFolderConflicts(): void {
+    // readOnly rides along every time so the client's composer mirrors the
+    // server's authority rather than inferring it from `active`.
     for (const c of clients.values()) {
-      if (c.isCliBridge) continue;
-      if (!c.sessionId) continue;
-      const mine = sessionPool.getSession(c.sessionId);
-      if (!mine) continue;
-      let active = false;
-      for (const s of sessionPool.getAllSessions()) {
-        if (s.sessionFile === mine.sessionFile) continue;
-        if (s.cwd === mine.cwd && s.clients.size > 0) {
-          active = true;
-          break;
-        }
-      }
-      sendWS(c.ws, { type: 'folder_conflict', cwd: mine.cwd, active });
+      sendFolderConflict(c, sessionPool);
     }
   }
 
@@ -1095,6 +1186,8 @@ async function main(): Promise<void> {
               sendWS(c.ws, wsMsg);
               c.sessionId = null;
               c.readOnly = false;
+              // The conflict decision belonged to the session that just went away.
+              clearConflictState(c);
             }
           }
         }
@@ -1147,6 +1240,8 @@ async function main(): Promise<void> {
               sendWS(c.ws, wsMsg);
               c.sessionId = null;
               c.readOnly = false;
+              // The conflict decision belonged to the session that just went away.
+              clearConflictState(c);
             }
           }
           sessionPool.destroySession(tracked.sessionFile, 'deleted');
@@ -1479,13 +1574,41 @@ async function main(): Promise<void> {
     httpServer.on('upgrade', upgradeHandler);
   }
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, req?: IncomingMessage) => {
     const clientId = generateId();
+    // Stable per-viewer identity (see WhereverClientConfig.clientKey). A client
+    // that lost its socket silently (half-open TCP: phone sleep, network switch)
+    // reconnects on a NEW socket while the old record still sits in the pool
+    // until the heartbeat reaper notices, up to 2x HEARTBEAT_MS later. That
+    // phantom counted as "another viewer", which silently turned an explicit
+    // "New Session Here" into a folder conflict (read-only attach to the folder's
+    // existing session). Retiring the same key's previous connection HERE, before
+    // any session traffic on the new socket, closes that window. Keys are scoped
+    // per tab by the web client, so two real tabs remain two distinct viewers.
+    let clientKey: string | undefined;
+    try {
+      const url = new URL(req?.url || '', `http://${req?.headers?.host || 'localhost'}`);
+      const raw = url.searchParams.get('clientKey');
+      // Bounded: this is client-supplied text retained for the life of the
+      // connection. Anything longer than a generated key is not one. Refuse it
+      // rather than truncating (two distinct long keys must not collapse into one
+      // identity and start evicting each other), and say so: the connection
+      // silently loses supersede protection otherwise.
+      if (raw && raw.length > 128) {
+        console.warn(`[wherever] ignoring oversized clientKey (${raw.length} chars) from ${req?.socket?.remoteAddress ?? 'unknown'}`);
+      } else if (raw) {
+        clientKey = raw;
+      }
+    } catch {}
+    if (clientKey) {
+      evictPreviousConnection(clientKey, clients, sessionPool, broadcastSessionsUpdated);
+    }
     const client: WSClient = {
       id: clientId,
       ws,
       sessionId: null,
       readOnly: false,
+      clientKey,
     };
     clients.set(clientId, client);
 
@@ -1633,11 +1756,83 @@ This encrypts all network traffic securely and enables safe, private remote acce
   process.on('SIGINT', shutdown);
 }
 
+// The conflict decision belongs to the PAIRING of this client with one session.
+// Clear every part of it together whenever that pairing ends, so no half-state
+// (an observer flag without its continue, a cwd from a session we left) can be
+// read by the next attach.
+function clearConflictState(client: WSClient): void {
+  client.conflictObserver = false;
+  client.conflictContinued = false;
+  client.pendingCwd = undefined;
+}
+
+// Recompute ONE client's folder-conflict state and settle the read-only it
+// imposed: releasing it once the conflict no longer holds is part of resolving,
+// not a side effect the callers could skip. Shared by the live broadcast, the
+// cold attach and the "Continue anyway" reply so all three speak with one
+// authority. Returns null for connections the banner does not apply to (CLI
+// bridges, clients not attached to a session).
+function resolveFolderConflictState(
+  c: WSClient,
+  pool: SessionPool,
+): { cwd: string; active: boolean } | null {
+  if (c.isCliBridge || !c.sessionId) return null;
+  const mine = pool.getSession(c.sessionId);
+  if (!mine) return null;
+
+  let active = false;
+  for (const s of pool.getAllSessions()) {
+    if (s.sessionFile === mine.sessionFile) continue;
+    if (s.cwd === mine.cwd && s.clients.size > 0) {
+      active = true;
+      break;
+    }
+  }
+  // A conflict OBSERVER shares the occupant's session file (session_new attaches
+  // it there read-only), so the scan above -- which skips this very file -- can
+  // never see its conflict. Its conflict lasts exactly as long as someone else is
+  // still on that session.
+  if (!active && c.conflictObserver) {
+    for (const cid of mine.clients) {
+      if (cid !== c.id) { active = true; break; }
+    }
+  }
+  // The conflict resolved (the other party left the folder/session): release the
+  // read-only state it imposed, otherwise the client keeps an observe-only
+  // composer forever with no banner left to lift it. A configured
+  // sessions.readOnly folder is a hard rule and is never lifted here.
+  if (c.conflictObserver && !active) {
+    c.conflictObserver = false;
+    if (!pool.isReadOnlyCwd(mine.cwd)) c.readOnly = false;
+  }
+  return { cwd: mine.cwd, active };
+}
+
+// Resolve and report in one step. Every folder_conflict frame goes out through
+// here, so the `readOnly` it carries can never drift from the authority that
+// produced `active`.
+function sendFolderConflict(client: WSClient, pool: SessionPool): void {
+  const verdict = resolveFolderConflictState(client, pool);
+  if (!verdict) return;
+  sendWS(client.ws, {
+    type: 'folder_conflict',
+    cwd: verdict.cwd,
+    active: verdict.active,
+    readOnly: client.readOnly,
+  });
+}
+
 function switchClientSession(client: WSClient, newSessionFile: string | null, pool: SessionPool, onSessionsUpdated?: () => void) {
   if (client.sessionId && client.sessionId !== newSessionFile) {
     pool.removeClient(client.sessionId, client.id);
   }
   client.sessionId = newSessionFile;
+  // Detaching ends the pairing the conflict decision belonged to. (An ATTACH must
+  // not clear it: a "Continue anyway" clicked during a cold load is recorded
+  // before this call and has to survive it.)
+  if (newSessionFile === null) {
+    clearConflictState(client);
+  }
   if (onSessionsUpdated) {
     onSessionsUpdated();
   }
@@ -1767,6 +1962,10 @@ async function handleWSMessage(
       // 2. Build the live agent (createAgentSession -> extension/MCP load, the
       //    seconds-long part) ASYNC, then signal session_ready so the composer
       //    enables. Sending needs the live agent; reading does not.
+      // A new load is a new decision: any earlier "Continue anyway" belongs to the
+      // session we are leaving. Reset BEFORE the first await, so a continue that
+      // races this load is recorded against the load, never wiped by it.
+      client.conflictContinued = false;
       const meta = await pool.readSessionMeta(msg.sessionFile, INITIAL_HISTORY_LIMIT, msg.model);
       if ('error' in meta) {
         sendWS(client.ws, { type: 'session_error', error: meta.error });
@@ -1786,6 +1985,8 @@ async function handleWSMessage(
       // A folder conflict also starts the client read-only until they continue.
       const forcedReadOnly = meta.readOnly || folderConflict;
       client.readOnly = forcedReadOnly;
+      client.conflictObserver = folderConflict;
+      client.pendingCwd = meta.cwd;
 
       // Paint immediately. `pending` is true when the live agent is not resident
       // yet, so the client keeps the composer disabled (with a "preparing
@@ -1848,10 +2049,17 @@ async function handleWSMessage(
         }
         pool.addClient(result.tracked.sessionFile, client.id);
         switchClientSession(client, result.tracked.sessionFile, pool, onSessionsUpdated);
-        // Preserve the folder-conflict read-only: a forced-read-only (config or
-        // folder conflict) client must stay read-only until it explicitly
-        // continues, so don't clobber it with the cwd-glob check alone.
-        client.readOnly = forcedReadOnly || pool.isReadOnlyCwd(result.tracked.cwd);
+        // Re-derive read-only from the CURRENT decision rather than from
+        // `forcedReadOnly` captured before the build: while the agent was building
+        // the user may have clicked "Continue anyway" (conflictContinued), and
+        // re-imposing the stale value re-locked them with no banner left to lift
+        // it, while `message` dropped their sends in silence. The conflict having
+        // RESOLVED during the build is handled just below by the verdict, which
+        // re-scans and releases read-only.
+        client.readOnly =
+          meta.readOnly ||
+          pool.isReadOnlyCwd(result.tracked.cwd) ||
+          (client.conflictObserver === true && !client.conflictContinued);
         sendWS(client.ws, {
           type: 'session_ready',
           sessionId: result.tracked.sessionId,
@@ -1864,6 +2072,11 @@ async function handleWSMessage(
         // taken over by another client mid-build; send the authoritative snapshot
         // for the same reason as the warm path above.
         sendQueueSnapshot(client, result.tracked.sessionFile, result.tracked.sessionId, pool);
+        // State may have moved during the build (the conflict resolved, or the
+        // user continued through it). session_ready carries no readOnly, and the
+        // periodic conflict broadcast is throttled, so state the verdict here
+        // explicitly rather than leaving the composer to guess for up to 2s.
+        sendFolderConflict(client, pool);
       })();
       break;
     }
@@ -1917,9 +2130,12 @@ async function handleWSMessage(
         // existing one), so attach to that existing session as a read-only
         // observer and raise the warning banner. "Continue anyway"
         // (folder_conflict_continue) lifts read-only so both can send.
-        client.readOnly = true;
         pool.addClient(existing.sessionFile, client.id);
         switchClientSession(client, existing.sessionFile, pool, onSessionsUpdated);
+        client.readOnly = true;
+        clearConflictState(client);
+        client.conflictObserver = true;
+        client.pendingCwd = existing.cwd;
 
         sendWS(client.ws, {
           type: 'session_created',
@@ -1959,6 +2175,8 @@ async function handleWSMessage(
       pool.addClient(result.tracked.sessionFile, client.id);
       switchClientSession(client, result.tracked.sessionFile, pool, onSessionsUpdated);
       client.readOnly = false;
+      clearConflictState(client);
+      client.pendingCwd = result.tracked.cwd;
 
       sendWS(client.ws, {
         type: 'session_created',
@@ -2017,16 +2235,52 @@ async function handleWSMessage(
       // run concurrently from here on. Guard: never lift read-only for a session
       // whose cwd is a configured sessions.readOnly folder (that is a hard
       // observe-only rule, not a dismissible warning).
+      // The cwd may come from an attached session or, during a cold load's agent
+      // build, from the load in progress: the user can click Continue on the
+      // painted-but-not-yet-attached conversation, and dropping that click left
+      // them read-only with the button already gone.
       const tracked = client.sessionId ? pool.getSession(client.sessionId) : null;
-      if (!tracked) return;
-      if (pool.isReadOnlyCwd(tracked.cwd)) return;
-      client.readOnly = false;
+      const cwd = tracked?.cwd ?? client.pendingCwd;
+      if (!cwd) return;
+      // The client stamps the session it was looking at. If that resolves to a
+      // DIFFERENT folder, the session changed under the click (a switch racing the
+      // tap): honouring it would continue through a conflict the user never saw.
+      // An unresolvable id means the target is not resident (the cold-load case
+      // this continue exists for), which the cwd check above already covers.
+      if (msg.sessionId) {
+        const target = pool.getSession(msg.sessionId);
+        if (target && target.cwd !== cwd) return;
+      }
+      // Durable intent: honoured at attach even if the click landed before this
+      // client had a session to lift read-only on.
+      client.conflictContinued = true;
+      if (!pool.isReadOnlyCwd(cwd)) client.readOnly = false;
+      // Reply with this client's authoritative conflict state, ALWAYS (including
+      // when the lift was refused for a sessions.readOnly folder). Same-socket
+      // ordering guarantees this lands after any folder_conflict broadcast that
+      // was already in flight when the continue was sent, so an in-flight update
+      // carrying the pre-continue readOnly:true cannot leave the composer
+      // disabled with the banner's button already gone.
+      sendFolderConflict(client, pool);
       break;
     }
 
     case 'message': {
       if (!client.sessionId) return;
-      if (client.readOnly) return;
+      if (client.readOnly) {
+        // Never swallow a send. This is a legitimate refusal for an observe-only
+        // session (a sessions.readOnly folder, or a folder conflict not continued
+        // through), but the client only hides its composer when it AGREES it is
+        // read-only -- so any future desync of that agreement used to show up as
+        // text vanishing into the void. Answering makes it a visible, retryable
+        // failure instead (the client surfaces session_error with a Retry).
+        sendWS(client.ws, {
+          type: 'session_error',
+          sessionId: msg.sessionId,
+          error: 'This session is read-only from here, so the message was not delivered. Use "Continue anyway" on the folder-conflict banner, or open the session that owns this folder.',
+        });
+        return;
+      }
       // The client stamps every send with the sessionId of the session it is
       // actually viewing. Treat that as AUTHORITATIVE: if it does not resolve to
       // the same tracked session this connection is attached to, REFUSE rather
