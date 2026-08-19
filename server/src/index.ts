@@ -1925,7 +1925,7 @@ async function handleWSMessage(
         for (const c of clients.values()) {
           if (c.sessionId === msg.sessionFile && !c.isCliBridge) {
             sendWS(c.ws, msgToWeb);
-            const history = pool.getSessionHistoryWindow(msg.sessionFile, INITIAL_HISTORY_LIMIT);
+            const history = await pool.getSessionHistoryWindow(msg.sessionFile, INITIAL_HISTORY_LIMIT);
             sendWS(c.ws, {
               type: 'message_history',
               sessionId: sId,
@@ -2106,7 +2106,7 @@ async function handleWSMessage(
       if (!targetFile) return;
       const tracked = pool.getSession(targetFile);
       if (!tracked) return;
-      const window = pool.getSessionHistoryWindow(
+      const window = await pool.getSessionHistoryWindow(
         targetFile,
         HISTORY_PAGE_SIZE,
         msg.beforeOffset,
@@ -2167,7 +2167,7 @@ async function handleWSMessage(
           folderConflict: true,
         });
 
-        const history = pool.getSessionHistoryWindow(existing.sessionFile, INITIAL_HISTORY_LIMIT);
+        const history = await pool.getSessionHistoryWindow(existing.sessionFile, INITIAL_HISTORY_LIMIT);
         sendWS(client.ws, {
           type: 'message_history',
           sessionId: existing.sessionId,
@@ -2260,20 +2260,27 @@ async function handleWSMessage(
       // them read-only with the button already gone.
       const tracked = client.sessionId ? pool.getSession(client.sessionId) : null;
       const cwd = tracked?.cwd ?? client.pendingCwd;
-      if (!cwd) return;
       // The client stamps the session it was looking at. If that resolves to a
       // DIFFERENT folder, the session changed under the click (a switch racing the
       // tap): honouring it would continue through a conflict the user never saw.
       // An unresolvable id means the target is not resident (the cold-load case
-      // this continue exists for), which the cwd check above already covers.
-      if (msg.sessionId) {
+      // this continue exists for), which the cwd check covers.
+      if (cwd && msg.sessionId) {
         const target = pool.getSession(msg.sessionId);
         if (target && target.cwd !== cwd) return;
       }
       // Durable intent: honoured at attach even if the click landed before this
-      // client had a session to lift read-only on.
+      // client had a session to lift read-only on -- INCLUDING before the load it
+      // belongs to has reported its cwd. A cold load reads the transcript from
+      // disk, so it yields to the event loop before setting `pendingCwd`, and a
+      // continue sent immediately after `session_load` is processed inside that
+      // window. Dropping it there left the user read-only with the banner's
+      // button already gone -- exactly the bug this intent exists to prevent.
+      // The intent is scoped to this client and reset at the start of every
+      // load/create, so it can only ever apply to the load in flight, and the
+      // sessions.readOnly guard is re-applied at attach with the real cwd.
       client.conflictContinued = true;
-      if (!pool.isReadOnlyCwd(cwd)) client.readOnly = false;
+      if (cwd && !pool.isReadOnlyCwd(cwd)) client.readOnly = false;
       // Reply with this client's authoritative conflict state, ALWAYS (including
       // when the lift was refused for a sessions.readOnly folder). Same-socket
       // ordering guarantees this lands after any folder_conflict broadcast that

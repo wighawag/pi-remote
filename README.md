@@ -165,6 +165,30 @@ Install options:
 - `--port` / `--host` / `--token` — Server flags to bake into the service invocation.
 - `--dry-run` — Print the generated unit/plist and the intended actions without writing anything.
 
+##### Memory limits (systemd)
+
+The generated systemd unit carries a memory backstop:
+
+```ini
+MemoryHigh=1G
+MemoryMax=1500M
+```
+
+`MemoryHigh` is a soft limit: past it the kernel throttles the cgroup and reclaims aggressively, so a memory problem shows up as this one service getting slow. `MemoryMax` is the hard wall: past it the kernel OOM-kills **this** unit and `Restart=on-failure` brings it back, instead of the machine going into swap thrash and something else being killed. Steady state is around 200 MB with a 2 GB sessions directory, so there is a wide margin.
+
+Tune them at install time, or turn them off:
+
+```bash
+wherever install --memory-high 2G --memory-max 3G   # raise (many concurrent sessions)
+wherever install --no-memory-limits                 # omit both directives
+```
+
+If you installed the service before these limits existed, re-run `wherever install` with your original flags (or add the two lines to the unit yourself and run `systemctl --user daemon-reload && systemctl --user restart wherever`). To check current usage: `systemctl --user status wherever` shows `Memory: … (peak: …)`.
+
+One caveat worth knowing: systemd **silently ignores** these directives unless the memory controller is delegated to the slice the unit runs in (cgroup v2 with delegation; not the case on cgroup v1 or some older user slices). Install prints the check, which is `systemctl --user show wherever -p MemoryMax` — if it reports `infinity`, the limit is not in force.
+
+launchd (macOS) has no equivalent per-service memory cap, so there is nothing to bake in there.
+
 #### Updating to a new version
 
 The service runs a fixed path to the installed `wherever-dev` package, so updating the package files on disk does **not** restart the already-running process: it keeps the old code in memory until it is restarted. After you install a new version, do one of the following:
@@ -350,6 +374,10 @@ The configuration file is located at `~/.wherever/config.json` on the server mac
   Controls which sessions appear in the dashboard's session list.
   - `ignore` (array of glob strings, Default: `[]`): Session working directories matching any of these globs are fully excluded from the list. Crucially, a matching folder is skipped **before** its session files are read, so a large pile of throwaway sessions (e.g. agent scratch dirs under `/tmp`) no longer slows down the session list. Globs support `*` (does not cross a path separator), `**` (crosses separators), and `?`; `~` is expanded to the home directory. A pattern ignores both the directory itself and everything nested under it (so `"/tmp"`, `"/tmp/*"`, and `"/tmp/**"` all ignore `/tmp` and everything inside it). Omitting `ignore` (or leaving it empty) changes nothing.
   - `readOnly` (array of glob strings, Default: `[]`): Same glob syntax as `ignore`. Sessions whose working directory matches are **hidden from the main session list** (and, like `ignore`, their folders are skipped before their bodies are read on the main view, so they do not slow it down), but remain viewable on a separate **Read-only sessions** page reached via a link in the sidebar. Opening one is forced read-only: the server refuses messages and the dashboard hides the composer, so it is an observe-only view. This is intended for autonomous agent fleets (e.g. `agent-runner` working directories) that you want to watch but not drive from the dashboard.
+  - `maxAgeDays` (number, Default: unset = no limit): Session files not modified within the last N days are left out of the session list. They are decided on the file's modification time **before** the file is read, so an excluded session costs a `stat` and nothing else. Nothing is deleted, and an excluded session is still openable by path or by short ID (a deep link keeps working); it simply does not appear in the list.
+  - `maxSessions` (number, Default: unset = no limit): Keep at most the N most recently modified session files in the list, with the same before-any-read behaviour as `maxAgeDays`. Use either or both.
+
+  On a sessions directory that has been accumulating for months (the author's is 2.0 GB / ~3,800 transcripts), these two are the difference between every cold listing pass touching the whole archive and it touching only what you still use. The server prints a one-line hint at startup when it lists more than 1,000 sessions with neither limit set.
 
 ### Rule Object Properties
 
@@ -389,7 +417,8 @@ Each rule in `remoteRepoRules` can contain:
   },
   "sessions": {
     "ignore": ["/tmp/**"],
-    "readOnly": ["~/.agent-runner/**"]
+    "readOnly": ["~/.agent-runner/**"],
+    "maxAgeDays": 120
   }
 }
 ```

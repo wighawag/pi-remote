@@ -2,6 +2,16 @@ import path from 'path';
 import os from 'node:os';
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import {
+  readSessionHeader,
+  readSessionListingInfo,
+  readTranscriptWindow,
+  previewText,
+  extractMessageText,
+  type DiskSessionInfo,
+} from './session-transcript.js';
+
+export type { DiskSessionInfo } from './session-transcript.js';
 
 /**
  * Normalize a path to prevent duplicate session folders.
@@ -50,44 +60,6 @@ export function normalizeSessionFile(sessionFile: string): string {
 /** True only for a real Date with a finite (valid) time value. */
 function isValidDate(d: Date | undefined | null): d is Date {
   return d instanceof Date && Number.isFinite(d.getTime());
-}
-
-/**
- * Max length of the first-message PREVIEW shipped in the /sessions list. The
- * sidebar only renders a ~40-char snippet and filters on the text, so the full
- * (often huge: pasted prompts, PRDs, specs) first message must never cross the
- * wire for every session. This caps each entry, which is the dominant factor in
- * the /sessions payload size.
- */
-const FIRST_MESSAGE_PREVIEW_MAX = 160;
-
-/**
- * Force a string to be an independent, flat copy.
- *
- * V8 represents `big.slice(0, 160)` as a SlicedString that keeps its PARENT
- * alive. That is free when the preview is transient, but the listing cache
- * holds one preview per session for the process's lifetime, so an un-flattened
- * slice would pin every full first message (pasted PRDs, specs) in memory:
- * measured at ~33 MB of retained parents for ~2800 sessions whose visible
- * previews total under 1 MB. The Buffer round-trip allocates a fresh string.
- */
-function flattenString(s: string): string {
-  return s.length === 0 ? s : Buffer.from(s, 'utf8').toString('utf8');
-}
-
-/**
- * Collapse whitespace and cap to a short preview. Keeps the /sessions payload
- * tens-of-KB instead of multi-MB while preserving what the sidebar displays and
- * filters on. The result is flattened so caching it cannot retain the (possibly
- * huge) message it was sliced from.
- */
-function previewText(text: string | undefined | null): string {
-  const collapsed = (text || '').replace(/\s+/g, ' ').trim();
-  return flattenString(
-    collapsed.length > FIRST_MESSAGE_PREVIEW_MAX
-      ? collapsed.slice(0, FIRST_MESSAGE_PREVIEW_MAX) + '\u2026'
-      : collapsed,
-  );
 }
 
 /**
@@ -184,6 +156,21 @@ export interface WhereverConfig {
      * fleets (e.g. agent-runner) you want to observe but not drive.
      */
     readOnly?: string[];
+    /**
+     * Retention for the LISTING only (nothing is ever deleted from disk):
+     * session files not modified within the last `maxAgeDays` days, and
+     * everything past the `maxSessions` most recently modified, are skipped
+     * BEFORE their bodies are read. On a sessions directory that has grown for
+     * months this is the difference between reading thousands of transcripts on
+     * every cold pass (including the startup warm-up) and reading the handful
+     * still in use. Both default to off (no limit).
+     *
+     * Opening a specific session by path or by short ID still works for an
+     * excluded session: retention hides it from the list, it does not make it
+     * unreachable.
+     */
+    maxAgeDays?: number;
+    maxSessions?: number;
   };
 }
 
@@ -266,22 +253,8 @@ export function makeIgnoreMatcher(patterns: string[] | undefined): (cwd: string)
  * ignored folder before reading its (potentially many, large) file bodies.
  */
 async function readSessionCwdFromHeader(filePath: string): Promise<string> {
-  try {
-    const fh = await fs.promises.open(filePath, 'r');
-    try {
-      const buf = Buffer.alloc(8192);
-      const { bytesRead } = await fh.read(buf, 0, buf.length, 0);
-      const text = buf.toString('utf8', 0, bytesRead);
-      const nl = text.indexOf('\n');
-      const firstLine = nl === -1 ? text : text.slice(0, nl);
-      const header = JSON.parse(firstLine);
-      return typeof header?.cwd === 'string' ? header.cwd : '';
-    } finally {
-      await fh.close();
-    }
-  } catch {
-    return '';
-  }
+  const header = await readSessionHeader(filePath);
+  return header?.cwd || '';
 }
 
 /**
@@ -297,89 +270,6 @@ export function resolveSessionCwd(rawCwd: string): string {
     cwd = path.join(os.homedir(), raw);
   }
   return normalizePath(cwd);
-}
-
-export interface DiskSessionInfo {
-  path: string;
-  id: string;
-  cwd: string;
-  name?: string;
-  created: Date;
-  modified: Date;
-  messageCount: number;
-  firstMessage: string;
-  /** Parent session path from the header (`parentSession`), if forked. */
-  parentSessionPath?: string;
-}
-
-/**
- * Parse one session .jsonl body into the subset of fields the listing needs.
- * This is the directory-aware path's equivalent of pi's internal
- * buildSessionInfo (which is not exported). Pure: the caller does the IO, so
- * the result can be cached against the file's (mtime, size) stamp.
- * Returns null for a non-session / empty / unparseable file.
- */
-function parseDiskSessionInfo(filePath: string, content: string, mtime: Date): DiskSessionInfo | null {
-  try {
-    const lines = content.trim().split('\n');
-    const entries: any[] = [];
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try { entries.push(JSON.parse(line)); } catch { /* skip malformed line */ }
-    }
-    if (entries.length === 0) return null;
-    const header = entries[0];
-    if (header?.type !== 'session') return null;
-
-    const parentSessionPath = typeof header.parentSession === 'string' && header.parentSession
-      ? header.parentSession
-      : undefined;
-    let messageCount = 0;
-    let firstMessage = '';
-    let name: string | undefined;
-    let lastMessageTime = 0;
-    for (const entry of entries) {
-      if (entry?.type === 'session_info') {
-        name = (entry.name && String(entry.name).trim()) || undefined;
-      }
-      if (entry?.type !== 'message') continue;
-      messageCount++;
-      const message = entry.message;
-      const role = message?.role;
-      if (role !== 'user' && role !== 'assistant') continue;
-      let textContent = '';
-      const c = message?.content;
-      if (typeof c === 'string') {
-        textContent = c;
-      } else if (Array.isArray(c)) {
-        textContent = c.map((p: any) => (typeof p?.text === 'string' ? p.text : '')).join('');
-      }
-      if (!textContent) continue;
-      if (!firstMessage && role === 'user') firstMessage = textContent;
-      const t = typeof entry.timestamp === 'string' ? new Date(entry.timestamp).getTime() : NaN;
-      if (Number.isFinite(t)) lastMessageTime = Math.max(lastMessageTime, t);
-    }
-
-    const headerTime = typeof header.timestamp === 'string' ? new Date(header.timestamp).getTime() : NaN;
-    const created = Number.isFinite(headerTime) ? new Date(headerTime) : new Date(NaN);
-    const modified = lastMessageTime > 0 ? new Date(lastMessageTime) : mtime;
-    return {
-      path: filePath,
-      id: typeof header.id === 'string' ? header.id : '',
-      cwd: typeof header.cwd === 'string' ? header.cwd : '',
-      name,
-      created,
-      modified,
-      messageCount,
-      // Store the CAPPED preview, never the raw first message: the cache holds
-      // one entry per session on disk, so keeping full first messages (pasted
-      // PRDs, specs) resident would cost megabytes of heap for no benefit.
-      firstMessage: previewText(firstMessage) || '(no messages)',
-      ...(parentSessionPath ? { parentSessionPath } : {}),
-    };
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -423,11 +313,25 @@ const dirCwdCache = new Map<string, string>();
  */
 const inFlightScans = new Map<string, Promise<DiskSessionInfo[]>>();
 
+/**
+ * Number of session BODIES read (streamed + parsed) since the last reset. The
+ * whole point of the cache is that this stays at 0 on a warm pass, so it is the
+ * thing tests assert on. Counting the IO primitive instead would conflate a
+ * body read with the cheap header probe, which also opens a file.
+ */
+let sessionBodyReads = 0;
+
+/** Test seam: how many session bodies have been read since the last reset. */
+export function getSessionBodyReadCount(): number {
+  return sessionBodyReads;
+}
+
 /** Test seam: drop all cached listing state. */
 export function clearSessionIndexCache(): void {
   diskSessionCache.clear();
   dirCwdCache.clear();
   inFlightScans.clear();
+  sessionBodyReads = 0;
 }
 
 /**
@@ -439,10 +343,30 @@ function yieldToEventLoop(): Promise<void> {
   return new Promise<void>((resolve) => setImmediate(resolve));
 }
 
+/**
+ * Session count above which startup points at the retention settings. Chosen to
+ * be well past "a busy few months" so it is a real signal, not noise.
+ */
+const WARN_SESSION_COUNT = 1000;
+
 /** How many files to parse between event-loop yields during a cold scan. */
 const SCAN_YIELD_EVERY = 8;
 /** Only log scan stats when a pass did real work (avoids a per-request log). */
 const SCAN_LOG_MIN_READS = 10;
+
+/**
+ * Optional retention limits for a listing pass. Both are OFF by default (no
+ * behaviour change). They are applied from the file's mtime BEFORE any body is
+ * read, so an excluded session costs a `stat` and nothing else: on a corpus
+ * that has been growing since May, that is the difference between reading
+ * thousands of transcripts at startup and reading the handful still in use.
+ */
+export interface SessionRetention {
+  /** Ignore session files not modified within the last N days. */
+  maxAgeDays?: number;
+  /** Keep at most the N most recently modified session files. */
+  maxSessions?: number;
+}
 
 /**
  * Scan the sessions root and return listing info for every session whose folder
@@ -453,11 +377,12 @@ export function scanDiskSessions(
   sessionsRoot: string,
   folderWanted: (cwd: string) => boolean,
   label: string,
+  retention?: SessionRetention,
 ): Promise<DiskSessionInfo[]> {
   const key = `${sessionsRoot}::${label}`;
   const running = inFlightScans.get(key);
   if (running) return running;
-  const scan = runDiskScan(sessionsRoot, folderWanted, label).finally(() => {
+  const scan = runDiskScan(sessionsRoot, folderWanted, label, retention).finally(() => {
     inFlightScans.delete(key);
   });
   inFlightScans.set(key, scan);
@@ -468,6 +393,7 @@ async function runDiskScan(
   sessionsRoot: string,
   folderWanted: (cwd: string) => boolean,
   label: string,
+  retention?: SessionRetention,
 ): Promise<DiskSessionInfo[]> {
   let dirEntries: fs.Dirent[];
   try {
@@ -480,6 +406,9 @@ async function runDiskScan(
   const seenFiles = new Set<string>();
   const seenDirs = new Set<string>();
   const infos: DiskSessionInfo[] = [];
+  // (path, stat) of every session file that survived the folder pre-filter.
+  // Collected first so retention can be decided on metadata alone.
+  const candidates: { filePath: string; mtimeMs: number; size: number; mtime: Date }[] = [];
   let prunedFolders = 0;
   let readCount = 0;
   let parsedSinceYield = 0;
@@ -518,30 +447,56 @@ async function runDiskScan(
       } catch {
         continue;
       }
-      const cached = diskSessionCache.get(filePath);
-      let info: DiskSessionInfo | null;
-      if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
-        info = cached.info;
-      } else {
-        let content: string;
-        try {
-          content = await fs.promises.readFile(filePath, 'utf8');
-        } catch {
-          continue;
-        }
-        info = parseDiskSessionInfo(filePath, content, stats.mtime);
-        diskSessionCache.set(filePath, { mtimeMs: stats.mtimeMs, size: stats.size, info });
-        readCount++;
-        if (++parsedSinceYield >= SCAN_YIELD_EVERY) {
-          parsedSinceYield = 0;
-          await yieldToEventLoop();
-        }
-      }
-      if (!info) continue;
-      // Defensive per-session re-check (mixed/edge cases the folder probe missed).
-      if (!folderWanted(resolveSessionCwd(info.cwd))) continue;
-      infos.push(info);
+      candidates.push({ filePath, mtimeMs: stats.mtimeMs, size: stats.size, mtime: stats.mtime });
     }
+  }
+
+  // Retention, applied on (cheap) stat metadata BEFORE any body is read.
+  let kept = candidates;
+  if (retention?.maxAgeDays && retention.maxAgeDays > 0) {
+    const cutoff = Date.now() - retention.maxAgeDays * 24 * 60 * 60 * 1000;
+    kept = kept.filter((c) => c.mtimeMs >= cutoff);
+  }
+  if (retention?.maxSessions && retention.maxSessions > 0 && kept.length > retention.maxSessions) {
+    kept = [...kept].sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, retention.maxSessions);
+  }
+  const droppedByRetention = candidates.length - kept.length;
+
+  for (const c of kept) {
+    const cached = diskSessionCache.get(c.filePath);
+    let info: DiskSessionInfo | null;
+    if (cached && cached.mtimeMs === c.mtimeMs && cached.size === c.size) {
+      info = cached.info;
+    } else {
+      // Streaming, bounded-memory read: never materialize the transcript (see
+      // session-transcript.ts). This is the pass that used to peak near 1 GB of
+      // RSS at startup on a 2 GB sessions directory.
+      //
+      // ONE bad file must cost ONE session, never the listing. An IO error
+      // (EIO on a flaky disk, EACCES on a file another user owns) rejects the
+      // read, and this scan's promise is SHARED by every concurrent waiter for
+      // this view (inFlightScans), so letting it escape would turn a single
+      // unreadable transcript into a 500 for the whole dashboard. Skip the file
+      // and do NOT cache the failure: a transient error should be retried on
+      // the next pass, unlike an unparseable file (cached as `info: null`).
+      try {
+        info = await readSessionListingInfo(c.filePath, c.mtime);
+      } catch (err) {
+        console.error(`[wherever] skipping unreadable session ${c.filePath}:`, err);
+        continue;
+      }
+      diskSessionCache.set(c.filePath, { mtimeMs: c.mtimeMs, size: c.size, info });
+      readCount++;
+      sessionBodyReads++;
+      if (++parsedSinceYield >= SCAN_YIELD_EVERY) {
+        parsedSinceYield = 0;
+        await yieldToEventLoop();
+      }
+    }
+    if (!info) continue;
+    // Defensive per-session re-check (mixed/edge cases the folder probe missed).
+    if (!folderWanted(resolveSessionCwd(info.cwd))) continue;
+    infos.push(info);
   }
 
   // Evict entries whose files/directories are gone (deleted sessions).
@@ -555,7 +510,9 @@ async function runDiskScan(
   if (readCount >= SCAN_LOG_MIN_READS) {
     console.log(
       `[wherever] ${label}: parsed ${readCount} changed session file(s) of ${seenFiles.size}` +
-        `${prunedFolders > 0 ? `, skipped ${prunedFolders} folder(s)` : ''} in ${Date.now() - started}ms`,
+        `${prunedFolders > 0 ? `, skipped ${prunedFolders} folder(s)` : ''}` +
+        `${droppedByRetention > 0 ? `, ${droppedByRetention} outside retention` : ''}` +
+        ` in ${Date.now() - started}ms`,
     );
   }
   return infos;
@@ -850,11 +807,19 @@ export class SessionPool {
   // Pending `!sudo ...` commands awaiting a password from the client, keyed by a
   // one-shot promptId. The password never lives here: only the (password-free)
   // command and enough context to run it once the client replies. Entries are
-  // removed as soon as the password arrives or the prompt is cancelled.
+  // removed as soon as the password arrives or the prompt is cancelled. A client
+  // can also simply vanish (phone sleeps, tab closes) leaving its prompt
+  // unanswered forever, so there are two backstops: the entry is dropped when
+  // its session is destroyed (idle eviction, so it is bounded by the session's
+  // own lifetime), and any entry past the TTL is swept when the next prompt is
+  // armed. Small, but this is the one map here with no other bound.
   private pendingSudo = new Map<
     string,
-    { sessionFileOrId: string; command: string; excludeFromContext: boolean }
+    { sessionFileOrId: string; command: string; excludeFromContext: boolean; armedAt: number }
   >();
+
+  /** How long an unanswered sudo prompt survives, if its session outlives it. */
+  private static readonly SUDO_PROMPT_TTL_MS = 30 * 60_000;
 
   onEvent?: (sessionFile: string, event: AgentSessionEvent) => void;
 
@@ -894,9 +859,27 @@ export class SessionPool {
    * it (see inFlightScans).
    */
   private warmSessionIndex(): void {
-    void this.listSessions('default').catch(() => {
-      /* warm-up is best-effort: a real request will retry and report. */
-    });
+    void this.listSessions('default')
+      .then((folders) => {
+        const count = folders.reduce((n, f) => n + f.sessions.length, 0);
+        const rssMb = Math.round(process.memoryUsage().rss / 1024 / 1024);
+        console.log(`[wherever] session index warm: ${count} session(s) listed, RSS ${rssMb} MB`);
+        // The sessions directory only ever grows, and every cold pass has to
+        // look at all of it. Say so ONCE, at startup, with the two levers --
+        // rather than leaving an operator to discover the cost when the machine
+        // is already thrashing.
+        const cfg = getWhereverConfig().sessions;
+        if (count >= WARN_SESSION_COUNT && !cfg?.maxAgeDays && !cfg?.maxSessions) {
+          console.log(
+            `[wherever] tip: ${count} sessions is a lot to scan. Set sessions.maxAgeDays and/or ` +
+              `sessions.maxSessions in ~/.wherever/config.json to bound the listing (nothing is ` +
+              `deleted; older sessions stay openable by path/ID). See docs/USAGE.md.`,
+          );
+        }
+      })
+      .catch(() => {
+        /* warm-up is best-effort: a real request will retry and report. */
+      });
   }
 
   /**
@@ -1002,34 +985,26 @@ export class SessionPool {
         sessionId: residentTracked.sessionId,
         cwd: residentTracked.cwd,
         model: residentTracked.model,
-        history: this.getSessionHistoryWindow(resolvedFile, limit),
+        history: await this.getSessionHistoryWindow(resolvedFile, limit),
         readOnly: this.isReadOnlyCwd(residentTracked.cwd),
         resident: true,
       };
     }
 
     try {
-      const sessionManager = SessionManager.open(resolvedFile);
-      const header = sessionManager.getHeader();
-      if (!header) {
+      // ONE streaming pass over the transcript yields the header, the last
+      // model_change and the history window. This used to be three whole-file
+      // loads (`SessionManager.open` alone reads and parses the file twice) plus
+      // a full `HistoryMessage[]` of every entry, base64 tool images included,
+      // just to slice the last 60 off the end.
+      const read = await readTranscriptWindow(resolvedFile, limit);
+      if (!read.header) {
         return { error: 'Session file has no header' };
       }
-      const sessionId = sessionManager.getSessionId();
-      const cwd = normalizePath(header.cwd || process.cwd());
-
-      let model = '';
-      if (modelStr) {
-        model = modelStr;
-      } else {
-        const entries = sessionManager.getEntries();
-        const modelChange = [...entries].reverse().find((e: SessionEntry) => e.type === 'model_change');
-        if (modelChange && 'provider' in modelChange && 'modelId' in modelChange) {
-          model = `${(modelChange as any).provider}:${(modelChange as any).modelId}`;
-        }
-      }
-
-      const all = this.mapEntriesToHistory(sessionManager.getEntries(), sessionId);
-      const history = this.windowHistory(all, limit);
+      const sessionId = read.header.id;
+      const cwd = normalizePath(read.header.cwd || process.cwd());
+      const model = modelStr || read.model;
+      const history = { messages: read.messages, totalCount: read.totalCount, offset: read.offset };
       return { sessionFile: resolvedFile, sessionId, cwd, model, history, readOnly: this.isReadOnlyCwd(cwd), resident: false };
     } catch (err) {
       return { error: (err as Error).message };
@@ -1090,10 +1065,22 @@ export class SessionPool {
         }
 
         if (!model && header) {
+          // Walk BACKWARDS in place for the last model_change. `[...entries]` +
+          // reverse() copied the entire entry array (hundreds of thousands of
+          // elements on a long session) to read one field. Note this path DOES
+          // hold the whole transcript in memory, unavoidably: `SessionManager`
+          // is what the live agent runs on and it needs the full context. That
+          // is the AGENT-BUILD path; the VIEW path (readSessionMeta) never loads
+          // it, which is why opening a session to read is now cheap even when
+          // building its agent is not.
           const entries = sessionManager.getEntries();
-          const modelChange = [...entries].reverse().find((e: SessionEntry) => e.type === 'model_change');
-          if (modelChange && 'provider' in modelChange && 'modelId' in modelChange) {
-            model = this.modelRegistry.find(modelChange.provider, modelChange.modelId);
+          for (let i = entries.length - 1; i >= 0; i--) {
+            const e = entries[i] as SessionEntry;
+            if (e.type !== 'model_change') continue;
+            if ('provider' in e && 'modelId' in e) {
+              model = this.modelRegistry.find(e.provider, e.modelId);
+            }
+            break;
           }
         }
 
@@ -1418,7 +1405,7 @@ export class SessionPool {
       }
 
       const userMsg = (selectedEntry as SessionMessageEntry).message;
-      const prefillText = this.extractMessageText(userMsg) || '';
+      const prefillText = extractMessageText(userMsg) || '';
 
       // pi's position:'before' -> the new branch ends just BEFORE the chosen
       // user message, i.e. at that entry's parent. A null parent means the user
@@ -1516,138 +1503,6 @@ export class SessionPool {
     return { conflict: false };
   }
 
-  getSessionHistory(sessionFileOrId: string): HistoryMessage[] {
-    const tracked = this.getSession(sessionFileOrId);
-    if (!tracked) return [];
-
-    const sessionManager = SessionManager.open(tracked.sessionFile);
-    return this.mapEntriesToHistory(sessionManager.getEntries());
-  }
-
-  /**
-   * Map raw pi session entries to the UI-facing HistoryMessage[]. Shared by the
-   * resident path (getSessionHistory) and the cheap cold-read path
-   * (readSessionMeta), so both produce identical history regardless of whether a
-   * live agent exists. The `sessionId` parameter is accepted for parity/future
-   * use; message shape does not depend on it today.
-   */
-  private mapEntriesToHistory(entries: SessionEntry[], _sessionId?: string): HistoryMessage[] {
-    const messages: HistoryMessage[] = [];
-
-    for (const entry of entries) {
-      if (entry.type === 'message') {
-        const msgEntry = entry as SessionMessageEntry;
-        const msg = msgEntry.message;
-        const ts = Date.parse(msgEntry.timestamp);
-
-        if (msg.role === 'user') {
-          const content = this.extractMessageText(msg);
-          if (content) {
-            // Carry the source entry id so the client can "Fork from here"
-            // (fork BEFORE this user entry, pi's default position:'before').
-            const entryId = typeof msgEntry.id === 'string' ? msgEntry.id : undefined;
-            messages.push({ role: 'user', content, timestamp: ts, ...(entryId ? { entryId } : {}) });
-          }
-        } else if (msg.role === 'assistant') {
-          const content = msg.content;
-          if (Array.isArray(content)) {
-            for (const block of content) {
-              if (block.type === 'thinking') {
-                const thinking = (block as any).thinking || '';
-                if (thinking) {
-                  messages.push({ role: 'thinking', content: thinking, timestamp: ts });
-                }
-              } else if (block.type === 'text') {
-                const text = (block as any).text || '';
-                if (text) {
-                  messages.push({ role: 'assistant', content: text, timestamp: ts });
-                }
-              } else if (block.type === 'toolCall') {
-                const tc = block as any;
-                const toolName = tc.name || tc.toolName || 'unknown';
-                const rawArgs = tc.arguments || tc.args;
-                const args = rawArgs ? JSON.stringify(rawArgs) : '';
-                const toolCallId = typeof tc.id === 'string' ? tc.id : undefined;
-                messages.push({ role: 'tool_call', content: args, timestamp: ts, toolName, ...(toolCallId ? { toolCallId } : {}) });
-              }
-            }
-          } else if (typeof content === 'string' && content) {
-            messages.push({ role: 'assistant', content, timestamp: ts });
-          }
-        } else if (msg.role === 'toolResult') {
-          const resultMsg = msg as any;
-          const toolName = resultMsg.toolName || 'unknown';
-          let resultText = '';
-          const resultImages: { mimeType: string; data: string }[] = [];
-          if (Array.isArray(resultMsg.content)) {
-            resultText = resultMsg.content
-              .filter((c: any) => c.type === 'text')
-              .map((c: any) => c.text || '')
-              .join('\n');
-            // Pull image blocks (e.g. `read` on an image file) so reloaded
-            // history renders them inline, mirroring live tool_end.
-            for (const c of resultMsg.content) {
-              if (c && c.type === 'image' && typeof c.data === 'string' && c.data) {
-                resultImages.push({ mimeType: typeof c.mimeType === 'string' ? c.mimeType : 'image/png', data: c.data });
-              }
-            }
-          } else if (typeof resultMsg.content === 'string') {
-            resultText = resultMsg.content;
-          }
-          const toolCallId = typeof resultMsg.toolCallId === 'string' ? resultMsg.toolCallId : undefined;
-          messages.push({ role: 'tool_result', content: resultText, timestamp: ts, toolName, isError: !!resultMsg.isError, ...(toolCallId ? { toolCallId } : {}), ...(resultImages.length > 0 ? { images: resultImages } : {}) });
-        } else if (msg.role === 'bashExecution') {
-          const bashMsg = msg as any;
-          messages.push({
-            role: 'tool_call',
-            content: bashMsg.command || '',
-            timestamp: ts,
-            toolName: 'bash',
-            // A bashExecution entry is, by definition, a user `!command` (force
-            // command), never an agent tool call. Mark it so the web can
-            // auto-expand it on reload, mirroring the live tool_start flag.
-            forceCommand: true,
-          });
-          if (bashMsg.output) {
-            messages.push({
-              role: 'tool_result',
-              content: bashMsg.output,
-              timestamp: ts,
-              toolName: 'bash',
-              isError: bashMsg.exitCode !== undefined && bashMsg.exitCode !== 0,
-            });
-          }
-        }
-      }
-    }
-
-    return messages;
-  }
-
-  /**
-   * Pure windowing math over an already-mapped HistoryMessage[]. Returns the
-   * last `limit` messages (or the window ending at `beforeOffset`) plus the
-   * total count and the offset of the first returned message. Shared by the
-   * resident and cold-read paths.
-   */
-  private windowHistory(
-    all: HistoryMessage[],
-    limit: number,
-    beforeOffset?: number,
-  ): { messages: HistoryMessage[]; totalCount: number; offset: number } {
-    const totalCount = all.length;
-    if (limit <= 0 || totalCount === 0) {
-      const end = beforeOffset ?? totalCount;
-      return { messages: [], totalCount, offset: Math.max(0, Math.min(end, totalCount)) };
-    }
-    const end =
-      beforeOffset === undefined
-        ? totalCount
-        : Math.max(0, Math.min(beforeOffset, totalCount));
-    const start = Math.max(0, end - limit);
-    return { messages: all.slice(start, end), totalCount, offset: start };
-  }
-
   /**
    * Tail-first windowed history. Returns the last `limit` messages (the most
    * recent), along with the total count and the offset of the first returned
@@ -1655,13 +1510,23 @@ export class SessionPool {
    *
    * `beforeOffset`, when provided, returns the window of `limit` messages
    * ending just before that offset (used for "load older" requests).
+   *
+   * Always read STREAMING from the transcript on disk (see
+   * session-transcript.ts): the file is the source of truth for both resident
+   * and cold sessions, and only the requested window is ever materialized. The
+   * previous implementation mapped EVERY entry of the file into a
+   * `HistoryMessage[]` (base64 tool images included) and threw all but 60 of
+   * them away, on every session open and every "load older" page.
    */
-  getSessionHistoryWindow(
+  async getSessionHistoryWindow(
     sessionFileOrId: string,
     limit: number,
     beforeOffset?: number,
-  ): { messages: HistoryMessage[]; totalCount: number; offset: number } {
-    return this.windowHistory(this.getSessionHistory(sessionFileOrId), limit, beforeOffset);
+  ): Promise<{ messages: HistoryMessage[]; totalCount: number; offset: number }> {
+    const tracked = this.getSession(sessionFileOrId);
+    if (!tracked) return { messages: [], totalCount: 0, offset: 0 };
+    const read = await readTranscriptWindow(tracked.sessionFile, limit, beforeOffset);
+    return { messages: read.messages, totalCount: read.totalCount, offset: read.offset };
   }
 
   /**
@@ -1697,6 +1562,7 @@ export class SessionPool {
       path.join(this.agentDir, 'sessions'),
       folderWanted,
       `/sessions (${view})`,
+      { maxAgeDays: cfg?.maxAgeDays, maxSessions: cfg?.maxSessions },
     );
     return this.buildFolders(infos, view === 'readonly' ? isReadOnly : undefined);
   }
@@ -1708,6 +1574,9 @@ export class SessionPool {
    * blocking work just to resolve one deep-linked session ID.
    */
   private async findDiskSessionByIdOrName(idOrName: string): Promise<DiskSessionInfo | undefined> {
+    // Deliberately NOT retention-limited: retention governs what the dashboard
+    // LISTS, not what can be opened, so a deep link to an old session must still
+    // resolve.
     const infos = await scanDiskSessions(
       path.join(this.agentDir, 'sessions'),
       () => true,
@@ -1856,10 +1725,15 @@ export class SessionPool {
         // Everything else about the `!command` UX is unchanged.
         if (this.isSudoCommand(command)) {
           const promptId = randomUUID();
+          const now = Date.now();
+          for (const [id, p] of this.pendingSudo) {
+            if (now - p.armedAt > SessionPool.SUDO_PROMPT_TTL_MS) this.pendingSudo.delete(id);
+          }
           this.pendingSudo.set(promptId, {
             sessionFileOrId: tracked.sessionFile,
             command,
             excludeFromContext: isExcluded,
+            armedAt: now,
           });
           if (this.onEvent) {
             this.onEvent(tracked.sessionFile, {
@@ -2225,6 +2099,12 @@ export class SessionPool {
       } catch (err) {}
     }
     this.sessions.delete(tracked.sessionFile);
+    // A prompt whose session is gone can never be answered: drop it here so an
+    // abandoned prompt is bounded by the session's own lifetime (idle eviction)
+    // rather than waiting for someone to type the next `!sudo`.
+    for (const [id, p] of this.pendingSudo) {
+      if (p.sessionFileOrId === tracked.sessionFile) this.pendingSudo.delete(id);
+    }
   }
 
   async registerCliSession(rawSessionFile: string, cwd: string, modelStr: string, cliWs: WebSocket, isStreaming = false): Promise<{ tracked: TrackedSession; error?: string; interruptedTurn?: boolean; interruptedToolCall?: boolean }> {
@@ -2262,17 +2142,26 @@ export class SessionPool {
 
     let sessionId = existing?.sessionId;
     if (!sessionId) {
-      try {
-        const sessionManager = SessionManager.open(sessionFile);
-        sessionId = sessionManager.getSessionId();
-      } catch (err) {
-        // Fallback 1: Extract from filename (e.g. some_path/TIMESTAMP_UUID.jsonl)
-        const baseName = path.basename(sessionFile);
-        const match = baseName.match(/_(.+)\.jsonl$/);
-        if (match) {
-          sessionId = match[1];
-        } else {
-          return { tracked: null as any, error: `Could not determine a persistent session ID from file path: ${sessionFile}` };
+      // The session id IS the header's `id`, so read ONLY the header (one 8 KB
+      // read). `SessionManager.open()` loads and parses the ENTIRE transcript
+      // twice for this single field, on every CLI bridge register -- on a large
+      // session that is hundreds of MB of transient allocation for 36 bytes.
+      // It stays as the fallback for the cases the header read cannot answer
+      // (file not written yet, no header), so behaviour is unchanged there.
+      const header = await readSessionHeader(sessionFile);
+      sessionId = header?.id || undefined;
+      if (!sessionId) {
+        try {
+          sessionId = SessionManager.open(sessionFile).getSessionId();
+        } catch (err) {
+          // Fallback: extract from filename (e.g. some_path/TIMESTAMP_UUID.jsonl)
+          const baseName = path.basename(sessionFile);
+          const match = baseName.match(/_(.+)\.jsonl$/);
+          if (match) {
+            sessionId = match[1];
+          } else {
+            return { tracked: null as any, error: `Could not determine a persistent session ID from file path: ${sessionFile}` };
+          }
         }
       }
     }
@@ -2425,30 +2314,6 @@ export class SessionPool {
         }
       }
     });
-  }
-
-  private extractMessageText(msg: any): string {
-    if (msg.role === 'user') {
-      if (typeof msg.content === 'string') return msg.content;
-      if (Array.isArray(msg.content)) {
-        return msg.content
-          .filter((c: any) => c.type === 'text')
-          .map((c: any) => c.text)
-          .join('\n');
-      }
-    }
-
-    if (msg.role === 'assistant') {
-      if (typeof msg.content === 'string') return msg.content;
-      if (Array.isArray(msg.content)) {
-        return msg.content
-          .filter((c: any) => c.type === 'text')
-          .map((c: any) => c.text)
-          .join('\n');
-      }
-    }
-
-    return '';
   }
 
   private parseModelStr(modelStr: string): { provider: string; id: string } | null {

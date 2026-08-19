@@ -82,6 +82,15 @@ describe('continue anyway', () => {
     // fast machine the build can win the race, in which case this exercises the
     // easy ordering; it was verified red against the pre-fix server by slowing
     // the build down so the continue always lands mid-build.)
+    //
+    // This ALSO pins the earliest interleaving of the three: both frames arrive
+    // together, so the continue is handled while `session_load` is still awaiting
+    // its (streamed, off-thread) transcript read -- i.e. BEFORE `pendingCwd`
+    // exists. The handler used to `return` when it could not resolve a cwd,
+    // dropping the click and leaving the user read-only with the banner's button
+    // already gone; it now records the intent regardless and re-derives
+    // read-only at attach, where the sessions.readOnly guard still applies. This
+    // test fails against a server without that fix.
     const observer = await h.connect('tab-observer');
     await observer.waitForType('connected');
     observer.send({ type: 'session_load', sessionFile: s.sessionFile, cwd });

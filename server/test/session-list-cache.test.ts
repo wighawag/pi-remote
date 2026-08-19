@@ -2,7 +2,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { scanDiskSessions, clearSessionIndexCache } from '../src/session-pool.js';
+import {
+  scanDiskSessions,
+  clearSessionIndexCache,
+  getSessionBodyReadCount,
+} from '../src/session-pool.js';
 
 // Regression: `/sessions` used to re-read and re-parse EVERY session file on
 // EVERY request (fs.readFileSync + JSON.parse per line), synchronously. On a
@@ -13,6 +17,11 @@ import { scanDiskSessions, clearSessionIndexCache } from '../src/session-pool.js
 //
 // The scan must therefore: cache per file against (mtime, size), re-read ONLY
 // what changed, evict what disappeared, and yield to the event loop.
+//
+// "Read" here means READING A BODY (streaming the transcript and parsing it),
+// which `getSessionBodyReadCount()` reports. Asserting on an fs primitive would
+// conflate that with the cheap per-folder HEADER probe, which also opens a file
+// but never reads past the first line.
 
 let root: string;
 
@@ -82,10 +91,10 @@ describe('scanDiskSessions', () => {
     const first = await scanDiskSessions(root, wantAll, 'test');
     expect(first).toHaveLength(2);
 
-    const readFile = vi.spyOn(fs.promises, 'readFile');
+    const before = getSessionBodyReadCount();
     const second = await scanDiskSessions(root, wantAll, 'test');
 
-    expect(readFile).not.toHaveBeenCalled();
+    expect(getSessionBodyReadCount()).toBe(before);
     expect(second.map((s) => s.id).sort()).toEqual(['s1', 's2']);
   });
 
@@ -95,11 +104,10 @@ describe('scanDiskSessions', () => {
     await scanDiskSessions(root, wantAll, 'test');
 
     appendMessage(f1, 'a second message');
-    const readFile = vi.spyOn(fs.promises, 'readFile');
+    const before = getSessionBodyReadCount();
     const infos = await scanDiskSessions(root, wantAll, 'test');
 
-    expect(readFile).toHaveBeenCalledTimes(1);
-    expect(readFile.mock.calls[0][0]).toBe(f1);
+    expect(getSessionBodyReadCount() - before).toBe(1);
     expect(infos.find((s) => s.id === 's1')!.messageCount).toBe(2);
     expect(infos.find((s) => s.id === 's2')!.messageCount).toBe(1);
   });
@@ -124,11 +132,11 @@ describe('scanDiskSessions', () => {
     writeSession('proj-a', 's1.jsonl', '/tmp/proj-a', ['keep me']);
     writeSession('proj-b', 's2.jsonl', '/tmp/proj-b', ['ignore me']);
 
-    const readFile = vi.spyOn(fs.promises, 'readFile');
+    const before = getSessionBodyReadCount();
     const infos = await scanDiskSessions(root, (cwd) => cwd === '/tmp/proj-a', 'test');
 
     expect(infos.map((s) => s.id)).toEqual(['s1']);
-    expect(readFile).toHaveBeenCalledTimes(1);
+    expect(getSessionBodyReadCount() - before).toBe(1);
   });
 
   it('shares one pass between concurrent scans of the same view', async () => {
@@ -136,7 +144,7 @@ describe('scanDiskSessions', () => {
       writeSession(`proj-${i}`, `s${i}.jsonl`, `/tmp/proj-${i}`, ['msg']);
     }
 
-    const readFile = vi.spyOn(fs.promises, 'readFile');
+    const before = getSessionBodyReadCount();
     // N dashboard tabs asking at once during the cold pass must not each parse
     // every file.
     const results = await Promise.all([
@@ -145,8 +153,75 @@ describe('scanDiskSessions', () => {
       scanDiskSessions(root, wantAll, 'test'),
     ]);
 
-    expect(readFile).toHaveBeenCalledTimes(10);
+    expect(getSessionBodyReadCount() - before).toBe(10);
     for (const r of results) expect(r).toHaveLength(10);
+  });
+
+  describe('retention (sessions.maxAgeDays / maxSessions)', () => {
+    // Retention exists to bound the ONE cost that grows forever: a sessions
+    // directory that has been accumulating for months. It is a LISTING limit,
+    // never a deletion, and it is decided from the file's mtime BEFORE the body
+    // is read -- so an excluded session must cost a stat and nothing else.
+
+    function ageFile(file: string, days: number): void {
+      const t = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      fs.utimesSync(file, t, t);
+    }
+
+    it('drops sessions older than maxAgeDays without reading them', async () => {
+      const fresh = writeSession('proj-fresh', 'fresh.jsonl', '/tmp/proj-fresh', ['recent']);
+      const old = writeSession('proj-old', 'old.jsonl', '/tmp/proj-old', ['ancient']);
+      ageFile(old, 40);
+
+      const before = getSessionBodyReadCount();
+      const infos = await scanDiskSessions(root, wantAll, 'test', { maxAgeDays: 30 });
+
+      expect(infos.map((s) => s.id)).toEqual(['fresh']);
+      // The excluded file's BODY was never read: that is the whole point.
+      expect(getSessionBodyReadCount() - before).toBe(1);
+      expect(fs.existsSync(old)).toBe(true); // retention never deletes
+    });
+
+    it('keeps only the maxSessions most recently modified', async () => {
+      const files: string[] = [];
+      for (let i = 0; i < 5; i++) {
+        files.push(writeSession(`proj-${i}`, `s${i}.jsonl`, `/tmp/proj-${i}`, ['msg']));
+      }
+      // s4 newest ... s0 oldest.
+      files.forEach((f, i) => ageFile(f, 5 - i));
+
+      const infos = await scanDiskSessions(root, wantAll, 'test', { maxSessions: 2 });
+      expect(infos.map((s) => s.id).sort()).toEqual(['s3', 's4']);
+    });
+
+    it('still resolves an excluded session on a scan without retention', async () => {
+      // The by-ID lookup (findDiskSessionByIdOrName) deliberately scans WITHOUT
+      // retention, so a deep link to an old session keeps working. If that ever
+      // changes, retention silently becomes "unreachable", not "unlisted".
+      const old = writeSession('proj-old', 'old.jsonl', '/tmp/proj-old', ['ancient']);
+      ageFile(old, 400);
+
+      expect(await scanDiskSessions(root, wantAll, 'listing', { maxAgeDays: 30 })).toHaveLength(0);
+      const all = await scanDiskSessions(root, wantAll, 'lookup');
+      expect(all.map((s) => s.id)).toEqual(['old']);
+    });
+
+    it('does not evict a retention-excluded session from the cache', async () => {
+      // The eviction loop drops cache entries for files that are GONE. A file
+      // merely excluded by retention is still on disk, so it must stay cached:
+      // otherwise a retained scan would silently invalidate everything the
+      // unretained (lookup) scan just paid to read.
+      const old = writeSession('proj-old', 'old.jsonl', '/tmp/proj-old', ['ancient']);
+      ageFile(old, 400);
+
+      await scanDiskSessions(root, wantAll, 'lookup'); // caches it
+      await scanDiskSessions(root, wantAll, 'listing', { maxAgeDays: 30 }); // excludes it
+
+      const before = getSessionBodyReadCount();
+      const all = await scanDiskSessions(root, wantAll, 'lookup');
+      expect(all.map((s) => s.id)).toEqual(['old']);
+      expect(getSessionBodyReadCount() - before).toBe(0); // served from cache
+    });
   });
 
   it('yields to the event loop during a cold scan', async () => {

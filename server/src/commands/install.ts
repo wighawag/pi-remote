@@ -24,6 +24,10 @@ const LAUNCHD_LABEL = 'dev.wherever.server';
 export interface InstallOptions {
   system: boolean;
   configurePi: boolean;
+  // systemd memory backstop (Linux only). Defaults below; '' (via
+  // --no-memory-limits) omits the directives entirely.
+  memoryHigh: string;
+  memoryMax: string;
   // Every argument that is not an install-owned flag is forwarded verbatim to
   // `wherever start` and baked into the service, e.g. `--host`, `--port`,
   // `--token`, `--http-localhost-fallback`, `--no-ssl`, `--ssl-key`, ...
@@ -73,7 +77,27 @@ function systemdUnitPath(system: boolean, homeDir: string): string {
   return path.join(homeDir, '.config', 'systemd', 'user', `${SERVICE_NAME}.service`);
 }
 
-function renderSystemdUnit(ctx: ServiceContext, system: boolean): string {
+/**
+ * Memory backstop baked into the unit.
+ *
+ * The server reads session transcripts, and a real sessions directory grows
+ * without bound (measured: 2.0 GB after a few months). The readers are now
+ * streaming and bounded, but a cgroup limit is the difference between ONE
+ * misbehaving process and a machine in swap-thrash: without it, a runaway
+ * wherever took the whole box down and systemd-oomd killed the unit only after
+ * 12 GB of swap and a load average of 32.
+ *
+ * `MemoryHigh` is the soft limit: the kernel throttles the cgroup and reclaims
+ * hard past it, which turns a leak into visible slowness instead of a machine-
+ * wide stall. `MemoryMax` is the hard wall: past it this unit (not some innocent
+ * bystander) is OOM-killed, and `Restart=on-failure` brings it straight back.
+ * Steady state on a 2 GB corpus is ~200 MB, so 1 GB / 1.5 GB leaves a wide
+ * margin for concurrent agent sessions while still bounding the blast radius.
+ */
+export const DEFAULT_MEMORY_HIGH = '1G';
+export const DEFAULT_MEMORY_MAX = '1500M';
+
+function renderSystemdUnit(ctx: ServiceContext, system: boolean, opts: InstallOptions): string {
   const execStart = [ctx.nodePath, ctx.serverEntry, ...ctx.serverArgs]
     .map(shellQuote)
     .join(' ');
@@ -89,6 +113,18 @@ function renderSystemdUnit(ctx: ServiceContext, system: boolean): string {
     'Restart=on-failure',
     'RestartSec=5',
     '',
+    ...(opts.memoryHigh || opts.memoryMax
+      ? [
+          '# Memory backstop: throttle+reclaim at MemoryHigh, OOM-kill THIS unit at',
+          '# MemoryMax (Restart=on-failure brings it back) so a memory problem here can',
+          '# never take the whole machine into swap thrash. Steady state is ~200 MB on a',
+          '# 2 GB sessions directory. Tune with --memory-high/--memory-max at install',
+          '# time, or drop them entirely with --no-memory-limits.',
+          ...(opts.memoryHigh ? [`MemoryHigh=${opts.memoryHigh}`] : []),
+          ...(opts.memoryMax ? [`MemoryMax=${opts.memoryMax}`] : []),
+          '',
+        ]
+      : []),
     '[Install]',
     system ? 'WantedBy=multi-user.target' : 'WantedBy=default.target',
     '',
@@ -105,7 +141,7 @@ function runSystemctl(system: boolean, args: string[]): void {
 
 function installSystemd(ctx: ServiceContext, opts: InstallOptions): void {
   const unitPath = systemdUnitPath(opts.system, ctx.homeDir);
-  const unit = renderSystemdUnit(ctx, opts.system);
+  const unit = renderSystemdUnit(ctx, opts.system, opts);
 
   if (opts.dryRun) {
     console.log(`[dry-run] would write systemd unit to: ${unitPath}`);
@@ -130,6 +166,19 @@ function installSystemd(ctx: ServiceContext, opts: InstallOptions): void {
   // the freshly written options (mirrors launchd's unload+load on macOS).
   runSystemctl(opts.system, ['restart', SERVICE_NAME]);
   console.log(`Service '${SERVICE_NAME}' enabled and (re)started.`);
+  if (opts.memoryHigh || opts.memoryMax) {
+    // systemd silently IGNORES these unless the memory controller is delegated
+    // to the slice this unit runs in (cgroup v2 with delegation; not the case on
+    // cgroup v1 or some older user slices). Silently-ignored is the worst
+    // outcome for a backstop, so say how to check.
+    console.log(
+      `Memory backstop: ${[opts.memoryHigh && `MemoryHigh=${opts.memoryHigh}`, opts.memoryMax && `MemoryMax=${opts.memoryMax}`]
+        .filter(Boolean)
+        .join(' ')}. ` +
+        `Verify it took effect with \`systemctl ${opts.system ? '' : '--user '}show ${SERVICE_NAME} -p MemoryMax\`; ` +
+        `if it reports infinity, the memory controller is not delegated to this slice.`,
+    );
+  }
   if (!opts.system) {
     console.log(
       'Tip: run `loginctl enable-linger $USER` so the service keeps running after you log out.',
@@ -239,6 +288,11 @@ function installLaunchd(ctx: ServiceContext, opts: InstallOptions): void {
   fs.mkdirSync(path.join(ctx.homeDir, 'Library', 'Logs'), { recursive: true });
   fs.writeFileSync(plistPath, plist, 'utf-8');
   console.log(`Wrote launchd plist: ${plistPath}`);
+  if (opts.memoryHigh || opts.memoryMax) {
+    console.log(
+      'Note: launchd has no per-service memory cap, so the memory backstop is Linux/systemd only.',
+    );
+  }
 
   // Reload: unload first (ignore errors) so a re-install picks up changes.
   try {
@@ -420,12 +474,15 @@ export function parseInstallOptions(args: string[]): InstallOptions {
     configurePi: true,
     serverArgs: [],
     dryRun: false,
+    memoryHigh: DEFAULT_MEMORY_HIGH,
+    memoryMax: DEFAULT_MEMORY_MAX,
   };
   // Install owns only these three flags; everything else is forwarded verbatim
   // to `wherever start` and baked into the service. A bare `--` separator is
   // still tolerated (and dropped) so old muscle memory keeps working, but it is
   // no longer required.
-  for (const arg of args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
     switch (arg) {
       case '--':
         // Legacy separator: no-op now that everything forwards by default.
@@ -438,6 +495,18 @@ export function parseInstallOptions(args: string[]): InstallOptions {
         break;
       case '--dry-run':
         opts.dryRun = true;
+        break;
+      // Install-owned, so they are NOT forwarded to `wherever start` (which
+      // would reject/ignore them): they shape the generated systemd unit.
+      case '--memory-high':
+        opts.memoryHigh = args[++i] ?? '';
+        break;
+      case '--memory-max':
+        opts.memoryMax = args[++i] ?? '';
+        break;
+      case '--no-memory-limits':
+        opts.memoryHigh = '';
+        opts.memoryMax = '';
         break;
       default:
         opts.serverArgs.push(arg);
@@ -462,6 +531,13 @@ Install options:
                       Default is a per-user service (no sudo).
   --no-pi-config      Do not touch ~/.pi/agent/settings.json.
   --dry-run           Print what would happen without writing anything.
+  --memory-high VAL   systemd MemoryHigh for the unit (default ${DEFAULT_MEMORY_HIGH}).
+                      Soft limit: past it the kernel throttles and reclaims.
+  --memory-max VAL    systemd MemoryMax for the unit (default ${DEFAULT_MEMORY_MAX}).
+                      Hard limit: past it THIS unit is OOM-killed and restarted,
+                      instead of the machine going into swap thrash.
+  --no-memory-limits  Omit both directives. (Linux only; launchd has no
+                      equivalent, so these are ignored on macOS.)
 
 Any other flag is forwarded verbatim to the baked 'wherever start' command,
 so all server flags work here directly, e.g.

@@ -107,6 +107,11 @@ List all active and archived sessions grouped by workspace directory.
     ]
   }
   ```
+* **Cost / limits:** the listing is built by STREAMING each session `.jsonl` (never loading one whole), cached per file against its `(mtime, size)`, and yields to the event loop, so a large sessions directory neither blocks the socket nor inflates memory. Two optional limits in `~/.wherever/config.json` bound it further, both decided from the file's `stat` before its body is read and both off by default:
+  * `sessions.maxAgeDays` — leave out sessions not modified within the last N days.
+  * `sessions.maxSessions` — keep only the N most recently modified sessions.
+
+  Neither deletes anything, and neither makes a session unreachable: an excluded session still opens by path or by short ID, it just is not listed. The server prints a hint at startup when it lists more than 1,000 sessions with neither set.
 
 ### `GET /search`
 Full-text search over every past session, backed by the [memonaut](https://github.com/wighawag/memonaut) index (`~/.local/share/memonaut/index.db`), which the server opens READ-ONLY.
