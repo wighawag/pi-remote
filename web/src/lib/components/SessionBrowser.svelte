@@ -14,6 +14,8 @@
 		type ModelInfo,
 		type FolderWithSessions,
 	} from '$lib/session-store';
+	// Fork-hierarchy flattening + recency ordering (unit-tested in core).
+	import {buildForkTree} from '$lib/core/fork-tree.js';
 
 	// When true, this browser shows the read-only sessions page: it sources from
 	// the read-only folder list, hides the create form, and hides all delete
@@ -158,50 +160,6 @@
 		} catch (err) {
 			console.error('Failed to delete all sessions of folder:', err);
 		}
-	}
-
-	// Flatten a folder's sessions into a fork-hierarchy tree (mirrors pi's session
-	// selector). A session whose `parentSessionPath` matches another session's
-	// `path` (in this folder) is nested under it; roots are everything else.
-	// Returns each session with a `depth` for indentation, ordered depth-first so a
-	// child renders directly beneath its parent. Cross-folder parents (a fork into
-	// a different cwd) simply surface as roots here, since we only tree WITHIN a
-	// folder. Cycle-safe via a visited set.
-	function buildForkTree(
-		sessions: FolderWithSessions['sessions'],
-	): {session: FolderWithSessions['sessions'][number]; depth: number}[] {
-		const byPath = new Map<string, FolderWithSessions['sessions'][number]>();
-		for (const s of sessions) byPath.set(s.path, s);
-		const childrenOf = new Map<
-			string,
-			FolderWithSessions['sessions'][number][]
-		>();
-		const roots: FolderWithSessions['sessions'][number][] = [];
-		for (const s of sessions) {
-			const parent = s.parentSessionPath;
-			if (parent && byPath.has(parent) && parent !== s.path) {
-				if (!childrenOf.has(parent)) childrenOf.set(parent, []);
-				childrenOf.get(parent)!.push(s);
-			} else {
-				roots.push(s);
-			}
-		}
-		const out: {
-			session: FolderWithSessions['sessions'][number];
-			depth: number;
-		}[] = [];
-		const visited = new Set<string>();
-		const walk = (s: FolderWithSessions['sessions'][number], depth: number) => {
-			if (visited.has(s.path)) return;
-			visited.add(s.path);
-			out.push({session: s, depth});
-			for (const child of childrenOf.get(s.path) ?? []) walk(child, depth + 1);
-		};
-		for (const r of roots) walk(r, 0);
-		// Safety net: include any session dropped by a cycle so nothing vanishes.
-		for (const s of sessions)
-			if (!visited.has(s.path)) out.push({session: s, depth: 0});
-		return out;
 	}
 
 	function handleSessionClick(sessionPath: string) {
