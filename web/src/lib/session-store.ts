@@ -239,6 +239,105 @@ export async function fetchReadOnlySessions(): Promise<void> {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Conversation search (GET /search), backed by the memonaut index server-side.
+// ---------------------------------------------------------------------------
+
+// One session file carrying a match. `sessionPath` is normalized by the SERVER
+// with the same rule as SessionInfo.path, so it can be handed straight to
+// switchSession() and matches the fork tree's nodes.
+export interface SearchThreadResult {
+	sessionPath: string;
+	name: string | null;
+	cwd: string;
+	folderName: string;
+	project: string | null;
+	lastActivity: string | null;
+	entryCount: number;
+	seq: number;
+	/** Entries this thread accumulated after the match: what tells forks apart. */
+	after: number;
+	isRoot: boolean;
+	readOnly: boolean;
+}
+
+export interface SearchHitResult {
+	entryKey: string;
+	role: string;
+	kind: string;
+	tool: string | null;
+	ts: string | null;
+	/** FTS5 snippet with \u0001/\u0002 match markers (see core/search-snippet.ts). */
+	snippet: string;
+	score: number;
+	/** EVERY visible thread carrying this entry, most recently active first. */
+	threads: SearchThreadResult[];
+	threadTotal: number;
+	otherHits: number;
+}
+
+export interface SearchResponse {
+	status: 'ok' | 'not-indexed' | 'unavailable' | 'error';
+	query: string;
+	usedQuery?: string;
+	quotedFallback?: boolean;
+	hits: SearchHitResult[];
+	scanned?: number;
+	hiddenHits?: number;
+	index?: {path: string; files: number; entries: number; newest: string | null};
+	message?: string;
+}
+
+// The latest query wins: a superseded request is aborted rather than raced, so
+// a slow earlier response can never paint over a newer one.
+let searchAbort: AbortController | null = null;
+
+/**
+ * Run one conversation search. Never throws: a transport failure comes back as
+ * status:'error' so the panel can explain itself, and an aborted (superseded)
+ * request resolves to null so the caller simply keeps what it has.
+ */
+export async function searchConversations(
+	query: string,
+	view: 'default' | 'readonly' = 'default',
+): Promise<SearchResponse | null> {
+	searchAbort?.abort();
+	const controller = new AbortController();
+	searchAbort = controller;
+	try {
+		const baseUrl = getBaseUrl();
+		const token = getToken();
+		const params = new URLSearchParams({q: query});
+		if (view === 'readonly') params.set('view', 'readonly');
+		if (token) params.set('token', token);
+		const res = await fetch(`${baseUrl}/search?${params.toString()}`, {
+			signal: controller.signal,
+		});
+		if (!res.ok) {
+			return {
+				status: 'error',
+				query,
+				hits: [],
+				message:
+					res.status === 401
+						? 'Unauthorized: check the token in Connection Settings.'
+						: `Search failed (HTTP ${res.status}).`,
+			};
+		}
+		return (await res.json()) as SearchResponse;
+	} catch (err) {
+		if ((err as Error)?.name === 'AbortError') return null;
+		return {
+			status: 'error',
+			query,
+			hits: [],
+			message: (err as Error)?.message || 'Search request failed.',
+		};
+	} finally {
+		if (searchAbort === controller) searchAbort = null;
+	}
+}
+
 export async function fetchModels(): Promise<void> {
 	availableModels.update((s) => ({...s, loading: true}));
 	try {

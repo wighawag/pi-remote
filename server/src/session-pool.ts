@@ -145,6 +145,21 @@ export interface WhereverConfig {
     /** Shell command to play the sound (e.g. 'pw-play .../complete.oga'). Overrides the auto-detected player; --remote-beep-command overrides this. */
     command?: string;
   };
+  /**
+   * Conversation search (`GET /search`), backed by the memonaut index. This is
+   * NOT related to `searchFolder` below (which is the "search mode" session
+   * workspace); it controls full-text search over past transcripts.
+   */
+  conversationSearch?: {
+    /**
+     * Kick off an incremental index catch-up in a CHILD PROCESS after a search.
+     * Never runs in-process: memonaut's indexer is synchronous and would block
+     * every WebSocket client. Default true.
+     */
+    autoSync?: boolean;
+    /** Minimum gap between background catch-ups, in ms. Default 60000. */
+    syncIntervalMs?: number;
+  };
   /** Folder used by "search mode" sessions. No default; must be set explicitly. */
   searchFolder?: string;
   /** When true, the on-demand search folder gets a remote, forced to private visibility. Default false. */
@@ -273,7 +288,7 @@ async function readSessionCwdFromHeader(filePath: string): Promise<string> {
  * Resolve a session's raw header cwd into a normalized absolute path, matching
  * how listSessions() buckets folders (tilde-expand; relative -> under home).
  */
-function resolveSessionCwd(rawCwd: string): string {
+export function resolveSessionCwd(rawCwd: string): string {
   const raw = rawCwd || '';
   let cwd = raw;
   if (raw.startsWith('~')) {

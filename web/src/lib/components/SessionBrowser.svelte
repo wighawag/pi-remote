@@ -20,7 +20,13 @@
 	// When true, this browser shows the read-only sessions page: it sources from
 	// the read-only folder list, hides the create form, and hides all delete
 	// controls. Opening a session here is forced read-only by the server.
-	let {readOnly = false}: {readOnly?: boolean} = $props();
+	// `onSearchAll` hands the typed filter text over to conversation search (which
+	// searches message CONTENT server-side, not just the names/previews in this
+	// list); the filter box itself is unchanged.
+	let {
+		readOnly = false,
+		onSearchAll,
+	}: {readOnly?: boolean; onSearchAll?: (query: string) => void} = $props();
 	import {
 		joinSession,
 		switchSession,
@@ -443,6 +449,17 @@
 				<span class={loading ? 'animate-spin' : ''}>↻</span>
 			</button>
 		</div>
+		{#if onSearchAll && searchQuery.trim().length >= 2}
+			<!-- The box above only filters this list (names + first-message previews).
+			     This is the way over to full-text search across every message. -->
+			<button
+				type="button"
+				onclick={() => onSearchAll?.(searchQuery.trim())}
+				class="mt-1.5 w-full truncate rounded px-1 py-0.5 text-left text-[10px] text-brand-blue hover:underline"
+			>
+				🔎 Search all conversations for “{searchQuery.trim()}”
+			</button>
+		{/if}
 	</div>
 
 	<div class="flex-1 overflow-y-auto">

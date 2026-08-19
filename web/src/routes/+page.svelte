@@ -4,6 +4,7 @@
 	import ChatMessageList from '$lib/components/ChatMessageList.svelte';
 	import ChatInput from '$lib/components/ChatInput.svelte';
 	import SessionBrowser from '$lib/components/SessionBrowser.svelte';
+	import ConversationSearch from '$lib/components/ConversationSearch.svelte';
 	import SudoPasswordDialog from '$lib/components/SudoPasswordDialog.svelte';
 	import {
 		piState,
@@ -48,10 +49,22 @@
 	import {isSearchActive} from '$lib/core/view-mode';
 
 	let sidebarOpen = $state(false);
-	// Which session list the sidebar shows: the main dashboard, or the separate
-	// read-only page (sessions.readOnly folders) reached via the sidebar link.
+	// Which session list the sidebar shows: the main dashboard, the separate
+	// read-only page (sessions.readOnly folders) reached via the sidebar link, or
+	// conversation search (full-text over every past session, GET /search).
 	// The read-only page hides the create form, delete controls, and the composer.
-	let sessionView = $state<'main' | 'readonly'>('main');
+	let sessionView = $state<'main' | 'readonly' | 'search'>('main');
+	// Search mirrors the two list views rather than spanning them: it is opened
+	// from one of them and searches exactly that view's sessions, so the visibility
+	// rule a user already understands from the list also holds for search.
+	let searchReadOnly = $state(false);
+	let searchInitialQuery = $state('');
+
+	function openSearch(fromReadOnly: boolean, initial = '') {
+		searchReadOnly = fromReadOnly;
+		searchInitialQuery = initial;
+		sessionView = 'search';
+	}
 	let showSettings = $state(false);
 	let autoConnect = $state(true);
 	let interruptedTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -514,6 +527,15 @@
 			<div class="border-b border-brand-border/50 px-2 py-1.5">
 				{#if sessionView === 'main'}
 					<button
+						onclick={() => openSearch(false)}
+						class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-brand-text-muted transition-colors hover:bg-brand-surface-3/50 hover:text-brand-text"
+						title="Search everything ever said in any session"
+					>
+						<span>🔎</span>
+						<span>Search conversations</span>
+						<span class="ml-auto">→</span>
+					</button>
+					<button
 						onclick={() => {
 							sessionView = 'readonly';
 							fetchReadOnlySessions();
@@ -525,6 +547,19 @@
 						<span>Read-only sessions</span>
 						<span class="ml-auto">→</span>
 					</button>
+				{:else if sessionView === 'search'}
+					<button
+						onclick={() => (sessionView = searchReadOnly ? 'readonly' : 'main')}
+						class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs font-semibold text-brand-blue transition-colors hover:bg-brand-surface-3/50"
+						title="Back to the session list"
+					>
+						<span>←</span>
+						<span
+							>Back to {searchReadOnly
+								? 'read-only sessions'
+								: 'sessions'}</span
+						>
+					</button>
 				{:else}
 					<button
 						onclick={() => (sessionView = 'main')}
@@ -534,15 +569,33 @@
 						<span>←</span>
 						<span>Back to sessions</span>
 					</button>
+					<button
+						onclick={() => openSearch(true)}
+						class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-brand-text-muted transition-colors hover:bg-brand-surface-3/50 hover:text-brand-text"
+						title="Search the read-only conversations"
+					>
+						<span>🔎</span>
+						<span>Search these conversations</span>
+						<span class="ml-auto">→</span>
+					</button>
 				{/if}
 			</div>
 
 			<!-- Session Browser -->
 			<div class="flex-1 overflow-hidden">
-				{#if sessionView === 'readonly'}
-					<SessionBrowser readOnly />
+				{#if sessionView === 'search'}
+					<!-- onOpened closes the mobile sidebar even when the tapped result is
+					     the session already open: that path starts no load, so the
+					     loading/resync effect below would never fire for it. -->
+					<ConversationSearch
+						readOnly={searchReadOnly}
+						initialQuery={searchInitialQuery}
+						onOpened={() => (sidebarOpen = false)}
+					/>
+				{:else if sessionView === 'readonly'}
+					<SessionBrowser readOnly onSearchAll={(q) => openSearch(true, q)} />
 				{:else}
-					<SessionBrowser />
+					<SessionBrowser onSearchAll={(q) => openSearch(false, q)} />
 				{/if}
 			</div>
 		{/if}

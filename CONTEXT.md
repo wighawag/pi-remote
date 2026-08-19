@@ -55,7 +55,7 @@ Wherever is a TypeScript extension for the [pi coding agent](https://pi.dev) tha
   - ES2022 target, ESNext modules
   - Strict mode enabled
   - Output to `dist/`
-- **`~/.wherever/config.json`** - Server-side runtime config (`getWhereverConfig()`): `sessions.ignore` / `sessions.readOnly`, `uploads`, `downloads`, `beep`, `searchFolder`, remote-repo rules. `WHEREVER_CONFIG_DIR` overrides the directory it is read from; the test harness sets it so an isolated server never picks up the developer's real config (a personal `sessions.ignore: ["/tmp/**"]` would otherwise hide the harness's own temp-dir sessions).
+- **`~/.wherever/config.json`** - Server-side runtime config (`getWhereverConfig()`): `sessions.ignore` / `sessions.readOnly`, `uploads`, `downloads`, `beep`, `searchFolder`, `conversationSearch` (autoSync / syncIntervalMs for `GET /search`), remote-repo rules. `WHEREVER_CONFIG_DIR` overrides the directory it is read from; the test harness sets it so an isolated server never picks up the developer's real config (a personal `sessions.ignore: ["/tmp/**"]` would otherwise hide the harness's own temp-dir sessions).
 
 ### Documentation
 
@@ -112,6 +112,7 @@ Wherever is a TypeScript extension for the [pi coding agent](https://pi.dev) tha
 - `GET /session` - Get session info
 - `POST /session/new` - Start new session
 - `POST /session/compact` - Trigger compaction
+- `GET /search` - Conversation search over every past session (see "Conversation search" below)
 - `GET /health` - Health check (no auth)
 - `POST /session/upload` - Upload a file from the client to the server
 - `GET /session/download` - Download an agent-produced file to the client (see "File Download / Attachments" below)
@@ -196,6 +197,33 @@ The reverse of the upload path: files the agent produces (a generated PDF, an ex
 - **Broadcasts are throttled** (`broadcastSessionsUpdated` in `server/src/index.ts`). It listens to `agent_end` only, NOT `message_end` (which fires per message, many times per turn), and is leading+trailing throttled at 2s so structural changes (attach/leave/create/delete) stay instant while a burst collapses into one broadcast. On the web side `fetchSessions()` debounces (150ms, 1s max-wait) and collapses mid-flight requests into exactly one trailing re-fetch.
 
 Note the listing path deliberately does NOT use `SessionManager.listAll()` (pi's own helper) any more, for `/sessions` or for resolving a session by short ID/name: it re-reads and re-parses every session file on every call.
+
+### Conversation search (`GET /search`, backed by the memonaut index)
+
+Full-text search over everything ever said in any session, so a user can find a conversation from six weeks ago and jump straight into it. The text does NOT come from wherever: it comes from [memonaut](https://github.com/wighawag/memonaut) (npm `memonaut`), which indexes the same `~/.pi/agent/sessions` transcripts into one SQLite FTS5 file at `~/.local/share/memonaut/index.db`. Server side lives in `server/src/conversation-search.ts`; the panel is `web/src/lib/components/ConversationSearch.svelte` (a third sidebar view beside the main list and the read-only page), with the snippet/label helpers as a pure, unit-tested module (`web/src/lib/core/search-snippet.ts`).
+
+**Endpoint.** `GET /search?q=<FTS5 expression>&view=default|readonly&limit=20`, behind the SAME token gate as the other API routes (it is in the `isApiRequest` prefix list in `server/src/index.ts`). HTTP, not a WS message, on purpose: a search is a request/response query owned by ONE client, debounced per keystroke and superseded by the next one (the web aborts the in-flight request, so a slow earlier response can never paint over a newer one). Nothing about it is pushed to other viewers or tied to `client.sessionId`, so it stays off the WS protocol entirely. `q` is an FTS5 MATCH expression (bare words ANDed, `"quoted phrases"`, `OR` / `NOT` / `NEAR`, trailing `*`); memonaut retries an unparseable query as quoted literal tokens and reports that as `quotedFallback`.
+
+**Result shape.** `{status, query, usedQuery, quotedFallback, hits[], scanned, hiddenHits, index: {path, files, entries, newest}, message?}`. `status` is `ok` | `not-indexed` | `unavailable` | `error`, always with HTTP 200: a missing index is an ANSWER the dashboard explains ("run `recall index`"), not a failed request. Each hit is `{entryKey, role, kind, tool, ts, snippet, score, threads[], threadTotal, otherHits}`, and each thread is `{sessionPath, name, cwd, folderName, project, lastActivity, entryCount, seq, after, isRoot, readOnly}`. `snippet` keeps SQLite's raw `\u0001`/`\u0002` match markers (the web turns them into `<mark>` via `snippetSegments()`, never `{@html}`), so the server never has to know about markup.
+
+**The join key is the PATH.** memonaut's `file.path` is the absolute transcript path, which is exactly what wherever identifies a session by, so `sessionPath` is run through the same `normalizeSessionFile()` (`path.resolve`) that `buildFolders` uses for `path` / `parentSessionPath`. A result is therefore byte-identical to the corresponding `FolderSessionInfo.path`, and a click is just `switchSession(sessionPath)`, the same call the sidebar makes: it lands in the existing session view (and the existing fork tree) with no extra resolution step.
+
+**Forks are never collapsed.** A fork copies the whole shared prefix, so one matched entry is carried by every thread that inherited it. memonaut returns them most-recently-active first with per-thread `after` counts (how many entries that thread accumulated past the match, which is the only thing telling byte-identical siblings apart); the endpoint passes ALL of them through and the panel renders the most recent as the primary target with "carried by N sessions" expanding to the siblings, each independently clickable.
+
+**Privacy: two independent axes, composed in ONE place** (`filterThreads()` in `server/src/conversation-search.ts`). memonaut's `ignore`/`private` govern what is INDEXED and what AGENTS may read; wherever's `sessions.ignore`/`sessions.readOnly` govern what the DASHBOARD shows and what may be written to. They are not the same question and must not be conflated, so search obeys both:
+
+- memonaut `ignore` -> never indexed, invisible here by construction.
+- memonaut `private` -> the endpoint NEVER passes `includePrivate`, so those transcripts are never returned. Search does not get to override the user's "do not hand this back" boundary.
+- wherever `sessions.ignore` -> dropped on EVERY view. A session hidden from the dashboard must not be readable through search, or search becomes a way to see exactly what the user hid.
+- wherever `sessions.readOnly` -> mirrors `/sessions` exactly: `view=default` drops them, `view=readonly` returns ONLY them (still minus `ignore`), tagged `readOnly: true`. One rule for both surfaces, so what you can see never depends on which one you used.
+- Filtering is per THREAD, not per hit (one entry in shared history can be carried by both a visible and a hidden session), and `threadTotal` is RECOMPUTED from the survivors, so a hidden fork does not leak even as a count. A thread whose cwd is unknown is dropped (fail closed). A hit left with no visible thread is dropped and counted in `hiddenHits`. The matchers are compiled once per request, as `listSessions` does, not once per hit.
+- Like the session list, the globs are matched against the RESOLVED (`path.resolve`) cwd, which does not follow symlinks: a cwd reached through a symlink matches (or fails to match) a pattern exactly as it does in `/sessions`. Consistency between the two surfaces is the property that matters; a search-only symlink resolution would be a way for the two to disagree.
+
+**Never index on a request path.** `node:sqlite` is SYNCHRONOUS and so is memonaut's indexer: a full build is ~40 s of blocked event loop, which would freeze every WebSocket client (the same failure mode the `/sessions` cache exists to avoid). So the endpoint NEVER calls `index()`, and never calls `syncIfStale()` either (it opens the DB read-write and can itself trigger a full rebuild). Missing index -> `status: 'not-indexed'` naming the db path and `recall index`. Catch-up instead happens in a CHILD PROCESS (`maybeSpawnSync`: `node <memonaut>/dist/cli.js index`, TTL-gated at 60 s, at most one in flight, stdio ignored, never awaited), fired only AFTER the response is built, so a search is served from the index as it is and may be one sync behind. `conversationSearch.autoSync: false` in `~/.wherever/config.json` disables it; `conversationSearch.syncIntervalMs` changes the TTL.
+
+**Not implemented (deliberately):** a result opens the SESSION, not the matched message. memonaut reports the match's `seq` within each thread, but wherever's history windowing is by message offset, so scrolling straight to the entry would need a seq -> offset mapping; that is a separate change and search is useful without it.
+
+**What DOES run in-process** is one `search()` call against a cached read-only handle (`openDb(path, {readOnly: true})`, which also sets `PRAGMA query_only`; wherever never writes to the index). Measured on a real index (3,822 files / 464k entries): open ~0 ms, `indexStats` ~17 ms, `search()` 14-66 ms, end-to-end endpoint work ~100-120 ms. The same numbers are quoted in the module header, so keep the two in step if they are ever re-measured. That is the same order as a warm `/sessions` pass and only happens on a debounced human action, which is why it is acceptable in-process; anything heavier is not. The `memonaut` import is dynamic, so a server whose dependency is missing answers `status: 'unavailable'` instead of failing to boot.
 
 ### Queued steers are memory-only state (`queue_update` is a snapshot, not just an event)
 

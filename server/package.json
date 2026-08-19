@@ -27,6 +27,7 @@
   "dependencies": {
     "@earendil-works/pi-ai": "0.80.6",
     "@earendil-works/pi-coding-agent": "0.80.6",
+    "memonaut": "^0.1.0",
     "typebox": "^1.1.38",
     "ws": "^8.18.0"
   },

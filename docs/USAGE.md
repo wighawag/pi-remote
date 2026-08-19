@@ -108,6 +108,65 @@ List all active and archived sessions grouped by workspace directory.
   }
   ```
 
+### `GET /search`
+Full-text search over every past session, backed by the [memonaut](https://github.com/wighawag/memonaut) index (`~/.local/share/memonaut/index.db`), which the server opens READ-ONLY.
+* **Auth required:** Yes (if token is set)
+* **Query params:**
+  * `q`: an [FTS5 MATCH expression](https://www.sqlite.org/fts5.html#full_text_query_syntax). Bare words are ANDed, `"quoted phrases"` match in order, `OR` / `NOT` / `NEAR(a b, 5)` work, trailing `*` is a prefix search. An unparseable query is retried as quoted literal tokens (reported as `quotedFallback`).
+  * `view`: `default` (the main session list) or `readonly` (the `sessions.readOnly` page). Mirrors `GET /sessions`.
+  * `limit`: max results, default 20, capped at 50.
+* **Response (200 OK):**
+  ```json
+  {
+    "status": "ok",
+    "query": "steering queue",
+    "usedQuery": "steering queue",
+    "quotedFallback": false,
+    "hits": [
+      {
+        "entryKey": "1c9a7f43",
+        "role": "user",
+        "kind": "user",
+        "tool": null,
+        "ts": "2026-07-11T08:09:41.970Z",
+        "snippet": "…the \u0001steering\u0002 queue…",
+        "score": 36.9,
+        "threads": [
+          {
+            "sessionPath": "/home/user/.pi/agent/sessions/--home-user-my-project--/....jsonl",
+            "name": null,
+            "cwd": "/home/user/my-project",
+            "folderName": "my-project",
+            "project": "my-project",
+            "lastActivity": "2026-07-11T09:51:01.642Z",
+            "entryCount": 291,
+            "seq": 2,
+            "after": 288,
+            "isRoot": true,
+            "readOnly": false
+          }
+        ],
+        "threadTotal": 1,
+        "otherHits": 5
+      }
+    ],
+    "scanned": 7,
+    "hiddenHits": 0,
+    "index": {
+      "path": "/home/user/.local/share/memonaut/index.db",
+      "files": 3822,
+      "entries": 464365,
+      "newest": "2026-08-19T11:18:27.533Z"
+    }
+  }
+  ```
+* **Notes:**
+  * `status` is `ok`, `not-indexed` (no index built yet, so run `recall index`; the server never builds it inline, since that would block every WebSocket client for ~40 s), `unavailable` (the `memonaut` package could not be loaded) or `error`. All of them are returned with HTTP 200 and a `message`.
+  * `snippet` wraps matched terms in `\u0001` … `\u0002` (SQLite's snippet markers), for the client to highlight.
+  * `sessionPath` is the absolute transcript path, normalized exactly like `GET /sessions` returns it, so results can be opened with the normal session-load path.
+  * A match in history shared by forked sessions returns EVERY thread that inherited it, most recently active first; `after` is how many entries that thread accumulated past the match.
+  * Sessions hidden by `sessions.ignore` are never returned on any view, and `private` transcripts (memonaut's config) are never returned at all.
+
 ### `GET /models`
 Fetch all LLM models currently configured and available in Pi's local ModelRegistry.
 * **Auth required:** Yes

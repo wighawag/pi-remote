@@ -4,6 +4,7 @@ import { createServer as createHttpsServer, request as httpRequest } from 'node:
 import { WebSocketServer, WebSocket } from 'ws';
 import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent';
 import { SessionPool, getWhereverConfig, detectRemoteRepo, type WhereverConfig } from './session-pool.js';
+import { searchConversations } from './conversation-search.js';
 import type { ClientMessage, ServerMessage, ToolImage } from './protocol.js';
 import { INITIAL_HISTORY_LIMIT, HISTORY_PAGE_SIZE } from './protocol.js';
 import fs from 'node:fs';
@@ -852,6 +853,7 @@ async function main(): Promise<void> {
     }
 
     const isApiRequest = pathname.startsWith('/sessions') || 
+                          pathname.startsWith('/search') || 
                           pathname.startsWith('/models') || 
                           pathname.startsWith('/config') || 
                           pathname.startsWith('/check-path') || 
@@ -871,6 +873,23 @@ async function main(): Promise<void> {
       const folders = await sessionPool.listSessions(view);
       const active = sessionPool.getActiveSessions();
       sendJSON(res, 200, { folders, activeSessions: active });
+      return;
+    }
+
+    // Full-text search over every past session, backed by the memonaut index.
+    // Same token gate as /sessions (via isApiRequest above). A missing index is
+    // answered with status:'not-indexed', never built inline: memonaut's indexer
+    // is synchronous and a full build would freeze every WebSocket client.
+    // See server/src/conversation-search.ts for the privacy composition rule.
+    if (pathname === '/search' && req.method === 'GET') {
+      const view = url.searchParams.get('view') === 'readonly' ? 'readonly' : 'default';
+      const limitParam = Number(url.searchParams.get('limit'));
+      const result = await searchConversations({
+        query: url.searchParams.get('q') || '',
+        view,
+        limit: Number.isFinite(limitParam) && limitParam > 0 ? limitParam : undefined,
+      });
+      sendJSON(res, 200, result);
       return;
     }
 

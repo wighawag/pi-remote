@@ -1,0 +1,450 @@
+import { describe, it, expect, afterEach } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { startHarness, type Harness } from './harness.js';
+
+/**
+ * Conversation search (`GET /search`), backed by the memonaut index.
+ *
+ * Everything here is isolated three ways so a developer's real setup can never
+ * leak in (or be touched):
+ *  - `MEMONAUT_CONFIG_DIR` + `MEMONAUT_DB` point the server at a throwaway index
+ *    built from throwaway transcripts, never at ~/.local/share/memonaut;
+ *  - `WHEREVER_CONFIG_DIR` gives the server its own config.json, so the
+ *    developer's `sessions.ignore` cannot hide the fixtures (and this test's
+ *    ignore rule cannot hide anything of theirs);
+ *  - the index is built HERE, in the test process, never by the server: the
+ *    server must never index on a request path (memonaut's indexer is
+ *    synchronous, ~40 s on a real corpus, and would freeze every WS client).
+ */
+
+interface FixtureEntry {
+  id: string;
+  role?: 'user' | 'assistant';
+  text: string;
+  ts?: string;
+}
+
+interface FixtureSession {
+  uuid: string;
+  cwd: string;
+  /** Absolute path of the transcript this one was forked from. */
+  parent?: string;
+  started?: string;
+  entries: FixtureEntry[];
+}
+
+/** Write a transcript in pi's on-disk shape (mangled folder name included). */
+function writeSession(root: string, session: FixtureSession): string {
+  const folder = '--' + session.cwd.replace(/\//g, '-') + '--';
+  const dir = path.join(root, folder);
+  fs.mkdirSync(dir, { recursive: true });
+  const started = session.started ?? '2026-01-01T00:00:00.000Z';
+  const file = path.join(dir, `${started.replace(/[:.]/g, '-')}_${session.uuid}.jsonl`);
+
+  const line = (obj: unknown) => JSON.stringify(obj) + '\n';
+  let out = line({
+    type: 'session',
+    version: 3,
+    id: session.uuid,
+    timestamp: started,
+    cwd: session.cwd,
+    ...(session.parent ? { parentSession: session.parent } : {}),
+  });
+
+  let previous: string | null = null;
+  for (const entry of session.entries) {
+    const role = entry.role ?? 'user';
+    out += line({
+      type: 'message',
+      id: entry.id,
+      parentId: previous,
+      timestamp: entry.ts ?? started,
+      message: { role, content: [{ type: 'text', text: entry.text }] },
+    });
+    previous = entry.id;
+  }
+
+  fs.writeFileSync(file, out);
+  return file;
+}
+
+interface Fixture {
+  root: string;
+  dbPath: string;
+  memonautConfigDir: string;
+  whereverConfigDir: string;
+  sessionsRoot: string;
+  visibleCwd: string;
+  hiddenCwd: string;
+  fleetCwd: string;
+  parentFile: string;
+  forkFile: string;
+  hiddenFile: string;
+  fleetFile: string;
+  env: Record<string, string>;
+}
+
+/**
+ * Build a throwaway corpus + index:
+ *  - `visibleCwd`: a normal project, with a PARENT session and a FORK of it that
+ *    shares the matched entry (so the fan-out is exercised for real);
+ *  - `hiddenCwd`: a project the wherever config will put in `sessions.ignore`;
+ *  - `fleetCwd`: a project in `sessions.readOnly` (the separate read-only page).
+ * Every session contains the same needle, so any leak is a visible failure.
+ */
+async function makeFixture(opts?: { skipIndex?: boolean }): Promise<Fixture> {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wherever-search-'));
+  const sessionsRoot = path.join(root, 'sessions');
+  const memonautConfigDir = path.join(root, 'memonaut-config');
+  const whereverConfigDir = path.join(root, 'wherever-config');
+  const dbPath = path.join(root, 'index.db');
+  fs.mkdirSync(sessionsRoot, { recursive: true });
+  fs.mkdirSync(memonautConfigDir, { recursive: true });
+  fs.mkdirSync(whereverConfigDir, { recursive: true });
+
+  const visibleCwd = path.join(root, 'projects', 'alpha');
+  const hiddenCwd = path.join(root, 'projects', 'hidden');
+  const fleetCwd = path.join(root, 'projects', 'fleet');
+
+  const parentFile = writeSession(sessionsRoot, {
+    uuid: '00000000-0000-4000-8000-00000000aaaa',
+    cwd: visibleCwd,
+    started: '2026-02-01T10:00:00.000Z',
+    entries: [
+      { id: 'aaaa0001', text: 'we should keep the flamingo protocol simple', ts: '2026-02-01T10:00:00.000Z' },
+      { id: 'aaaa0002', role: 'assistant', text: 'agreed, one endpoint', ts: '2026-02-01T10:01:00.000Z' },
+    ],
+  });
+
+  // A fork copies the shared prefix (same entry ids) and then diverges, so the
+  // needle above lands in history carried by BOTH threads.
+  const forkFile = writeSession(sessionsRoot, {
+    uuid: '00000000-0000-4000-8000-00000000bbbb',
+    cwd: visibleCwd,
+    parent: parentFile,
+    started: '2026-02-02T10:00:00.000Z',
+    entries: [
+      { id: 'aaaa0001', text: 'we should keep the flamingo protocol simple', ts: '2026-02-01T10:00:00.000Z' },
+      { id: 'aaaa0002', role: 'assistant', text: 'agreed, one endpoint', ts: '2026-02-01T10:01:00.000Z' },
+      { id: 'bbbb0003', text: 'actually lets revisit that', ts: '2026-02-02T10:02:00.000Z' },
+      { id: 'bbbb0004', role: 'assistant', text: 'ok', ts: '2026-02-02T10:03:00.000Z' },
+    ],
+  });
+
+  const hiddenFile = writeSession(sessionsRoot, {
+    uuid: '00000000-0000-4000-8000-00000000cccc',
+    cwd: hiddenCwd,
+    started: '2026-02-03T10:00:00.000Z',
+    entries: [{ id: 'cccc0001', text: 'the flamingo protocol secret nobody should see' }],
+  });
+
+  const fleetFile = writeSession(sessionsRoot, {
+    uuid: '00000000-0000-4000-8000-00000000dddd',
+    cwd: fleetCwd,
+    started: '2026-02-04T10:00:00.000Z',
+    entries: [{ id: 'dddd0001', text: 'flamingo protocol run by the autonomous fleet' }],
+  });
+
+  fs.writeFileSync(
+    path.join(memonautConfigDir, 'config.json'),
+    JSON.stringify({ sources: [{ id: 'pi', kind: 'pi', root: sessionsRoot }] }, null, 2),
+  );
+
+  const env: Record<string, string> = {
+    MEMONAUT_CONFIG_DIR: memonautConfigDir,
+    MEMONAUT_DB: dbPath,
+    WHEREVER_CONFIG_DIR: whereverConfigDir,
+  };
+
+  if (!opts?.skipIndex) {
+    const { loadConfig, index } = await import('memonaut');
+    const config = loadConfig({ ...process.env, ...env });
+    index({ config });
+  }
+
+  return {
+    root,
+    dbPath,
+    memonautConfigDir,
+    whereverConfigDir,
+    sessionsRoot,
+    visibleCwd,
+    hiddenCwd,
+    fleetCwd,
+    parentFile,
+    forkFile,
+    hiddenFile,
+    fleetFile,
+    env,
+  };
+}
+
+/** Write the server-side wherever config (auto-sync off: no child indexers here). */
+function writeWhereverConfig(
+  fixture: Fixture,
+  sessions: Record<string, string[]>,
+  conversationSearch: Record<string, unknown> = { autoSync: false },
+): void {
+  fs.writeFileSync(
+    path.join(fixture.whereverConfigDir, 'config.json'),
+    JSON.stringify({ conversationSearch, sessions }, null, 2),
+  );
+}
+
+interface SearchResponseShape {
+  status: string;
+  query: string;
+  hits: Array<{
+    entryKey: string;
+    role: string;
+    kind: string;
+    snippet: string;
+    threads: Array<{
+      sessionPath: string;
+      cwd: string;
+      folderName: string;
+      lastActivity: string | null;
+      seq: number;
+      after: number;
+      isRoot: boolean;
+      readOnly: boolean;
+    }>;
+    threadTotal: number;
+  }>;
+  hiddenHits?: number;
+  index?: { path: string; files: number; entries: number };
+  message?: string;
+}
+
+async function search(
+  h: Harness,
+  query: string,
+  view?: 'default' | 'readonly',
+): Promise<SearchResponseShape> {
+  const url =
+    `http://127.0.0.1:${h.port}/search?q=${encodeURIComponent(query)}` +
+    (view ? `&view=${view}` : '');
+  const res = await fetch(url);
+  expect(res.status).toBe(200);
+  return (await res.json()) as SearchResponseShape;
+}
+
+let harness: Harness | undefined;
+let cleanupDirs: string[] = [];
+
+afterEach(async () => {
+  await harness?.cleanup();
+  harness = undefined;
+  for (const dir of cleanupDirs) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {}
+  }
+  cleanupDirs = [];
+});
+
+describe('conversation search', () => {
+  it('answers with status:not-indexed instead of building the index inline', async () => {
+    // No index file at all. Building one here would be ~40 s of BLOCKED event
+    // loop, so the only correct answer is a well-formed "run `recall index`".
+    const fixture = await makeFixture({ skipIndex: true });
+    cleanupDirs.push(fixture.root);
+    writeWhereverConfig(fixture, {});
+    expect(fs.existsSync(fixture.dbPath)).toBe(false);
+
+    harness = await startHarness({ env: fixture.env });
+    const body = await search(harness, 'flamingo');
+
+    expect(body.status).toBe('not-indexed');
+    expect(body.hits).toEqual([]);
+    expect(body.message).toContain('recall index');
+    expect(body.index?.path).toBe(fixture.dbPath);
+    // The endpoint must not have created it as a side effect.
+    expect(fs.existsSync(fixture.dbPath)).toBe(false);
+
+    // And the server is still perfectly responsive afterwards.
+    const health = await fetch(`http://127.0.0.1:${harness.port}/health`);
+    expect(health.ok).toBe(true);
+  }, 60_000);
+
+  it('never returns a session hidden by sessions.ignore', async () => {
+    const fixture = await makeFixture();
+    cleanupDirs.push(fixture.root);
+    writeWhereverConfig(fixture, { ignore: [`${fixture.hiddenCwd}/**`] });
+
+    // The index itself DOES contain the hidden session: this asserts wherever's
+    // own rule is what removes it, not an accident of what was indexed.
+    const { loadConfig, openDb, search: memonautSearch } = await import('memonaut');
+    const config = loadConfig({ ...process.env, ...fixture.env });
+    const db = openDb(config.dbPath, { readOnly: true });
+    const raw = memonautSearch(db, { text: 'flamingo', limit: 20, threadLimit: 100 });
+    const rawPaths = raw.hits.flatMap((hit) => hit.threads.map((t) => t.path));
+    expect(rawPaths).toContain(fixture.hiddenFile);
+    db.close();
+
+    harness = await startHarness({ env: fixture.env });
+    const body = await search(harness, 'flamingo');
+
+    expect(body.status).toBe('ok');
+    const paths = body.hits.flatMap((hit) => hit.threads.map((t) => t.sessionPath));
+    expect(paths).not.toContain(fixture.hiddenFile);
+    expect(paths.some((p) => p.startsWith(fixture.hiddenCwd))).toBe(false);
+    // The visible project is still searchable, so this is a filter, not a break.
+    expect(paths).toContain(fixture.parentFile);
+    // Nothing leaks through the snippets either.
+    expect(JSON.stringify(body.hits)).not.toContain('nobody should see');
+  }, 60_000);
+
+  it('keeps sessions.readOnly folders on their own view, exactly like /sessions', async () => {
+    const fixture = await makeFixture();
+    cleanupDirs.push(fixture.root);
+    writeWhereverConfig(fixture, {
+      ignore: [`${fixture.hiddenCwd}/**`],
+      readOnly: [`${fixture.fleetCwd}/**`],
+    });
+
+    harness = await startHarness({ env: fixture.env });
+
+    const main = await search(harness, 'flamingo');
+    const mainPaths = main.hits.flatMap((hit) => hit.threads.map((t) => t.sessionPath));
+    expect(mainPaths).toContain(fixture.parentFile);
+    expect(mainPaths).not.toContain(fixture.fleetFile);
+    // A hit whose every thread was filtered out is counted, not silently lost.
+    expect(main.hiddenHits).toBeGreaterThan(0);
+
+    const readonly = await search(harness, 'flamingo', 'readonly');
+    const roPaths = readonly.hits.flatMap((hit) => hit.threads.map((t) => t.sessionPath));
+    expect(roPaths).toContain(fixture.fleetFile);
+    expect(roPaths).not.toContain(fixture.parentFile);
+    // Still minus sessions.ignore: readOnly is a different axis, not an escape.
+    expect(roPaths).not.toContain(fixture.hiddenFile);
+    expect(readonly.hits.every((hit) => hit.threads.every((t) => t.readOnly))).toBe(true);
+  }, 60_000);
+
+  it('returns every fork carrying a shared match, newest-active first', async () => {
+    const fixture = await makeFixture();
+    cleanupDirs.push(fixture.root);
+    writeWhereverConfig(fixture, {});
+
+    harness = await startHarness({ env: fixture.env });
+    const body = await search(harness, '"flamingo protocol"');
+
+    expect(body.status).toBe('ok');
+    const shared = body.hits.find((hit) =>
+      hit.threads.some((t) => t.sessionPath === fixture.parentFile),
+    );
+    expect(shared).toBeDefined();
+
+    // A match in shared history belongs to BOTH threads and is never collapsed.
+    const paths = shared!.threads.map((t) => t.sessionPath);
+    expect(paths).toContain(fixture.parentFile);
+    expect(paths).toContain(fixture.forkFile);
+    expect(shared!.threadTotal).toBe(2);
+    // Most recently active first: the fork was touched a day later.
+    expect(paths[0]).toBe(fixture.forkFile);
+    // `after` is what tells byte-identical siblings apart.
+    const fork = shared!.threads.find((t) => t.sessionPath === fixture.forkFile)!;
+    const parent = shared!.threads.find((t) => t.sessionPath === fixture.parentFile)!;
+    expect(fork.after).toBeGreaterThan(parent.after);
+    expect(parent.isRoot).toBe(true);
+    expect(fork.isRoot).toBe(false);
+
+    // The join key: an absolute, resolved transcript path, i.e. exactly what
+    // /sessions reports as FolderSessionInfo.path, so a result is clickable.
+    for (const thread of shared!.threads) {
+      expect(path.isAbsolute(thread.sessionPath)).toBe(true);
+      expect(thread.sessionPath).toBe(path.resolve(thread.sessionPath));
+      expect(thread.cwd).toBe(fixture.visibleCwd);
+      expect(thread.folderName).toBe(path.basename(fixture.visibleCwd));
+    }
+
+    // Snippet carries FTS5 highlight markers for the web to render.
+    expect(shared!.snippet).toContain('\u0001');
+    expect(body.index?.files).toBeGreaterThan(0);
+  }, 60_000);
+
+  it('requires the same token as the other endpoints', async () => {
+    const fixture = await makeFixture();
+    cleanupDirs.push(fixture.root);
+    writeWhereverConfig(fixture, {});
+
+    harness = await startHarness({
+      env: { ...fixture.env, PI_REMOTE_TOKEN: 'secret-token' },
+    });
+
+    const unauthorized = await fetch(`http://127.0.0.1:${harness.port}/search?q=flamingo`);
+    expect(unauthorized.status).toBe(401);
+
+    const authorized = await fetch(
+      `http://127.0.0.1:${harness.port}/search?q=flamingo&token=secret-token`,
+    );
+    expect(authorized.status).toBe(200);
+    const body = (await authorized.json()) as SearchResponseShape;
+    expect(body.status).toBe('ok');
+    expect(body.hits.length).toBeGreaterThan(0);
+  }, 60_000);
+
+  it('catches the index up in a CHILD process, never inline', async () => {
+    const fixture = await makeFixture();
+    cleanupDirs.push(fixture.root);
+    writeWhereverConfig(fixture, {}, { autoSync: true, syncIntervalMs: 0 });
+
+    // A session written AFTER the index was built. Picking it up means walking
+    // transcripts and writing SQLite, which is exactly the synchronous work that
+    // must never happen on a request path.
+    const lateFile = writeSession(fixture.sessionsRoot, {
+      uuid: '00000000-0000-4000-8000-00000000eeee',
+      cwd: fixture.visibleCwd,
+      started: '2026-02-05T10:00:00.000Z',
+      entries: [{ id: 'eeee0001', text: 'a wombat appeared after indexing' }],
+    });
+
+    harness = await startHarness({ env: fixture.env });
+
+    const started = Date.now();
+    const first = await search(harness, 'wombat');
+    const elapsed = Date.now() - started;
+
+    // Served from the index AS IT IS: the new session is not in it yet. If this
+    // ever starts returning the late session, something began indexing inline.
+    expect(first.status).toBe('ok');
+    expect(first.hits).toEqual([]);
+    expect(elapsed).toBeLessThan(2000);
+
+    // ...but the request did kick off a background catch-up, so the session
+    // becomes searchable shortly after, with no further help from anyone.
+    const { loadConfig, openDb, search: memonautSearch } = await import('memonaut');
+    const config = loadConfig({ ...process.env, ...fixture.env });
+    const deadline = Date.now() + 30_000;
+    let indexed = false;
+    while (Date.now() < deadline && !indexed) {
+      await new Promise((r) => setTimeout(r, 250));
+      const db = openDb(config.dbPath, { readOnly: true });
+      try {
+        const raw = memonautSearch(db, { text: 'wombat', limit: 5, threadLimit: 10 });
+        indexed = raw.hits.some((hit) => hit.threads.some((t) => t.path === lateFile));
+      } finally {
+        db.close();
+      }
+    }
+    expect(indexed).toBe(true);
+
+    // And the freshly indexed session is now returned by the endpoint too.
+    const second = await search(harness, 'wombat');
+    const paths = second.hits.flatMap((hit) => hit.threads.map((t) => t.sessionPath));
+    expect(paths).toContain(lateFile);
+  }, 90_000);
+
+  it('treats an empty query as an empty result, not an error', async () => {
+    const fixture = await makeFixture();
+    cleanupDirs.push(fixture.root);
+    writeWhereverConfig(fixture, {});
+
+    harness = await startHarness({ env: fixture.env });
+    const body = await search(harness, '   ');
+    expect(body.status).toBe('ok');
+    expect(body.hits).toEqual([]);
+  }, 60_000);
+});
