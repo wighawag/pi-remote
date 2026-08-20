@@ -1,5 +1,14 @@
 # wherever-dev
 
+## 0.11.1
+
+### Patch Changes
+
+- 01b0601: Allow attaching files to the first message of a web search. The search composer (shown when no session is open) now has the 📎 button: picked files are held in the browser, uploaded as soon as the search creates its session, and referenced from the query as `[Uploaded file: ...]` lines. A search with files but no text is valid, upload failures still send the query and surface as a session error, and files are dropped if the composer leaves search mode. The uploaded-file message shape is now a shared, unit-tested helper (`web/src/lib/core/attachments.ts`) used by both the chat and search paths.
+- a42ea5c: fix(web): wrap long tokens in still-streaming (plain-text) messages
+
+  An assistant message that is still streaming is deliberately rendered as plain text (markdown is only parsed once the message is final, so the DOM stays stable and a selection survives), but that plain-text block had no `overflow-wrap`, unlike the finalized `.markdown-body` view. A single unbreakable token (a long file path, a URL) therefore pushed the rest of its line past the bubble and off-screen on a narrow viewport, so an in-progress reply looked like it was missing words until it finalized and re-rendered wrapped. The streaming block now uses `wrap-anywhere`, matching the finalized rendering; the same guard was added to the user/thinking plain-text bubbles and to skill-invocation args.
+
 ## 0.11.0
 
 ### Minor Changes
