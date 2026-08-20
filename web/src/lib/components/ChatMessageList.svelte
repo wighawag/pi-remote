@@ -1583,9 +1583,14 @@
 							{#if msg.isStreaming}
 								<!-- While streaming, render plain text. Re-parsing markdown on
 								     every token would rebuild the DOM and collapse any active
-								     selection; the finalized branch renders once and stays stable. -->
+								     selection; the finalized branch renders once and stays stable.
+								     `wrap-anywhere` mirrors `.markdown-body`'s overflow-wrap so an
+								     unbreakable token (a long file path, a URL) wraps instead of
+								     overflowing the bubble: without it the tail of such a line was
+								     pushed off-screen on a narrow viewport and read as "words are
+								     missing", until the message finalized and re-rendered wrapped. -->
 								<pre
-									class="chat-selectable font-sans text-sm leading-relaxed whitespace-pre-wrap">{msg.content}<span
+									class="chat-selectable font-sans text-sm leading-relaxed wrap-anywhere whitespace-pre-wrap">{msg.content}<span
 										class="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-brand-cyan align-text-bottom"
 									></span></pre>
 							{:else}
@@ -1761,14 +1766,19 @@
 										<span>skill:{parsedUserMsg.skill.skillName}</span>
 									</span>
 									{#if parsedUserMsg.skill.args}
-										<div class="text-sm leading-relaxed whitespace-pre-wrap">
+										<div
+											class="text-sm leading-relaxed wrap-anywhere whitespace-pre-wrap"
+										>
 											{parsedUserMsg.skill.args}
 										</div>
 									{/if}
 								</div>
 							{:else}
+								<!-- User + thinking bubbles are plain text too: same wrap-anywhere
+								     guard so a long path/URL cannot push the rest of the line out of
+								     the bubble. -->
 								<div
-									class="chat-selectable text-sm leading-relaxed whitespace-pre-wrap"
+									class="chat-selectable text-sm leading-relaxed wrap-anywhere whitespace-pre-wrap"
 								>
 									{#if parsedUserMsg.cleanContent}
 										{@const userHtml = renderUser(parsedUserMsg.cleanContent)}
