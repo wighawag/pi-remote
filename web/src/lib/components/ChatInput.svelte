@@ -16,6 +16,7 @@
 	import {getConversationKnobs} from '$lib/wherever';
 	import {getBaseUrl, getToken} from '$lib/session-store';
 	import {decideComposeSend} from '$lib/core/compose-send';
+	import {buildAttachmentMessage} from '$lib/core/attachments';
 	import {isKnobActive} from '$lib/core/conversation-mode';
 	import {decideMicReopen} from '$lib/core/hands-free';
 	import {whenTtsIdle} from '$lib/core/speak';
@@ -36,7 +37,9 @@
 		disabled: boolean;
 		onSend?: () => void;
 		// When provided (search mode), submit routes here instead of sendMessage.
-		onSubmit?: (text: string) => void;
+		// Files are handed over UNUPLOADED: search has no session yet, so the
+		// search flow uploads them once it has created one.
+		onSubmit?: (text: string, files?: File[]) => void;
 		placeholder?: string;
 		submitLabel?: string;
 		showAttach?: boolean;
@@ -71,8 +74,16 @@
 	let skillMenuIndex = $state(0);
 
 	let fileInput = $state<HTMLInputElement>();
+	// An attachment is either already uploaded (`path` set, chat mode) or still a
+	// local File waiting for a session to upload it to (`file` set, search mode).
 	let attachments = $state<
-		{name: string; path?: string; error?: string; uploading: boolean}[]
+		{
+			name: string;
+			path?: string;
+			error?: string;
+			uploading: boolean;
+			file?: File;
+		}[]
 	>([]);
 
 	let streaming = $derived($isStreaming);
@@ -247,6 +258,19 @@
 		} catch {}
 	});
 
+	// Files picked in search mode are held locally until the search creates its
+	// session. If the composer leaves search mode first (the user opens a session
+	// instead of searching), those files have no destination, so drop them rather
+	// than let a stale chip ride along into a chat message.
+	$effect(() => {
+		if (searchMode) return;
+		untrack(() => {
+			if (attachments.some((a) => a.file)) {
+				attachments = attachments.filter((a) => !a.file);
+			}
+		});
+	});
+
 	// Exposed so a parent can focus the textarea SYNCHRONOUSLY inside a user
 	// gesture (required to raise the mobile virtual keyboard, esp. iOS Safari).
 	export function focusInput() {
@@ -317,6 +341,17 @@
 		const files = Array.from(target.files);
 		target.value = '';
 
+		// Search mode has no session to upload into yet (the session is created by
+		// the search itself), so just hold the files; runSearch uploads them once
+		// the session exists.
+		if (searchMode) {
+			attachments = [
+				...attachments,
+				...files.map((f) => ({name: f.name, uploading: false, file: f})),
+			];
+			return;
+		}
+
 		const startIdx = attachments.length;
 		attachments = [
 			...attachments,
@@ -369,33 +404,27 @@
 	function handleSend() {
 		const trimmed = text.trim();
 
-		// Search mode: route to the injected handler, skip slash commands,
-		// attachments and the streaming/queue machinery entirely.
+		// Search mode: route to the injected handler with the (not yet uploaded)
+		// files, skipping slash commands and the streaming/queue machinery entirely.
+		// Files alone are a valid search: the query can be "what is this?" implied.
 		if (searchMode) {
-			if (!trimmed || effectivelyDisabled) return;
-			onSubmit?.(trimmed);
+			const files = attachments
+				.map((a) => a.file)
+				.filter((f): f is File => !!f);
+			if ((!trimmed && files.length === 0) || effectivelyDisabled) return;
+			onSubmit?.(trimmed, files);
 			text = '';
+			attachments = [];
 			onSend?.();
 			return;
 		}
 
 		if (!trimmed && attachments.length === 0) return;
 
-		let messageToSend = trimmed;
-		if (attachments.length > 0) {
-			const validAttachments = attachments.filter((a) => a.path);
-			if (validAttachments.length > 0) {
-				const fileLines = validAttachments
-					.map((a) => `[Uploaded file: ${a.path}]`)
-					.join('\n');
-
-				if (messageToSend) {
-					messageToSend += '\n\n' + fileLines;
-				} else {
-					messageToSend = `I have uploaded the following file(s) for you:\n${fileLines}`;
-				}
-			}
-		}
+		const uploadedPaths = attachments
+			.map((a) => a.path)
+			.filter((p): p is string => !!p);
+		const messageToSend = buildAttachmentMessage(trimmed, uploadedPaths);
 
 		// Handle local slash commands to match terminal behavior
 		if (trimmed.startsWith('/') && attachments.length === 0) {
@@ -574,6 +603,13 @@
 							<span
 								class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-brand-blue border-t-transparent"
 							></span>
+						{:else if attachment.file}
+							<!-- Search mode: held locally, uploaded when the search creates
+							     its session. -->
+							<span
+								class="text-brand-text-muted"
+								title="Will be uploaded with the search">📎</span
+							>
 						{:else if attachment.error}
 							<span
 								class="flex items-center gap-1 text-[10px] font-medium text-rose-400"
@@ -693,7 +729,7 @@
 			</div>
 
 			<div class="flex w-[80px] shrink-0 flex-col justify-end gap-2">
-				{#if showAttach && !searchMode}
+				{#if showAttach}
 					<button
 						type="button"
 						onclick={() => {

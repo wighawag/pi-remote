@@ -846,7 +846,7 @@
 				searchConfigured={!!searchFolder}
 				{searchModels}
 				bind:searchModel
-				onSubmit={(q) => runSearch(q, searchModel)}
+				onSubmit={(q, files) => runSearch(q, searchModel, files)}
 				placeholder="Search the web..."
 				submitLabel="Search"
 				disabled={searchActive

@@ -10,6 +10,7 @@ import {
 	resolveConversationMode,
 	shouldSignalConversationMode,
 } from './core/conversation-mode';
+import {buildAttachmentMessage} from './core/attachments';
 import {
 	setCurrentSession,
 	getBaseUrl,
@@ -561,9 +562,54 @@ state.subscribe((s) => {
 	prevIsStreaming = s.isStreaming;
 });
 
-// When runSearch() creates a session, hold the query here until the matching
-// session_created arrives, then send it as the first message of that session.
-let pendingSearchQuery: string | null = null;
+// When runSearch() creates a session, hold the query (and any files attached to
+// it) here until the matching session_created arrives, then send it as the first
+// message of that session.
+// Files cannot be uploaded before that point: an upload is attributed to a
+// session (it decides the upload dir), and in search mode the session does not
+// exist yet. So the browser keeps the File objects and the upload happens in
+// deliverPendingSearch(), between session creation and the first message.
+type PendingSearch = {query: string; files: File[]};
+let pendingSearch: PendingSearch | null = null;
+
+/**
+ * Send a held search query as the first message of the freshly created session,
+ * uploading its attachments first so their server paths can be referenced.
+ *
+ * Upload failures never swallow the search: the query still goes out with
+ * whatever uploaded, and the failures are surfaced as a session error.
+ */
+async function deliverPendingSearch(pending: PendingSearch): Promise<void> {
+	const {query, files} = pending;
+	if (files.length === 0) {
+		client.sendMessage(query, sendOptions());
+		return;
+	}
+	const sessionId = get(state).sessionId;
+	const paths: string[] = [];
+	const failed: string[] = [];
+	for (const file of files) {
+		if (!sessionId) {
+			failed.push(file.name);
+			continue;
+		}
+		try {
+			const res = await uploadFile(sessionId, file);
+			paths.push(res.savedPath);
+		} catch (err) {
+			failed.push(
+				`${file.name} (${(err as Error).message || 'upload failed'})`,
+			);
+		}
+	}
+	if (failed.length > 0) {
+		state.update((s) => ({
+			...s,
+			sessionError: `Could not attach ${failed.join(', ')}`,
+		}));
+	}
+	client.sendMessage(buildAttachmentMessage(query, paths), sendOptions());
+}
 
 // Composer prefill: text to drop into the message box (to edit and send), used
 // by the fork-at-user-message flow to mirror pi's `/fork` position:'before'
@@ -612,21 +658,21 @@ client.onMessage((msg) => {
 				// before we overwrite it with the forked-at text.
 				queueMicrotask(() => prefillComposer(text));
 			}
-			if (pendingSearchQuery !== null) {
-				const query = pendingSearchQuery;
-				pendingSearchQuery = null;
+			if (pendingSearch !== null) {
+				const pending = pendingSearch;
+				pendingSearch = null;
 				// App onMessage listeners run BEFORE the client's internal switch
 				// sets sessionId on its state store, and sendMessage() drops the
-				// message when sessionId is still null. Defer to the next microtask
-				// so the store is populated before we send the query.
-				queueMicrotask(() => client.sendMessage(query, sendOptions()));
+				// message when sessionId is still null (uploads need it too). Defer to
+				// the next microtask so the store is populated before we send.
+				queueMicrotask(() => void deliverPendingSearch(pending));
 			}
 			break;
 
 		case 'session_error':
 			// A search that failed to create a session must not leave a stale
 			// pending query that would fire on the next unrelated session.
-			pendingSearchQuery = null;
+			pendingSearch = null;
 			// Likewise, a failed fork must not leak its prefill into a later session.
 			pendingForkPrefill = null;
 			break;
@@ -799,14 +845,23 @@ export function createSession(
  * session, grouped in the sidebar under the search folder. When `model` is
  * omitted the server default (folder-local config) is used. Returns false
  * (no-op) if no search folder is configured.
+ *
+ * `files` are attachments picked in the search composer. They are uploaded only
+ * AFTER the session exists (see deliverPendingSearch) and referenced from the
+ * first message, so a search can open with an image or a document. A search with
+ * files but no prose is allowed; an empty search with neither is not.
  */
-export function runSearch(query: string, model?: string): boolean {
+export function runSearch(
+	query: string,
+	model?: string,
+	files: File[] = [],
+): boolean {
 	const trimmed = query.trim();
-	if (!trimmed) return false;
+	if (!trimmed && files.length === 0) return false;
 	const folder = get(searchFolderStore);
 	if (!folder) return false;
 	const createRemote = get(searchCreateRemoteStore);
-	pendingSearchQuery = trimmed;
+	pendingSearch = {query: trimmed, files};
 	// model omitted -> server default. gitInit follows remote intent.
 	// repoVisibility forced to 'private' when a remote is created.
 	client.createSession(
