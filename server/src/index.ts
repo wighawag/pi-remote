@@ -1785,6 +1785,20 @@ function clearConflictState(client: WSClient): void {
   client.pendingCwd = undefined;
 }
 
+// Is a DIFFERENT session in the same working folder currently being viewed? That
+// is the whole definition of a folder conflict: two agents pointed at one working
+// tree. Two viewers of the SAME conversation are not a conflict (they share one
+// agent), and a session nobody is attached to is not one either (idle, no turns).
+function folderHasOtherViewedSession(
+  pool: SessionPool,
+  mySessionFile: string,
+  cwd: string,
+): boolean {
+  return pool
+    .getAllSessions()
+    .some((s) => s.sessionFile !== mySessionFile && s.cwd === cwd && s.clients.size > 0);
+}
+
 // Recompute ONE client's folder-conflict state and settle the read-only it
 // imposed: releasing it once the conflict no longer holds is part of resolving,
 // not a side effect the callers could skip. Shared by the live broadcast, the
@@ -1799,23 +1813,14 @@ function resolveFolderConflictState(
   const mine = pool.getSession(c.sessionId);
   if (!mine) return null;
 
-  let active = false;
-  for (const s of pool.getAllSessions()) {
-    if (s.sessionFile === mine.sessionFile) continue;
-    if (s.cwd === mine.cwd && s.clients.size > 0) {
-      active = true;
-      break;
-    }
-  }
-  // A conflict OBSERVER shares the occupant's session file (session_new attaches
-  // it there read-only), so the scan above -- which skips this very file -- can
-  // never see its conflict. Its conflict lasts exactly as long as someone else is
-  // still on that session.
-  if (!active && c.conflictObserver) {
-    for (const cid of mine.clients) {
-      if (cid !== c.id) { active = true; break; }
-    }
-  }
+  const active = folderHasOtherViewedSession(pool, mine.sessionFile, mine.cwd);
+  // NOTE: every conflict is now between DIFFERENT session files in one folder --
+  // an observer gets its own new session (session_new) or loads its own
+  // (session_load), never the occupant's file -- so the scan above sees them all.
+  // Do NOT fall back to "someone else is on my file": a second viewer of the SAME
+  // conversation is not a folder conflict, and counting it would pin the banner
+  // (and the read-only it imposes) on forever.
+
   // The conflict resolved (the other party left the folder/session): release the
   // read-only state it imposed, otherwise the client keeps an observe-only
   // composer forever with no banner left to lift it. A configured
@@ -2137,65 +2142,38 @@ async function handleWSMessage(
     }
 
     case 'session_new': {
-      const existing = pool.findActiveSessionByCwd(msg.cwd);
-      const hasOtherClients = existing && (
-        existing.clients.size > 1 || 
-        (existing.clients.size === 1 && !existing.clients.has(client.id))
-      );
-      if (hasOtherClients && existing) {
-        // Another client already holds a live session in this folder. We no
-        // longer block or take over: a brand-new session cannot be created while
-        // the folder is occupied (createNewSession would just hand back the
-        // existing one), so attach to that existing session as a read-only
-        // observer and raise the warning banner. "Continue anyway"
-        // (folder_conflict_continue) lifts read-only so both can send.
-        pool.addClient(existing.sessionFile, client.id);
-        switchClientSession(client, existing.sessionFile, pool, onSessionsUpdated);
-        client.readOnly = true;
-        clearConflictState(client);
-        client.conflictObserver = true;
-        client.pendingCwd = existing.cwd;
-
-        sendWS(client.ws, {
-          type: 'session_created',
-          sessionId: existing.sessionId,
-          sessionFile: existing.sessionFile,
-          cwd: existing.cwd,
-          model: existing.model,
-          isStreaming: pool.isStreaming(existing.sessionFile),
-          readOnly: true,
-          folderConflict: true,
-        });
-
-        const history = await pool.getSessionHistoryWindow(existing.sessionFile, INITIAL_HISTORY_LIMIT);
-        sendWS(client.ws, {
-          type: 'message_history',
-          sessionId: existing.sessionId,
-          messages: history.messages,
-          totalCount: history.totalCount,
-          offset: history.offset,
-        });
-        return;
-      }
-
-      // If the client is currently associated with the existing session in this CWD and wants to start a fresh new one,
-      // let's switch their session to null first so that the existing session has 0 clients. This ensures
-      // pool.createNewSession will create a brand new session instead of returning the existing one.
-      if (existing && existing.clients.has(client.id)) {
-        switchClientSession(client, null, pool, onSessionsUpdated);
-      }
-
-      const result = await pool.createNewSession(msg.cwd, msg.model, msg.gitInit, msg.createRemote, msg.repoVisibility, msg.cloneRemote);
+      // "New conversation here" ALWAYS produces a new conversation. We used to
+      // hand an occupied folder's existing session back to the asker (read-only,
+      // with the folder-conflict banner), because createNewSession refused to
+      // create beside a live session. That answered a different question than the
+      // one asked: the user landed in a conversation they did not ask for -- often
+      // the very one they were already reading, since "another client" also covers
+      // their own second tab or a not-yet-reaped dropped socket -- and the banner's
+      // "Continue anyway" could only unlock THAT conversation, never give them the
+      // fresh one. So: create the session (forceNew), then report the folder
+      // conflict, if any, AGAINST the new session.
+      const result = await pool.createNewSession(msg.cwd, msg.model, msg.gitInit, msg.createRemote, msg.repoVisibility, msg.cloneRemote, true);
       if (result.error) {
         sendWS(client.ws, { type: 'session_error', error: result.error });
         return;
       }
 
+      // Attaching also detaches us from whatever we were on (switchClientSession
+      // -> removeClient), so the conversation we came from stops counting us.
       pool.addClient(result.tracked.sessionFile, client.id);
       switchClientSession(client, result.tracked.sessionFile, pool, onSessionsUpdated);
-      client.readOnly = false;
       clearConflictState(client);
       client.pendingCwd = result.tracked.cwd;
+
+      // Is somebody else still live in this folder? Then two agents would be
+      // editing the same working tree, which is exactly what the folder-conflict
+      // banner is for: the new session starts read-only (observing) until the user
+      // clicks "Continue anyway", which lifts read-only WITHOUT touching the other
+      // session. The difference from before is that the banner now sits on the
+      // conversation they asked for, so continuing does what it says.
+      const folderOccupied = folderHasOtherViewedSession(pool, result.tracked.sessionFile, result.tracked.cwd);
+      client.readOnly = folderOccupied || pool.isReadOnlyCwd(result.tracked.cwd);
+      client.conflictObserver = folderOccupied;
 
       sendWS(client.ws, {
         type: 'session_created',
@@ -2204,6 +2182,8 @@ async function handleWSMessage(
         cwd: result.tracked.cwd,
         model: result.tracked.model,
         isStreaming: pool.isStreaming(result.tracked.sessionFile),
+        readOnly: client.readOnly,
+        folderConflict: folderOccupied,
       });
 
       sendWS(client.ws, {

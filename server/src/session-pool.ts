@@ -1145,7 +1145,21 @@ export class SessionPool {
     return loadPromise;
   }
 
-  async createNewSession(cwd: string, modelStr?: string, gitInit?: boolean, createRemote?: boolean, repoVisibility?: 'private' | 'public', cloneRemote?: boolean): Promise<{ tracked: TrackedSession; error?: string; sessionFile?: string }> {
+  /**
+   * Start a session in `cwd`.
+   *
+   * By default this is "give me A session here": an occupied folder hands back
+   * the session already running in it, so a caller that only wants to reach the
+   * folder does not spawn a duplicate agent beside a live one.
+   *
+   * `forceNew` is the other intent: "give me a NEW conversation here". It always
+   * writes a fresh session, even when the folder is occupied, because handing an
+   * existing conversation to someone who explicitly asked for a new one is never
+   * the answer they can act on (see the `session_new` handler in index.ts). The
+   * folder-sharing risk that the dedupe used to prevent is carried by the
+   * folder-conflict banner (read-only until "Continue anyway") instead.
+   */
+  async createNewSession(cwd: string, modelStr?: string, gitInit?: boolean, createRemote?: boolean, repoVisibility?: 'private' | 'public', cloneRemote?: boolean, forceNew?: boolean): Promise<{ tracked: TrackedSession; error?: string; sessionFile?: string }> {
     let resolvedCwd = cwd;
     if (cwd.startsWith('~')) {
       resolvedCwd = path.join(os.homedir(), cwd.slice(1));
@@ -1157,13 +1171,21 @@ export class SessionPool {
 
     resolvedCwd = normalizePath(resolvedCwd);
 
-    const existing = this.findActiveSessionByCwd(resolvedCwd);
-    if (existing && existing.clients.size > 0) {
-      return { tracked: existing };
+    if (!forceNew) {
+      const existing = this.findActiveSessionByCwd(resolvedCwd);
+      if (existing && existing.clients.size > 0) {
+        return { tracked: existing };
+      }
     }
 
-    if (this.pendingCreateSessions.has(resolvedCwd)) {
-      return this.pendingCreateSessions.get(resolvedCwd)!;
+    const pendingCreate = this.pendingCreateSessions.get(resolvedCwd);
+    if (pendingCreate) {
+      // A create for this folder is already running. Without forceNew, join it
+      // (that is the double-submit guard). With forceNew we still WAIT for it --
+      // it may be doing the mkdir / git init / clone this folder needs -- and
+      // then create our own session on top, so "new" stays new.
+      if (!forceNew) return pendingCreate;
+      await pendingCreate.catch(() => {});
     }
 
     const createPromise = (async () => {

@@ -190,7 +190,7 @@ Fetch all LLM models currently configured and available in Pi's local ModelRegis
   ```
 
 ### `POST /session/new`
-Create a brand new session inside a directory.
+Start a session inside a directory. If that folder already has a live session with at least one attached viewer, this returns THAT session instead of creating a second agent beside it. (The WebSocket `session_new` message is the other intent: it always creates a new conversation.)
 * **Auth required:** Yes
 * **Request Body:**
   ```json
@@ -300,7 +300,7 @@ Send a raw WAV voice recording to be transcribed using the configured server-sid
 
 Establish a connection via `ws://127.0.0.1:31415/ws?token=YOUR_TOKEN`.
 
-Optionally add `&clientKey=YOUR_STABLE_KEY` (max 128 chars): a stable identity for one viewer, reused across reconnects. When a new connection arrives with a key that is already registered, the server sends the older connection a `connection_superseded` message and retires it (detaching it from its session) instead of treating it as an additional viewer. A client that actually receives `connection_superseded` is alive, so it must regenerate its key before reconnecting, otherwise two viewers sharing a key would evict each other indefinitely. Keys longer than 128 characters are ignored (with a server-side warning), leaving that connection without supersede protection. This is what keeps a reconnect after a silent drop (phone sleep, network switch) from being mistaken for a second viewer, which would otherwise turn "new session in this folder" into a read-only folder conflict. Use one key per independent viewer (the web app uses one per browser tab).
+Optionally add `&clientKey=YOUR_STABLE_KEY` (max 128 chars): a stable identity for one viewer, reused across reconnects. When a new connection arrives with a key that is already registered, the server sends the older connection a `connection_superseded` message and retires it (detaching it from its session) instead of treating it as an additional viewer. A client that actually receives `connection_superseded` is alive, so it must regenerate its key before reconnecting, otherwise two viewers sharing a key would evict each other indefinitely. Keys longer than 128 characters are ignored (with a server-side warning), leaving that connection without supersede protection. This is what keeps a reconnect after a silent drop (phone sleep, network switch) from being mistaken for a second viewer, which would otherwise open "new session in this folder" read-only behind a folder-conflict banner, for a conflict with nobody. Use one key per independent viewer (the web app uses one per browser tab).
 
 ### Client $\rightarrow$ Server Messages
 
@@ -312,7 +312,10 @@ Optionally add `&clientKey=YOUR_STABLE_KEY` (max 128 chars): a stable identity f
   "cwd": "/home/user/my-project"
 }
 
-// Create and join a new session
+// Create and join a new session. Always creates one, even if another viewer is
+// already live in that folder: in that case the reply carries readOnly:true and
+// folderConflict:true, and the new session becomes sendable once the user answers
+// the warning banner with folder_conflict_continue ("Continue anyway").
 {
   "type": "session_new",
   "cwd": "/home/user/my-project"

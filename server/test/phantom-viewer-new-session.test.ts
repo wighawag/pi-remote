@@ -67,7 +67,7 @@ describe('new session in an occupied folder', () => {
     await closed;
   }, 60_000);
 
-  it('still attaches read-only when a genuinely different viewer holds the folder', async () => {
+  it('still warns + starts read-only when a genuinely different viewer holds the folder, on a session of its OWN', async () => {
     h = await startHarness({ idleTimeoutMs: 300_000 });
     const cwd = h.workspace + '/occupied';
 
@@ -81,8 +81,40 @@ describe('new session in an occupied folder', () => {
     other.send({ type: 'session_new', cwd });
     const reply = await other.waitForType('session_created');
 
+    // The folder is shared, so the conflict protection still applies...
     expect(reply.readOnly).toBe(true);
     expect(reply.folderConflict).toBe(true);
-    expect(reply.sessionFile).toBe(created.sessionFile);
+    // ...but it applies to the NEW conversation that was asked for. Landing in
+    // the occupant's conversation answers a question nobody asked, and leaves
+    // "Continue anyway" unlocking the wrong session.
+    expect(reply.sessionFile).not.toBe(created.sessionFile);
+  }, 60_000);
+
+  it('creates a fresh session even while the asker is reading one in that folder', async () => {
+    // The reported bug: with a conversation open in the folder, "new conversation
+    // here" bounced the user back into a conversation that already existed (their
+    // own, or the other viewer's) with a "another client is active" banner. An
+    // explicit new-conversation request must never hand back an old conversation.
+    h = await startHarness({ idleTimeoutMs: 300_000 });
+    const cwd = h.workspace + '/busy';
+
+    const other = await h.connect('tab-2');
+    await other.waitForType('connected');
+    other.send({ type: 'session_new', cwd });
+    const occupant = await other.waitForType('session_created');
+
+    // Me: open that same folder's occupied session (read-only observer), which is
+    // where the sidebar's "+" is clicked from.
+    const me = await h.connect('tab-1');
+    await me.waitForType('connected');
+    me.send({ type: 'session_load', sessionFile: occupant.sessionFile, cwd });
+    await me.waitForType('session_created');
+
+    me.send({ type: 'session_new', cwd });
+    const mine = await me.waitFor(
+      (m) => m.type === 'session_created' && m.sessionFile !== occupant.sessionFile,
+    );
+    expect(mine.sessionFile).not.toBe(occupant.sessionFile);
+    expect(mine.cwd).toBe(occupant.cwd);
   }, 60_000);
 });
