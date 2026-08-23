@@ -15,6 +15,49 @@ const serverDir = path.resolve(__dirname, '..');
 const serverEntry =
   process.env.WHEREVER_SERVER_ENTRY ?? path.resolve(serverDir, 'src/index.ts');
 
+// Run tsx DIRECTLY rather than via `pnpm exec tsx`. The pnpm indirection put two
+// extra processes between us and the server (pnpm -> tsx/cli.mjs -> node), and
+// pnpm does not forward SIGTERM to its grandchildren: killing it left the real
+// server running, reparented to init. Calling the binary directly means the pid
+// we hold IS the process we need to kill.
+const tsxBin = process.env.WHEREVER_TSX_BIN ?? path.resolve(serverDir, 'node_modules/.bin/tsx');
+
+// Every live harness server, so a crashing/interrupted test run cannot leak one.
+// cleanup() is the normal path; these hooks are the backstop for the abnormal one
+// (an uncaught throw in a test file, or the runner killing the worker), where
+// cleanup() never runs and the server would otherwise outlive the whole suite.
+const liveServers = new Set<number>();
+let exitHooksInstalled = false;
+
+function killGroup(pid: number, sig: NodeJS.Signals): void {
+  // Negative pid targets the whole process group (the child is detached, so it
+  // leads its own group and pgid === pid). Falls back to the bare pid if the
+  // group is already gone.
+  try {
+    process.kill(-pid, sig);
+  } catch {
+    try {
+      process.kill(pid, sig);
+    } catch {}
+  }
+}
+
+function installExitHooks(): void {
+  if (exitHooksInstalled) return;
+  exitHooksInstalled = true;
+  const reap = () => {
+    for (const pid of liveServers) killGroup(pid, 'SIGKILL');
+    liveServers.clear();
+  };
+  process.on('exit', reap);
+  for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+    process.on(sig, () => {
+      reap();
+      process.kill(process.pid, sig);
+    });
+  }
+}
+
 async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = net.createServer();
@@ -99,12 +142,15 @@ export async function startHarness(opts?: HarnessOptions): Promise<Harness> {
   const port = await freePort();
 
   const child: ChildProcess = spawn(
-    'pnpm',
+    tsxBin,
     // `start` is required: bare invocation prints usage and exits (the server is
     // reached only via the explicit `start` verb, see dispatch() in index.ts).
-    ['exec', 'tsx', serverEntry, 'start', '--port', String(port), '--host', '127.0.0.1', '--no-ssl'],
+    [serverEntry, 'start', '--port', String(port), '--host', '127.0.0.1', '--no-ssl'],
     {
       cwd: serverDir,
+      // Own process group, so cleanup() can signal the server AND anything it
+      // spawned in one shot, instead of leaving strays behind.
+      detached: true,
       env: {
         ...process.env,
         // Isolation: the harness runs the server with NO token/SSL (see the doc
@@ -137,6 +183,36 @@ export async function startHarness(opts?: HarnessOptions): Promise<Harness> {
   child.stdout?.on('data', (d) => process.env.GATE_DEBUG && process.stdout.write(`[srv] ${d}`));
   child.stderr?.on('data', (d) => process.env.GATE_DEBUG && process.stderr.write(`[srv!] ${d}`));
 
+  installExitHooks();
+  if (child.pid != null) liveServers.add(child.pid);
+  let exited = false;
+  child.once('exit', () => {
+    exited = true;
+    if (child.pid != null) liveServers.delete(child.pid);
+  });
+
+  /** Stop the server for real: signal its process group, escalate, and WAIT for
+   *  the exit. Returning before the process is gone is what let servers pile up
+   *  faster than they were reaped. */
+  const stopServer = async (): Promise<void> => {
+    if (exited || child.pid == null) return;
+    const pid = child.pid;
+    const waitExit = (ms: number) =>
+      new Promise<boolean>((resolve) => {
+        if (exited) return resolve(true);
+        const timer = setTimeout(() => resolve(exited), ms);
+        child.once('exit', () => {
+          clearTimeout(timer);
+          resolve(true);
+        });
+      });
+    killGroup(pid, 'SIGTERM');
+    if (await waitExit(5_000)) return;
+    // Wedged (e.g. thrashing under memory pressure): stop asking politely.
+    killGroup(pid, 'SIGKILL');
+    await waitExit(2_000);
+  };
+
   // Wait for /health.
   const deadline = Date.now() + 30_000;
   for (;;) {
@@ -163,7 +239,7 @@ export async function startHarness(opts?: HarnessOptions): Promise<Harness> {
     },
     async cleanup() {
       for (const c of clients) c.close();
-      child.kill('SIGTERM');
+      await stopServer();
       await fake.close();
       try {
         fs.rmSync(tmpRoot, { recursive: true, force: true });
