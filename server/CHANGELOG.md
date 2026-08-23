@@ -1,5 +1,21 @@
 # wherever-dev
 
+## 0.11.2
+
+### Patch Changes
+
+- a5723a8: Stop the test harness leaking a server process per test file. `startHarness()` spawned the server as `pnpm exec tsx ...` and tore it down with `child.kill('SIGTERM')`, but that signal reached only `pnpm`: the real server sat two levels down (`pnpm` -> `tsx/cli.mjs` -> `node`), so it survived teardown and was reparented to init. A full suite run therefore left ~50 MB of orphaned server behind per test file. Run inside the memory-capped `wherever` systemd service, this filled the cgroup with 141 leaked processes holding ~5.5 GB, pinning it at 98% memory pressure and 8.3 GB of swap: the service never OOM-killed (so `Restart=on-failure` never fired) and instead livelocked in permanent reclaim, presenting as a hang indistinguishable from a crash.
+
+  The harness now invokes the `tsx` binary directly (no signal-swallowing intermediary), spawns it `detached` so it leads its own process group, and `cleanup()` signals the entire group and awaits the actual exit, escalating `SIGTERM` -> `SIGKILL` if the process is wedged. The group kill matters beyond the removed `pnpm` layer, since `tsx` itself spawns an inner `node` child that a bare `child.kill()` would strand. A `process.on('exit')` backstop reaps any still-live server, covering the abnormal path where a test throws or the runner kills the worker and `cleanup()` never runs.
+
+- 8d458d3: Fix "new conversation here" landing you back in an existing conversation.
+
+  Asking for a new session in a folder that already had a live viewer did not create anything: the server attached you read-only to the session already running there and raised the "another client is active in this folder" banner. The conversation you were handed was often the one you were already reading (any second tab, or your own socket that dropped silently and has not been reaped yet, counts as another viewer), and "Continue anyway" could only unlock that old conversation, never give you the new one you asked for.
+
+  `session_new` now always creates a new session (`SessionPool.createNewSession(..., forceNew)` bypasses the reuse-an-occupied-folder shortcut). When the folder really is shared, the folder-conflict banner is raised on the NEW conversation, which starts read-only until "Continue anyway" - so the warning stays, but it now sits on the conversation you asked for. `POST /session/new` keeps its old reuse behaviour.
+
+  Also stops a second viewer of the SAME conversation being counted as a folder conflict, which could pin the banner (and its read-only) on with nothing left to resolve it.
+
 ## 0.11.1
 
 ### Patch Changes
