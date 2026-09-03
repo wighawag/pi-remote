@@ -525,7 +525,7 @@ async function runDiskScan(
  * personal `sessions.ignore: ["/tmp/**"]` silently hid the harness's own
  * temp-dir sessions from /sessions.
  */
-function getWhereverConfigDir(): string {
+export function getWhereverConfigDir(): string {
   const override = process.env.WHEREVER_CONFIG_DIR;
   return override && override.trim() ? path.resolve(override.trim()) : path.join(os.homedir(), '.wherever');
 }

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import {onMount, untrack} from 'svelte';
+	import {onDestroy, onMount, untrack} from 'svelte';
 	import {
 		sendMessage,
 		piState,
@@ -20,6 +20,20 @@
 	import {isKnobActive} from '$lib/core/conversation-mode';
 	import {decideMicReopen} from '$lib/core/hands-free';
 	import {whenTtsIdle} from '$lib/core/speak';
+	import {
+		DRAFTS_CACHE_KEY,
+		LEGACY_DRAFTS_KEY,
+		applyDraft,
+		decideDraftLoad,
+		draftOriginLabel,
+		draftPreview,
+		draftToConsumeOnSend,
+		parseDrafts,
+		serializeDrafts,
+		type Draft,
+		type DraftLoadMode,
+	} from '$lib/core/drafts';
+	import {fetchDrafts, saveDraftRemote, deleteDraftRemote} from '$lib/wherever';
 	import SpeechButton from './speech/SpeechButton.svelte';
 
 	let {
@@ -197,7 +211,229 @@
 		if (stored !== null) {
 			enterToSend = stored === 'true';
 		}
+		drafts = readCachedDrafts();
 	});
+
+	// --- Saved drafts (save instead of send) --------------------------------
+	// A draft is an EXPLICIT, durable message the user chose to keep rather than
+	// send, distinct from the per-session auto-draft above (invisible crash
+	// protection for the one text in the box).
+	//
+	// The STORE IS THE SERVER (`/drafts` -> <config dir>/drafts.json): a draft
+	// saved on a phone has to be there on the laptop, and must survive the browser
+	// losing its storage. The server is the only writer and answers every mutation
+	// with the whole list, which is adopted verbatim; localStorage holds a MIRROR
+	// used only to render the panel while disconnected. Drafts are global, not per
+	// session (a prompt written in one repo is often what you want to send in
+	// another), so the origin session/cwd is display metadata only.
+	let drafts = $state<Draft[]>([]);
+	let draftsOpen = $state(false);
+	// A draft the user asked to load while the box already held unsent text. It is
+	// held here (not loaded) until they pick Replace / Append / Cancel, so loading
+	// a draft can never silently destroy what they were typing.
+	let pendingDraft = $state<Draft | null>(null);
+	// The draft currently sitting in the composer. Loading does NOT delete a draft
+	// (one mistap would destroy it with no undo); SENDING it does, via
+	// draftToConsumeOnSend. Cleared whenever the link cannot hold any more.
+	let draftSource = $state<{id: string; text: string} | null>(null);
+	let draftSavedFlash = $state(false);
+	let draftError = $state<string | null>(null);
+	let draftsLoading = $state(false);
+	// Monotonic stamp for drafts responses. Several requests (an open-panel
+	// refresh, a save, a delete) can be in flight at once and they do NOT complete
+	// in order: without this, a slow GET landing after a fast DELETE would
+	// resurrect the deleted draft in the list AND in the offline mirror.
+	let draftsRequestSeq = 0;
+	let draftsAdoptedSeq = 0;
+	let draftFlashTimer: ReturnType<typeof setTimeout> | undefined;
+
+	function readCachedDrafts(): Draft[] {
+		if (typeof localStorage === 'undefined') return [];
+		try {
+			return parseDrafts(localStorage.getItem(DRAFTS_CACHE_KEY));
+		} catch {
+			return [];
+		}
+	}
+
+	// Adopt a server list and mirror it locally, unless a NEWER response has already
+	// been adopted (see draftsRequestSeq). A failed mirror write is NOT an error the
+	// user needs to see: the drafts are safe on the server, the cache is only an
+	// offline convenience.
+	function adoptDrafts(next: Draft[], seq: number) {
+		if (seq < draftsAdoptedSeq) return;
+		draftsAdoptedSeq = seq;
+		drafts = next;
+		if (typeof localStorage === 'undefined') return;
+		try {
+			localStorage.setItem(DRAFTS_CACHE_KEY, serializeDrafts(next));
+		} catch {}
+	}
+
+	// One-shot migration from the first, browser-only version of this feature, so
+	// a draft written against a pre-server build is not orphaned. The legacy key is
+	// removed once its contents are on the server; the cache key is a different key
+	// precisely so a mirrored list can never be re-uploaded after a delete.
+	async function migrateLegacyDrafts(): Promise<boolean> {
+		if (typeof localStorage === 'undefined') return false;
+		let legacy: Draft[] = [];
+		try {
+			legacy = parseDrafts(localStorage.getItem(LEGACY_DRAFTS_KEY));
+		} catch {}
+		if (legacy.length === 0) {
+			try {
+				localStorage.removeItem(LEGACY_DRAFTS_KEY);
+			} catch {}
+			return false;
+		}
+		try {
+			// Oldest first, so the server's newest-first order comes out right.
+			for (const d of [...legacy].reverse()) {
+				await saveDraftRemote({
+					text: d.text,
+					sessionId: d.sessionId,
+					cwd: d.cwd,
+				});
+			}
+			localStorage.removeItem(LEGACY_DRAFTS_KEY);
+			return true;
+		} catch {
+			// Leave the legacy key in place and try again on the next connection.
+			return false;
+		}
+	}
+
+	async function refreshDrafts() {
+		if (!connected) return;
+		const seq = ++draftsRequestSeq;
+		draftsLoading = true;
+		try {
+			await migrateLegacyDrafts();
+			adoptDrafts(await fetchDrafts(), seq);
+			draftError = null;
+		} catch (err) {
+			// Keep whatever list is on screen (possibly the offline mirror): an
+			// unreadable store must never be flattened into "you have no drafts".
+			draftError = (err as Error)?.message || 'Could not load drafts';
+		} finally {
+			draftsLoading = false;
+		}
+	}
+
+	// Pull the server list once the socket is up (and again after a reconnect), so
+	// a draft saved from another device is already there when the panel is opened.
+	let draftsFetchedWhileConnected = false;
+	$effect(() => {
+		if (!connected) {
+			draftsFetchedWhileConnected = false;
+			return;
+		}
+		if (draftsFetchedWhileConnected) return;
+		draftsFetchedWhileConnected = true;
+		void refreshDrafts();
+	});
+
+	// Save what is in the box and CLEAR it, exactly like a send would: "save
+	// instead of sending" means the composer is done with that message. The text is
+	// only cleared once the SERVER has it -- a failed save leaves the message in the
+	// box with the error, never silently swallowed. Attachments are deliberately
+	// left alone: an uploaded file lives on the server under a path and a draft is
+	// text only, so dropping the chips would lose them for a message the user still
+	// intends to send.
+	async function saveCurrentAsDraft() {
+		const trimmed = text.trim();
+		if (trimmed.length === 0) return;
+		// Snapshot what is being saved AND which composer it belongs to. The box is
+		// cleared only if BOTH still hold when the server answers: over a slow link
+		// the user can keep typing (clearing would delete everything typed since) or
+		// switch session (clearing would wipe THAT session's draft instead, from the
+		// box and from its auto-draft entry). Never clear text we did not save.
+		const keyAtRequest = draftKey;
+		const seq = ++draftsRequestSeq;
+		try {
+			const next = await saveDraftRemote({
+				text: trimmed,
+				sessionId: sessionInfo.sessionId ?? undefined,
+				cwd: sessionInfo.cwd ?? undefined,
+			});
+			adoptDrafts(next, seq);
+			draftError = null;
+			if (draftKey === keyAtRequest && text.trim() === trimmed) {
+				text = '';
+				draftSource = null;
+			}
+			draftSavedFlash = true;
+			clearTimeout(draftFlashTimer);
+			draftFlashTimer = setTimeout(() => (draftSavedFlash = false), 1800);
+		} catch (err) {
+			draftError = (err as Error)?.message || 'Could not save the draft';
+			draftsOpen = true;
+		}
+	}
+
+	function requestLoadDraft(draft: Draft) {
+		if (decideDraftLoad(text) === 'confirm') {
+			pendingDraft = draft;
+			return;
+		}
+		loadDraft(draft, 'replace');
+	}
+
+	function loadDraft(draft: Draft, mode: DraftLoadMode) {
+		// Make sure the current key counts as hydrated so the auto-draft effect
+		// persists the loaded text instead of skipping it (same reason the fork
+		// prefill does this).
+		hydratedKey = draftKey;
+		text = applyDraft(text, draft.text, mode);
+		draftSource = {id: draft.id, text: draft.text};
+		pendingDraft = null;
+		draftsOpen = false;
+		if (isCollapsed) isCollapsed = false;
+		queueMicrotask(() => {
+			if (!textarea) return;
+			textarea.focus();
+			const end = text.length;
+			textarea.setSelectionRange(end, end);
+		});
+	}
+
+	// Called after a message actually went out: a draft that has been SENT is not a
+	// draft any more. Best-effort -- the message is already delivered, so a failed
+	// delete must not look like a failed send; the stale draft simply survives.
+	function consumeDraftOnSend(sentText: string) {
+		const id = draftToConsumeOnSend(draftSource, sentText);
+		draftSource = null;
+		if (!id) return;
+		const seq = ++draftsRequestSeq;
+		void deleteDraftRemote(id)
+			.then((next) => adoptDrafts(next, seq))
+			.catch(() => {});
+	}
+
+	async function deleteDraft(id: string) {
+		const seq = ++draftsRequestSeq;
+		try {
+			adoptDrafts(await deleteDraftRemote(id), seq);
+			draftError = null;
+		} catch (err) {
+			draftError = (err as Error)?.message || 'Could not delete the draft';
+		}
+		if (pendingDraft?.id === id) pendingDraft = null;
+		if (draftSource?.id === id) draftSource = null;
+	}
+
+	function toggleDrafts() {
+		if (!draftsOpen) void refreshDrafts();
+		draftsOpen = !draftsOpen;
+		pendingDraft = null;
+	}
+
+	function closeDrafts() {
+		draftsOpen = false;
+		pendingDraft = null;
+	}
+
+	onDestroy(() => clearTimeout(draftFlashTimer));
 
 	// Swap the textarea to the active draft key's saved draft whenever the key
 	// changes (initial mount, session switch, search<->chat). This is an
@@ -218,6 +454,9 @@
 			}
 			text = saved ?? '';
 			hydratedKey = key;
+			// The box now holds a different session's text, so it is no longer the
+			// draft that was loaded: sending it must not delete that draft.
+			draftSource = null;
 		});
 	});
 
@@ -413,6 +652,7 @@
 				.filter((f): f is File => !!f);
 			if ((!trimmed && files.length === 0) || effectivelyDisabled) return;
 			onSubmit?.(trimmed, files);
+			consumeDraftOnSend(trimmed);
 			text = '';
 			attachments = [];
 			onSend?.();
@@ -429,19 +669,25 @@
 		// Handle local slash commands to match terminal behavior
 		if (trimmed.startsWith('/') && attachments.length === 0) {
 			const lower = trimmed.toLowerCase();
+			// Each of these CLEARS the box without sending, so the loaded draft is no
+			// longer in the composer: drop the link, or a later unrelated send could
+			// be credited to (and delete) that draft.
 			if (lower === '/new' || lower === '/reset') {
 				if (sessionInfo.cwd) {
 					createSession(sessionInfo.cwd, sessionInfo.model || undefined);
 					text = '';
+					draftSource = null;
 					return;
 				}
 			} else if (lower === '/clear') {
 				clearMessages();
 				text = '';
+				draftSource = null;
 				return;
 			} else if (lower === '/leave' || lower === '/exit') {
 				leaveSession();
 				text = '';
+				draftSource = null;
 				return;
 			}
 		}
@@ -481,6 +727,7 @@
 		// silently losing what they typed.
 		const sent = sendMessage(messageToSend);
 		if (sent) {
+			consumeDraftOnSend(trimmed);
 			text = '';
 			attachments = [];
 			onSend?.();
@@ -488,6 +735,13 @@
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
+		// Escape closes the drafts panel first (it floats over the composer), the
+		// same affordance the skill menu below has.
+		if (draftsOpen && e.key === 'Escape') {
+			e.preventDefault();
+			closeDrafts();
+			return;
+		}
 		// Skill autocomplete owns the navigation keys while the menu is open. The
 		// first Enter/Tab ACCEPTS the highlighted command (inserting `/skill:<name> `)
 		// and is swallowed, so a second Enter is needed to actually send, matching the
@@ -534,7 +788,128 @@
 	}
 </script>
 
-<div class="border-t border-brand-border p-4">
+<div class="relative border-t border-brand-border p-4">
+	{#if draftsOpen}
+		<!-- Saved drafts. Floats ABOVE the composer (like the skill menu) so opening
+		     it never resizes the textarea or pushes the transcript around. Loading a
+		     draft over a non-empty box routes through the warning below first. -->
+		<div
+			id="drafts-panel"
+			role="dialog"
+			aria-label="Saved drafts"
+			class="absolute right-4 bottom-full left-4 z-30 mb-2 overflow-hidden rounded-lg border border-brand-border bg-brand-surface-2 shadow-lg"
+		>
+			<div
+				class="flex items-center justify-between border-b border-brand-border px-3 py-2"
+			>
+				<span class="text-xs font-medium text-brand-text">
+					Saved drafts ({drafts.length})
+					{#if draftsLoading}
+						<span class="ml-1 text-brand-text-muted">syncing…</span>
+					{:else if !connected}
+						<span
+							class="ml-1 text-brand-text-muted"
+							title="Showing the last list this device saw. Saving and deleting need the server."
+							>offline copy</span
+						>
+					{/if}
+				</span>
+				<button
+					type="button"
+					onclick={closeDrafts}
+					class="text-xs text-brand-text-muted hover:text-brand-text"
+					aria-label="Close drafts">Close ×</button
+				>
+			</div>
+
+			{#if pendingDraft}
+				<!-- The warning the feature exists for: the box holds unsent text, so a
+				     load is offered as Replace (destructive, explicit) or Append (keeps
+				     both), never silently applied. -->
+				<div
+					class="border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300"
+				>
+					<div class="mb-2">
+						⚠️ The message box is not empty. Loading this draft would replace
+						what you typed.
+					</div>
+					<div class="flex flex-wrap gap-2">
+						<button
+							type="button"
+							onclick={() => pendingDraft && loadDraft(pendingDraft, 'replace')}
+							class="rounded bg-amber-500/20 px-2 py-1 font-medium text-amber-200 hover:bg-amber-500/30"
+							>Replace</button
+						>
+						<button
+							type="button"
+							onclick={() => pendingDraft && loadDraft(pendingDraft, 'append')}
+							class="rounded bg-brand-surface-3 px-2 py-1 font-medium text-brand-text hover:opacity-90"
+							>Append below</button
+						>
+						<button
+							type="button"
+							onclick={() => (pendingDraft = null)}
+							class="rounded px-2 py-1 text-brand-text-muted hover:text-brand-text"
+							>Cancel</button
+						>
+					</div>
+				</div>
+			{/if}
+
+			{#if drafts.length === 0}
+				<p class="px-3 py-4 text-center text-xs text-brand-text-muted">
+					No saved drafts yet. Type a message and press “Save draft” to keep it
+					on the server for later, from any device.
+				</p>
+			{:else}
+				<ul class="max-h-64 overflow-y-auto">
+					{#each drafts as d (d.id)}
+						<li
+							class="flex items-start gap-2 border-b border-brand-border/50 px-3 py-2 last:border-b-0 {pendingDraft?.id ===
+							d.id
+								? 'bg-brand-surface-3/60'
+								: ''}"
+						>
+							<!-- Loading needs a live box to load INTO. With no session and no
+							     search folder the composer is disabled, and dropping text into
+							     it would silently go nowhere, so the row says so instead. -->
+							<button
+								type="button"
+								onclick={() => requestLoadDraft(d)}
+								disabled={effectivelyDisabled}
+								class="min-w-0 flex-1 text-left disabled:cursor-not-allowed disabled:opacity-50"
+								title={effectivelyDisabled
+									? 'Open a session first to load this draft'
+									: d.text}
+							>
+								<span class="line-clamp-2 text-xs text-brand-text"
+									>{draftPreview(d.text)}</span
+								>
+								<span class="mt-0.5 block text-[10px] text-brand-text-muted"
+									>{new Date(d.updatedAt).toLocaleString()}{draftOriginLabel(d)
+										? ` · ${draftOriginLabel(d)}`
+										: ''}</span
+								>
+							</button>
+							<button
+								type="button"
+								onclick={() => deleteDraft(d.id)}
+								class="shrink-0 rounded px-1.5 py-0.5 text-xs text-brand-text-muted hover:bg-rose-500/10 hover:text-rose-400"
+								title="Delete this draft"
+								aria-label="Delete draft">🗑</button
+							>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+
+			{#if draftError}
+				<p class="border-t border-brand-border px-3 py-2 text-xs text-rose-400">
+					⚠️ {draftError}
+				</p>
+			{/if}
+		</div>
+	{/if}
 	{#if !connected || appState.connecting || appState.error}
 		<div
 			class="mb-2.5 flex items-center gap-1.5 text-xs font-medium text-brand-text-muted select-none"
@@ -782,7 +1157,7 @@
 		</form>
 
 		<div
-			class="mt-2 flex items-center justify-between px-1 text-[11px] text-brand-text-muted select-none"
+			class="mt-2 flex flex-wrap items-center justify-between gap-y-1.5 px-1 text-[11px] text-brand-text-muted select-none"
 		>
 			<label
 				class="flex cursor-pointer items-center gap-1.5 hover:text-brand-text"
@@ -796,6 +1171,32 @@
 				<span>Press Enter to send</span>
 			</label>
 			<div class="flex items-center gap-3">
+				<!-- Drafts are available in EVERY composer mode, including the no-session
+				     home page: a draft carries no session dependency, and the home page is
+				     exactly where you want to pull up something written yesterday and fire
+				     it into a new session. Saving needs the server (it is the store), so
+				     the button is disabled while disconnected. -->
+				<button
+					type="button"
+					onclick={saveCurrentAsDraft}
+					disabled={text.trim().length === 0 || !connected}
+					title={connected
+						? 'Save this message as a draft instead of sending it'
+						: 'Drafts are stored on the server, which is not reachable right now'}
+					class="rounded bg-brand-surface-3/50 px-2 py-0.5 text-xs text-brand-text-muted transition-colors hover:bg-brand-surface-3 hover:text-brand-text disabled:cursor-not-allowed disabled:opacity-40"
+				>
+					{draftSavedFlash ? '✓ Saved' : '💾 Save draft'}
+				</button>
+				<button
+					type="button"
+					onclick={toggleDrafts}
+					title="Open saved drafts"
+					aria-expanded={draftsOpen}
+					aria-controls="drafts-panel"
+					class="rounded bg-brand-surface-3/50 px-2 py-0.5 text-xs text-brand-text-muted transition-colors hover:bg-brand-surface-3 hover:text-brand-text"
+				>
+					🗂 Drafts{drafts.length > 0 ? ` (${drafts.length})` : ''}
+				</button>
 				<button
 					type="button"
 					onclick={() => (isCollapsed = true)}

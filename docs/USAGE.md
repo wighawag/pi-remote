@@ -189,6 +189,39 @@ Fetch all LLM models currently configured and available in Pi's local ModelRegis
   }
   ```
 
+### `GET /drafts`
+List every saved draft: messages the user chose to keep instead of sending. Drafts are stored ON THE SERVER (`<config dir>/drafts.json`, i.e. `~/.wherever/drafts.json` unless `WHEREVER_CONFIG_DIR` says otherwise), so a draft written on a phone is there on the laptop and survives the browser clearing its storage. They are global to the server, not scoped to a session: `sessionId`/`cwd` only record where a draft was written, for display.
+* **Auth required:** Yes
+* **Response (200 OK):** newest first. An unreadable or corrupt store answers `500` naming the file, never an empty list: "I cannot read your drafts" and "you have no drafts" are different answers, and a client that mirrored the second would overwrite its own offline copy.
+  ```json
+  {
+    "drafts": [
+      {
+        "id": "0f0a...",
+        "text": "refactor the session pool",
+        "createdAt": 1716490000000,
+        "updatedAt": 1716490000000,
+        "sessionId": "xyz",
+        "cwd": "/home/user/my-project"
+      }
+    ]
+  }
+  ```
+
+### `POST /drafts`
+Save a draft. Text identical to an existing draft does not duplicate it: the existing entry is touched and floats to the top. The list is capped at 100 drafts (least recently touched dropped).
+* **Auth required:** Yes
+* **Body:** `{ "text": "...", "sessionId": "xyz", "cwd": "/home/user/my-project" }` (`sessionId` and `cwd` optional)
+* **Response (200 OK):** `{ "drafts": [...] }`, the WHOLE new list, which the client adopts verbatim (the server is the only writer).
+* **Errors:** `400` if `text` is blank, longer than 20,000 characters, or if `sessionId`/`cwd` exceed 1,024 characters; `400` for a malformed body; `500` if the store cannot be read (the file is left untouched rather than overwritten). Over-long text is REJECTED, never truncated: the composer clears itself once the server has the draft, so a silently stored prefix would destroy the rest of the message.
+
+### `POST /drafts/delete`
+Delete one draft by id. POST rather than DELETE, mirroring `/session/delete`, so proxies that drop the DELETE method cannot break it.
+* **Auth required:** Yes
+* **Body:** `{ "id": "0f0a..." }`
+* **Response (200 OK):** `{ "drafts": [...] }`, the whole remaining list.
+* **Errors:** `400` if `id` is missing or the body is malformed; `500` if the store cannot be read (nothing is written).
+
 ### `POST /session/new`
 Start a session inside a directory. If that folder already has a live session with at least one attached viewer, this returns THAT session instead of creating a second agent beside it. (The WebSocket `session_new` message is the other intent: it always creates a new conversation.)
 * **Auth required:** Yes

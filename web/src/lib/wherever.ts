@@ -11,6 +11,7 @@ import {
 	shouldSignalConversationMode,
 } from './core/conversation-mode';
 import {buildAttachmentMessage} from './core/attachments';
+import {normalizeDrafts, type Draft} from './core/drafts';
 import {
 	setCurrentSession,
 	getBaseUrl,
@@ -1102,6 +1103,54 @@ export async function uploadFile(
 	} else {
 		return uploadFileViaWebSocket(sessionId, file);
 	}
+}
+
+// --- Saved drafts -------------------------------------------------------
+// Thin transport over the server's /drafts routes. The SERVER owns the list
+// (ids, dedupe, cap, order) and answers every mutation with the whole new list,
+// so these just hand it back to the caller: the client never merges lists of its
+// own, which is what would make the two copies drift.
+
+async function draftsRequest(
+	pathname: string,
+	init?: {method?: string; body?: unknown},
+): Promise<Draft[]> {
+	const baseUrl = getBaseUrl();
+	const token = getToken();
+	const url = `${baseUrl}${pathname}${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+	const res = await fetch(url, {
+		method: init?.method ?? 'GET',
+		...(init?.body !== undefined
+			? {
+					headers: {'Content-Type': 'application/json'},
+					body: JSON.stringify(init.body),
+				}
+			: {}),
+	});
+	if (!res.ok) {
+		const errData = await res.json().catch(() => ({}));
+		throw new Error(
+			errData.error || `Drafts request failed with status ${res.status}`,
+		);
+	}
+	const data = await res.json().catch(() => ({}));
+	return normalizeDrafts(data.drafts);
+}
+
+export async function fetchDrafts(): Promise<Draft[]> {
+	return draftsRequest('/drafts');
+}
+
+export async function saveDraftRemote(input: {
+	text: string;
+	sessionId?: string;
+	cwd?: string;
+}): Promise<Draft[]> {
+	return draftsRequest('/drafts', {method: 'POST', body: input});
+}
+
+export async function deleteDraftRemote(id: string): Promise<Draft[]> {
+	return draftsRequest('/drafts/delete', {method: 'POST', body: {id}});
 }
 
 export async function deleteSession(sessionFile: string): Promise<void> {

@@ -4,6 +4,7 @@ import { createServer as createHttpsServer, request as httpRequest } from 'node:
 import { WebSocketServer, WebSocket } from 'ws';
 import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent';
 import { SessionPool, getWhereverConfig, detectRemoteRepo, type WhereverConfig } from './session-pool.js';
+import { readDrafts, addDraft, deleteDraft, validateDraftInput } from './drafts.js';
 import { searchConversations } from './conversation-search.js';
 import type { ClientMessage, ServerMessage, ToolImage } from './protocol.js';
 import { INITIAL_HISTORY_LIMIT, HISTORY_PAGE_SIZE } from './protocol.js';
@@ -854,6 +855,7 @@ async function main(): Promise<void> {
 
     const isApiRequest = pathname.startsWith('/sessions') || 
                           pathname.startsWith('/search') || 
+                          pathname.startsWith('/drafts') || 
                           pathname.startsWith('/models') || 
                           pathname.startsWith('/config') || 
                           pathname.startsWith('/check-path') || 
@@ -896,6 +898,74 @@ async function main(): Promise<void> {
     if (pathname === '/models' && req.method === 'GET') {
       const models = sessionPool.getAvailableModels();
       sendJSON(res, 200, { models });
+      return;
+    }
+
+    // --- Saved drafts (messages kept instead of sent) ----------------------
+    // Server-side on purpose: a draft saved on a phone must be there on the
+    // laptop, so the store is <config dir>/drafts.json, not browser storage.
+    // Behind the same token gate as the other API routes (via isApiRequest).
+    // Every mutation answers with the WHOLE new list, so the client never has to
+    // merge/cap/dedupe a list of its own: drafts.ts is the only writer.
+    if (pathname === '/drafts' && req.method === 'GET') {
+      try {
+        sendJSON(res, 200, { drafts: readDrafts() });
+      } catch (err) {
+        // An unreadable/corrupt store is reported, never flattened to an empty
+        // list: the client would mirror that empty list over its offline copy.
+        sendJSON(res, 500, { error: (err as Error).message || 'Failed to read drafts' });
+      }
+      return;
+    }
+
+    if (pathname === '/drafts' && req.method === 'POST') {
+      let parsed: any;
+      try {
+        parsed = JSON.parse((await readBody(req)) || '{}');
+      } catch {
+        sendJSON(res, 400, { error: 'Invalid request' });
+        return;
+      }
+      const invalid = validateDraftInput(parsed);
+      if (invalid) {
+        // Rejected, not truncated: the composer clears itself once the server
+        // has the draft, so a silently stored prefix would lose the tail.
+        sendJSON(res, 400, { error: invalid });
+        return;
+      }
+      try {
+        const drafts = addDraft({
+          text: parsed.text,
+          sessionId: typeof parsed.sessionId === 'string' ? parsed.sessionId : undefined,
+          cwd: typeof parsed.cwd === 'string' ? parsed.cwd : undefined,
+        });
+        sendJSON(res, 200, { drafts });
+      } catch (err) {
+        sendJSON(res, 500, { error: (err as Error).message || 'Failed to save draft' });
+      }
+      return;
+    }
+
+    // POST rather than DELETE, mirroring /session/delete: the same shape as the
+    // rest of this API, and it survives proxies that drop the DELETE method.
+    if (pathname === '/drafts/delete' && req.method === 'POST') {
+      let parsed: any;
+      try {
+        parsed = JSON.parse((await readBody(req)) || '{}');
+      } catch {
+        sendJSON(res, 400, { error: 'Invalid request' });
+        return;
+      }
+      const id = typeof parsed.id === 'string' ? parsed.id : '';
+      if (!id) {
+        sendJSON(res, 400, { error: 'Missing draft id' });
+        return;
+      }
+      try {
+        sendJSON(res, 200, { drafts: deleteDraft(id) });
+      } catch (err) {
+        sendJSON(res, 500, { error: (err as Error).message || 'Failed to delete draft' });
+      }
       return;
     }
 
