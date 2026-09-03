@@ -121,7 +121,7 @@ wherever start
 The server will boot up and automatically generate self-signed SSL certificates for a secure `https`/`wss` local environment. Open `https://localhost:31415` in your browser. (The first time, proceed past your browser's SSL warning).
 _(Note: Automatic certificate generation requires `openssl` to be installed on your host system. If `openssl` is missing, the server will gracefully fall back to HTTP/WS)._
 
-_The self-signed certificate is fine for everyday use, but browsers will not treat it as a secure context, which prevents installing the dashboard as a standalone PWA from a remote device. To enable a proper standalone PWA install over Tailscale, see [Trusted HTTPS for Tailscale](#trusted-https-for-tailscale-recommended-for-pwa-install)._
+_The self-signed certificate is fine for everyday use, but browsers will not treat it as a secure context, which prevents installing the dashboard as a standalone PWA from a remote device. To enable a proper standalone PWA install, see [Trusted HTTPS for Tailscale](#trusted-https-for-tailscale-recommended-for-pwa-install) or [Trusted HTTPS for Tunnet](#trusted-https-for-tunnet)._
 
 #### 4. Run Pi (Optional — Only for Terminal Bridge Mode)
 
@@ -501,6 +501,14 @@ Then open `https://your-machine.your-tailnet.ts.net:31415` (the **name**, not th
 > **Renewal:** `tailscale cert` certificates are short-lived (Let's Encrypt, ~90 days). The server reads the certificate files only at startup, so to renew, re-run the `tailscale cert` command (overwriting the files) and restart `wherever`.
 >
 > **DNS note:** all devices (including the server host itself) must be able to resolve the MagicDNS name. If `getent hosts your-machine.your-tailnet.ts.net` fails on the server while `nslookup your-machine.your-tailnet.ts.net 100.100.100.100` succeeds, your system DNS is bypassing Tailscale's MagicDNS resolver (commonly a NetworkManager / `systemd-resolved` `/etc/resolv.conf` conflict). See [tailscale.com/s/dns-fight](https://tailscale.com/s/dns-fight).
+
+#### Trusted HTTPS for Tunnet
+
+The same idea works on a [Tunnet](https://tunnet.io) mesh, with one difference: there is no `tunnet cert`, so the certificate comes from an ACME client you run yourself. Because a mesh address is not reachable from the internet, issuance must use the **DNS-01** challenge rather than HTTP-01.
+
+You point a public DNS record at the machine's private mesh address, which is safe to publish and stable, since Tunnet derives it from the node's own public key rather than leasing it.
+
+Two shapes are covered in [Deploying over a Tunnet mesh with real HTTPS](docs/deployment-tunnet-https.md): issuing a certificate and dropping it into `~/.wherever/certs/` exactly as above, or putting Caddy in front so you get `https://wherever.your-domain` per service and renewal without restarts.
 
 ### 2. Local Network Access
 
