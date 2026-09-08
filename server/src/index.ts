@@ -3,7 +3,7 @@ import { createServer as createHttpServer, type IncomingMessage, type ServerResp
 import { createServer as createHttpsServer, request as httpRequest } from 'node:https';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent';
-import { SessionPool, getWhereverConfig, detectRemoteRepo, type WhereverConfig } from './session-pool.js';
+import { SessionPool, getWhereverConfig, getWhereverCertsDir, detectRemoteRepo, type WhereverConfig } from './session-pool.js';
 import { readDrafts, addDraft, deleteDraft, validateDraftInput } from './drafts.js';
 import { searchConversations } from './conversation-search.js';
 import type { ClientMessage, ServerMessage, ToolImage } from './protocol.js';
@@ -371,19 +371,129 @@ function generateId(): string {
   return Math.random().toString(36).substring(2) + Date.now().toString(36);
 }
 
-function parseArgs(): { port: number; host: string; token?: string; idleTimeout: number; sslKey?: string; sslCert?: string; noSsl: boolean; httpLocalhostFallbackPort?: number; debug: boolean } {
+/**
+ * Resolve the auth token WITHOUT requiring it on the command line.
+ *
+ * Anything in argv is world-readable: `ps -ef` (and /proc/<pid>/cmdline, which
+ * is mode 0444) shows the full command line of every process on the machine to
+ * every local user, so `--token <secret>` leaks the secret to any account on
+ * the box. That is fine for a laptop and NOT fine for a shared/bare-metal host,
+ * which is why the environment is the preferred channel for real deployments.
+ *
+ * Precedence, highest first:
+ *   1. `--token <value>`        - explicit argv, kept for compatibility. LEAKS via ps.
+ *   2. `WHEREVER_TOKEN`         - preferred for deployments.
+ *   3. `WHEREVER_TOKEN_FILE`    - path to a file whose (trimmed) CONTENT is the
+ *                                 token. The natural shape for a secret manager
+ *                                 (sops-nix, systemd `LoadCredential`) which
+ *                                 renders a root-owned 0400 file; nothing
+ *                                 secret then exists in argv OR in the
+ *                                 environment block.
+ *   4. `PI_REMOTE_TOKEN`        - the pre-existing variable, still honoured.
+ *
+ * TRIMMING IS ASYMMETRIC ON PURPOSE, and the asymmetry is a compatibility rule,
+ * not an oversight. The two NEW sources are trimmed, because a secret manager
+ * renders a file with a trailing newline and `WHEREVER_TOKEN=$(cat ...)` is the
+ * obvious thing to write. The two PRE-EXISTING sources (`--token`,
+ * `PI_REMOTE_TOKEN`) are taken VERBATIM, exactly as before, because
+ * `authenticate()` compares the raw query parameter with `===`: trimming them
+ * would silently change WHICH string authenticates on an install that already
+ * has whitespace in its token, locking out every saved client URL. Likewise
+ * `--token` wins whenever the FLAG WAS GIVEN, even with an empty or missing
+ * value, because that is what the old `case '--token': token = args[++i]`
+ * did -- it overwrote whatever the environment had.
+ *
+ * An unreadable or empty `WHEREVER_TOKEN_FILE` is FATAL rather than "fall
+ * through to no token": silently starting an UNAUTHENTICATED server because a
+ * secret failed to mount is the one failure mode that must never happen
+ * quietly. Note this only fires when the file is the source actually being
+ * consulted: an explicit `--token`/`WHEREVER_TOKEN` above it still wins, and
+ * the server is authenticated either way.
+ */
+function resolveToken(cliToken: string | undefined, cliTokenGiven: boolean): { token?: string; source: string } {
+  // `cliTokenGiven`, not `cliToken`, so that `--token ''` (and a trailing
+  // `--token` with no value) still SUPPRESSES the environment, as it did before.
+  if (cliTokenGiven) return { token: cliToken || undefined, source: '--token' };
+
+  const envToken = process.env.WHEREVER_TOKEN;
+  if (envToken && envToken.trim()) return { token: envToken.trim(), source: 'WHEREVER_TOKEN' };
+  warnIfSetButBlank('WHEREVER_TOKEN', envToken);
+
+  const tokenFile = process.env.WHEREVER_TOKEN_FILE;
+  if (tokenFile && tokenFile.trim()) {
+    const resolvedPath = expandTilde(tokenFile.trim());
+    let contents: string;
+    try {
+      contents = fs.readFileSync(resolvedPath, 'utf8');
+    } catch (err) {
+      console.error(
+        `FATAL: WHEREVER_TOKEN_FILE is set to ${resolvedPath} but it could not be read ` +
+          `(${(err as Error).message}). Refusing to start: continuing would silently run an ` +
+          `UNAUTHENTICATED server.`,
+      );
+      process.exit(1);
+    }
+    const trimmed = contents.trim();
+    if (!trimmed) {
+      console.error(
+        `FATAL: WHEREVER_TOKEN_FILE (${resolvedPath}) is empty. Refusing to start: continuing ` +
+          `would silently run an UNAUTHENTICATED server.`,
+      );
+      process.exit(1);
+    }
+    return { token: trimmed, source: `WHEREVER_TOKEN_FILE (${resolvedPath})` };
+  }
+  warnIfSetButBlank('WHEREVER_TOKEN_FILE', tokenFile);
+
+  // VERBATIM, including surrounding whitespace: see the trimming note above.
+  // `'   '` is truthy and therefore enforced, exactly as it was before.
+  const legacy = process.env.PI_REMOTE_TOKEN;
+  if (legacy) return { token: legacy, source: 'PI_REMOTE_TOKEN' };
+
+  return { token: undefined, source: 'none' };
+}
+
+/**
+ * A token variable that is SET but blank is almost always a secret that failed
+ * to render (a truncated file, a `$(cat ...)` that errored, a half-landed
+ * activation), and the consequence is an UNAUTHENTICATED server that looks
+ * perfectly healthy. It cannot be fatal -- `VAR=` is also the ordinary way to
+ * neutralise an inherited variable, which the test harness relies on -- so it
+ * is made LOUD instead. Silence is the only unacceptable outcome here.
+ */
+function warnIfSetButBlank(name: string, value: string | undefined): void {
+  if (value === undefined || value.length === 0) return; // unset, or explicitly neutralised
+  if (value.trim().length > 0) return;
+  console.warn(
+    `[wherever] ${name} is set but contains only whitespace. Treating it as NOT SET. ` +
+      `If a secret was meant to be rendered here, it did not arrive, and this server may ` +
+      `be starting WITHOUT AUTHENTICATION.`,
+  );
+}
+
+function parseArgs(): { port: number; host: string; token?: string; tokenSource: string; idleTimeout: number; sslKey?: string; sslCert?: string; noSsl: boolean; httpLocalhostFallbackPort?: number; debug: boolean } {
   const args = process.argv.slice(2);
   let port = parseInt(process.env.PI_REMOTE_PORT || '31415', 10);
   let host = process.env.PI_REMOTE_HOST || '127.0.0.1';
-  let token = process.env.PI_REMOTE_TOKEN || undefined;
+  // Kept separate from the env-derived token so `resolveToken` below can apply
+  // one documented precedence chain instead of "whoever assigned last wins".
+  // `cliTokenGiven` tracks the FLAG's presence separately from its VALUE, so
+  // `--token ''` still suppresses the environment the way it always did.
+  let cliToken: string | undefined = undefined;
+  let cliTokenGiven = false;
   // Idle eviction window. Longer than the old 5 min so a dip-in/dip-out mobile
   // user returns to a still-WARM session (no agent rebuild) most of the time.
   // With fast-first load a cold return is no longer slow to READ, but a warm
   // session also avoids the async agent build entirely. Override via
   // PI_IDLE_TIMEOUT (ms). See docs/plan-speed-up-long-session-load.md.
   let idleTimeout = parseInt(process.env.PI_IDLE_TIMEOUT || '1200000', 10);
-  let sslKey = process.env.PI_REMOTE_SSL_KEY || undefined;
-  let sslCert = process.env.PI_REMOTE_SSL_CERT || undefined;
+  // TLS material is addressed by PATH, and each half is resolved INDEPENDENTLY
+  // (flag > WHEREVER_* > PI_REMOTE_*). On a declaratively-managed host the key
+  // arrives from a secret manager at an arbitrary root-owned path (e.g.
+  // /run/secrets/wherever-key.pem) while the certificate is a world-readable
+  // file somewhere else entirely, so neither may be tied to a home directory.
+  let sslKey = process.env.WHEREVER_SSL_KEY || process.env.PI_REMOTE_SSL_KEY || undefined;
+  let sslCert = process.env.WHEREVER_SSL_CERT || process.env.PI_REMOTE_SSL_CERT || undefined;
   let noSsl = process.env.PI_REMOTE_NO_SSL === 'true' || process.env.PI_REMOTE_HTTP === 'true';
   let httpLocalhostFallbackPort: number | undefined = undefined;
   // Enables the eruda custom-plugin loader in the served dashboard (local
@@ -410,7 +520,8 @@ function parseArgs(): { port: number; host: string; token?: string; idleTimeout:
         host = args[++i] || '127.0.0.1';
         break;
       case '--token':
-        token = args[++i];
+        cliToken = args[++i];
+        cliTokenGiven = true;
         break;
       case '--idle-timeout':
         idleTimeout = parseInt(args[++i] || '300000', 10);
@@ -446,7 +557,25 @@ function parseArgs(): { port: number; host: string; token?: string; idleTimeout:
     }
   }
 
-  return { port, host, token, idleTimeout, sslKey, sslCert, noSsl, httpLocalhostFallbackPort, debug };
+  const { token, source: tokenSource } = resolveToken(cliToken, cliTokenGiven);
+
+  // Scrub the token out of our own environment once it is resolved. Node builds
+  // a child's environment from `process.env`, and this server spawns children
+  // that are not ours to trust with it: the agent's own `bash` tool
+  // (session-pool.ts) and the memonaut indexer (conversation-search.ts) both
+  // inherit it, so `!env` typed in the dashboard -- or a prompt-injected agent
+  // running `echo $WHEREVER_TOKEN` -- would print the server's auth token into a
+  // transcript that is then indexed to disk. The value is already captured in
+  // `token` above; nothing reads these variables again.
+  delete process.env.WHEREVER_TOKEN;
+  delete process.env.PI_REMOTE_TOKEN;
+
+  return { port, host, token, tokenSource, idleTimeout, sslKey, sslCert, noSsl, httpLocalhostFallbackPort, debug };
+}
+
+/** Loopback-only binds are the safe default; everything else is reachable by others. */
+function isLoopbackHost(host: string): boolean {
+  return host === '127.0.0.1' || host === 'localhost' || host === '::1' || host.startsWith('127.');
 }
 
 function authenticate(req: IncomingMessage, token?: string): boolean {
@@ -544,33 +673,67 @@ function sendThenTerminate(ws: WebSocket, msg: ServerMessage, flushTimeoutMs = 1
 }
 
 async function main(): Promise<void> {
-  const { port, host, token, idleTimeout, sslKey, sslCert, noSsl, httpLocalhostFallbackPort, debug } = parseArgs();
+  const { port, host, token, tokenSource, idleTimeout, sslKey, sslCert, noSsl, httpLocalhostFallbackPort, debug } = parseArgs();
   debugEnabled = debug;
   const sessionPool = new SessionPool(idleTimeout);
   await sessionPool.initialize();
 
   const clients = new Map<string, WSClient>();
 
-  let actualSslKey = sslKey;
-  let actualSslCert = sslCert;
+  // expandTilde so `~/certs/...` works from a systemd `Environment=` line or an
+  // EnvironmentFile, neither of which is shell-expanded. Without it the read
+  // below fails and (before the explicit-TLS check further down) the server
+  // quietly served plaintext instead.
+  let actualSslKey = sslKey ? expandTilde(sslKey) : sslKey;
+  let actualSslCert = sslCert ? expandTilde(sslCert) : sslCert;
   let isSecure = !noSsl;
+  let tlsExplicitlyConfigured = false;
 
   if (isSecure) {
+    // A key and a certificate only work as a PAIR, so "exactly one supplied" is a
+    // misconfiguration. It used to be silent: the `!key || !cert` test threw away
+    // the half that WAS supplied and used the self-signed pair, so an operator who
+    // pointed --ssl-key at a real key and forgot the cert got a working server
+    // presenting a completely different certificate, with nothing in the log. Say
+    // so, loudly; the behaviour (fall back to the self-signed pair) is unchanged.
+    if (!!actualSslKey !== !!actualSslCert) {
+      const supplied = actualSslKey ? '--ssl-key / WHEREVER_SSL_KEY' : '--ssl-cert / WHEREVER_SSL_CERT';
+      const missing = actualSslKey ? '--ssl-cert / WHEREVER_SSL_CERT' : '--ssl-key / WHEREVER_SSL_KEY';
+      console.warn(
+        `[wherever] ${supplied} was supplied but ${missing} was not. A key and a certificate ` +
+          `must be given together; IGNORING the one supplied and using the self-signed pair instead.`,
+      );
+      actualSslKey = undefined;
+      actualSslCert = undefined;
+    }
+    // Whether the operator POINTED AT specific TLS material, as opposed to
+    // letting the server mint its own. It decides what happens if that material
+    // cannot be loaded further down: see the `tlsExplicitlyConfigured` branch.
+    tlsExplicitlyConfigured = !!(actualSslKey && actualSslCert);
+
     if (!actualSslKey || !actualSslCert) {
-      // Automatic self-signed certificate generation
-      const homeDir = os.homedir();
-      const certsDir = path.join(homeDir, '.wherever', 'certs');
+      // Automatic self-signed certificate generation. These files are WRITTEN, so
+      // they belong to the state dir (WHEREVER_STATE_DIR, defaulting to the config
+      // dir, itself defaulting to ~/.wherever) -- with both unset this is exactly
+      // the ~/.wherever/certs it has always been.
+      const certsDir = getWhereverCertsDir();
+      // 0700 on creation: the state dir can now be pointed at a shared location
+      // (/var/lib/...), and a world-writable certs dir would let a local user
+      // swap in their own key/cert pair. An existing directory keeps its mode.
       const defaultKeyPath = path.join(certsDir, 'localhost.key');
       const defaultCertPath = path.join(certsDir, 'localhost.crt');
 
       if (!fs.existsSync(defaultKeyPath) || !fs.existsSync(defaultCertPath)) {
         console.log('Generating self-signed SSL certificates for secure HTTPS/WSS...');
         try {
-          fs.mkdirSync(certsDir, { recursive: true });
+          fs.mkdirSync(certsDir, { recursive: true, mode: 0o700 });
           execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-keyout', defaultKeyPath, '-out', defaultCertPath, '-sha256', '-days', '3650', '-nodes', '-subj', '/CN=localhost'], { stdio: 'ignore' });
+          // Assert 0600 ourselves rather than trusting openssl's default: it is
+          // a private key, and the mode it lands with has varied by version.
+          try { fs.chmodSync(defaultKeyPath, 0o600); } catch {}
           console.log(`Self-signed certificates generated successfully in ${certsDir}`);
         } catch (err) {
-          console.warn('Failed to generate self-signed certificates using OpenSSL. Falling back to HTTP.', (err as Error).message);
+          console.warn(`Failed to generate self-signed certificates in ${certsDir} using OpenSSL. Falling back to HTTP.`, (err as Error).message);
           isSecure = false;
         }
       }
@@ -1623,6 +1786,22 @@ async function main(): Promise<void> {
         httpServer = createHttpServer(requestHandler);
       }
     } catch (err) {
+      // Falling back to plaintext is only acceptable for material the server
+      // chose for itself. When the operator EXPLICITLY pointed at a key and a
+      // certificate, silently serving HTTP on the same (possibly 0.0.0.0)
+      // address is the same fail-open ADR 0007 rules out for the token file:
+      // it is the exact shape of a secret that has not been decrypted yet, and
+      // clients would then send their token in cleartext to a server that looks
+      // healthy. Refuse to start instead.
+      if (tlsExplicitlyConfigured) {
+        console.error(
+          `FATAL: TLS was explicitly configured (key ${actualSslKey}, cert ${actualSslCert}) but ` +
+            `could not be loaded: ${(err as Error).message}. Refusing to start: falling back to ` +
+            `plaintext HTTP would silently expose traffic (and the auth token) on ${host}:${port}. ` +
+            `Pass --no-ssl if plaintext is genuinely what you want.`,
+        );
+        process.exit(1);
+      }
       console.error(`Failed to load SSL certificates from ${actualSslKey} and ${actualSslCert}. Falling back to HTTP.`, (err as Error).message);
       server = createHttpServer(requestHandler);
     }
@@ -1799,8 +1978,28 @@ async function main(): Promise<void> {
 
   server.listen(port, host, () => {
     const protocol = isSecureServer ? 'https' : 'http';
-    const authInfo = token ? ' (token-protected)' : ' (no authentication)';
+    // The SOURCE, never the token itself: this line goes to the journal, which
+    // is readable by more people than the secret is.
+    const authInfo = token ? ` (token-protected via ${tokenSource})` : ' (no authentication)';
     console.log(`\n🔐 Wherever Server: ${protocol}://${host}:${port}${authInfo}`);
+    if (token && tokenSource === '--token') {
+      console.warn(
+        '[wherever] the token came from the command line, which is visible to every user on this ' +
+          'machine via `ps`. For a real deployment set WHEREVER_TOKEN (or WHEREVER_TOKEN_FILE) instead.',
+      );
+    }
+    // Binding off-loopback with no token is a valid, long-supported choice (it
+    // is how a trusted mesh/VPN setup runs), so it stays permitted. But it is
+    // also exactly what a failed secret render looks like, and the two are
+    // indistinguishable from the outside, so it must not slip by as one
+    // parenthetical word in an otherwise cheerful startup line.
+    if (!token && !isLoopbackHost(host)) {
+      console.warn(
+        `[wherever] WARNING: listening on ${host} with NO AUTHENTICATION. Anyone who can reach ` +
+          `this address has full agent and filesystem access. If you meant to configure a token, ` +
+          `it did not arrive: check WHEREVER_TOKEN / WHEREVER_TOKEN_FILE.`,
+      );
+    }
 
     if (isSecureServer) {
       console.log(`

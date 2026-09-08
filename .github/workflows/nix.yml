@@ -1,0 +1,97 @@
+name: Nix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - 'package.nix'
+      - 'nix/**'
+      # Workspace membership + the lockfile: pnpm resolves the WHOLE workspace
+      # with --frozen-lockfile, so every member's package.json must be present
+      # and consistent, not just the ones this package builds.
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'package.json'
+      - 'server/**'
+      - 'web/**'
+      - 'client/**'
+      # scripts/build.js builds the extension too, so a break there reds this job.
+      - 'extension/**'
+      - 'site/**'
+      - 'vscode/**'
+      - 'scripts/**'
+      - '.github/workflows/nix.yml'
+  pull_request:
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - 'package.nix'
+      - 'nix/**'
+      # Workspace membership + the lockfile: pnpm resolves the WHOLE workspace
+      # with --frozen-lockfile, so every member's package.json must be present
+      # and consistent, not just the ones this package builds.
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'package.json'
+      - 'server/**'
+      - 'web/**'
+      - 'client/**'
+      # scripts/build.js builds the extension too, so a break there reds this job.
+      - 'extension/**'
+      - 'site/**'
+      - 'vscode/**'
+      - 'scripts/**'
+      - '.github/workflows/nix.yml'
+
+jobs:
+  pnpm-deps-hash:
+    # The important one. `pnpmDepsHash` in package.nix pins the CONTENT of the
+    # resolved dependency set, so a pnpm-lock.yaml change without a matching hash
+    # update does NOT fail the build: Nix reuses the cached dependency set of the
+    # OLD lockfile and silently produces a package built against the wrong
+    # dependencies. This job turns that silence into a red check.
+    name: pnpmDepsHash is not stale
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - name: Check pnpmDepsHash against pnpm-lock.yaml
+        run: ./nix/check-pnpm-deps-hash.sh
+
+  build:
+    name: nix build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - name: Build the package
+        run: nix build --print-build-logs .#default
+      - name: The built server actually runs
+        run: ./result/bin/wherever --version
+
+  devshell:
+    name: nix develop
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - name: The dev shell provides the toolchain it claims to
+        run: |
+          nix develop --command bash -c '
+            set -euo pipefail
+            node --version
+            pnpm --version
+            openssl version
+            git --version
+          '

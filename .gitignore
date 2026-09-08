@@ -24,3 +24,8 @@ tmp/
 /wherever-cloud-init.yaml
 deploy/out/
 .pi-subagents
+
+# Nix build symlinks (flake.nix / package.nix themselves ARE tracked)
+/result
+/result-*
+.direnv/

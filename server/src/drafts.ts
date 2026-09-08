@@ -1,6 +1,6 @@
 // Saved drafts: messages the user chose to KEEP instead of sending.
 //
-// The store lives on the SERVER (`<config dir>/drafts.json`), not in a browser,
+// The store lives on the SERVER (`<state dir>/drafts.json`), not in a browser,
 // because that is the whole point of wherever: the machine holds the state and
 // any device picks it up. A draft written on a phone has to be there on the
 // laptop, and clearing site data must not destroy it. (The composer's per-session
@@ -20,7 +20,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { getWhereverConfigDir } from './session-pool.js';
+import { getWhereverStateDir } from './session-pool.js';
 
 /**
  * Hard cap on retained drafts, dropping the least recently touched. A draft is
@@ -78,8 +78,15 @@ export class DraftsUnavailableError extends Error {
   }
 }
 
+/**
+ * Drafts live in the STATE dir, not the config dir. They are the canonical
+ * example of the split: the config directory can be read-only (rendered by the
+ * deployment), while this file is written on every save. `WHEREVER_STATE_DIR`
+ * defaults to the config dir, so an install that sets neither variable (or only
+ * `WHEREVER_CONFIG_DIR`) keeps the exact path it has today.
+ */
 export function getDraftsPath(): string {
-  return path.join(getWhereverConfigDir(), 'drafts.json');
+  return path.join(getWhereverStateDir(), 'drafts.json');
 }
 
 /** Newest-updated first, ties broken by id so the order is deterministic. */

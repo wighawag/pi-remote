@@ -96,8 +96,19 @@ mkdir -p ~/.wherever/certs
 cp ~/.lego/certificates/nono.ska.sh.crt ~/.wherever/certs/localhost.crt
 cp ~/.lego/certificates/nono.ska.sh.key ~/.wherever/certs/localhost.key
 
-wherever start --host 0.0.0.0 --token your-secure-token
+WHEREVER_TOKEN=your-secure-token wherever start --host 0.0.0.0
 ```
+
+The token goes through the environment rather than `--token`, because a command line is readable by every user on the machine (`ps`). Alternatively, point the server straight at the lego output and skip the copy entirely, which also keeps the key wherever your ACME client wants it:
+
+```bash
+WHEREVER_SSL_KEY="$HOME/.lego/certificates/nono.ska.sh.key" \
+WHEREVER_SSL_CERT="$HOME/.lego/certificates/nono.ska.sh.crt" \
+WHEREVER_TOKEN=your-secure-token \
+  wherever start --host 0.0.0.0
+```
+
+(`$HOME` rather than `~` deliberately: a tilde in a **systemd** `Environment=` line or an `EnvironmentFile` is not expanded by any shell. The server does expand a leading `~` in these two variables itself, so both spellings work here, but `$HOME` is the one that survives being copied into a unit file. If the certificate cannot be loaded the server now **exits** rather than quietly falling back to plain HTTP, so a wrong path shows up immediately instead of as an unencrypted listener.)
 
 The filenames stay `localhost.*` while containing a certificate for your real name; the server cares about the path, not the name. Then open `https://nono.ska.sh:31415`, using the **name**, not the address, because the certificate is bound to the name.
 

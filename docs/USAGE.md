@@ -190,7 +190,7 @@ Fetch all LLM models currently configured and available in Pi's local ModelRegis
   ```
 
 ### `GET /drafts`
-List every saved draft: messages the user chose to keep instead of sending. Drafts are stored ON THE SERVER (`<config dir>/drafts.json`, i.e. `~/.wherever/drafts.json` unless `WHEREVER_CONFIG_DIR` says otherwise), so a draft written on a phone is there on the laptop and survives the browser clearing its storage. They are global to the server, not scoped to a session: `sessionId`/`cwd` only record where a draft was written, for display.
+List every saved draft: messages the user chose to keep instead of sending. Drafts are stored ON THE SERVER (`<state dir>/drafts.json`, i.e. `~/.wherever/drafts.json` unless `WHEREVER_STATE_DIR` or `WHEREVER_CONFIG_DIR` says otherwise — the state dir defaults to the config dir), so a draft written on a phone is there on the laptop and survives the browser clearing its storage. They are global to the server, not scoped to a session: `sessionId`/`cwd` only record where a draft was written, for display.
 * **Auth required:** Yes
 * **Response (200 OK):** newest first. An unreadable or corrupt store answers `500` naming the file, never an empty list: "I cannot read your drafts" and "you have no drafts" are different answers, and a client that mirrored the second would overwrite its own offline copy.
   ```json
@@ -498,10 +498,12 @@ If you load or start a session in `/project-a` while another client already has 
 There is no longer any take-over / abort protection: the server sends a live `folder_conflict` update as sessions open and leave the folder, driving the banner's appearance and dismissal. That update carries the server's authoritative `readOnly` for the receiving client, so read-only is released automatically when the conflict resolves rather than outliving the banner that could lift it. Every `folder_conflict_continue` is answered with one of these updates on the same socket, which by ordering settles any conflicting update that was already in flight. Note that a conflict is tracked per CLIENT: asking for a new session in an occupied folder attaches you to the occupant's own session file, so the banner stays up for exactly as long as the other client is still there.
 
 ### Security Reminders
-* **Bind Binding:** By default, the Standalone Server binds only to `127.0.0.1`. Never expose to `0.0.0.0` unless you set a highly secure `--token` in your startup configuration.
+* **Bind Binding:** By default, the Standalone Server binds only to `127.0.0.1`. Never expose to `0.0.0.0` unless you set a highly secure token in your startup configuration.
+* **Keep the token out of the command line.** `/proc/<pid>/cmdline` is readable by every user on the machine, so `--token <secret>` leaks it to anyone who can run `ps`. Pass `WHEREVER_TOKEN` in the environment instead, or `WHEREVER_TOKEN_FILE` pointing at a `0400` file. `--token` still works and is fine on a single-user laptop.
 * **Tailscale / Headscale (Highly Recommended):** For a secure private network, you can use Tailscale or Headscale. Bind the server to all interfaces with `--host 0.0.0.0` and access it safely over your private mesh VPN:
   ```bash
-  wherever --host 0.0.0.0 --token your-secure-token
+  # the token comes from the environment, so it is not in `ps`
+  WHEREVER_TOKEN=your-secure-token wherever start --host 0.0.0.0
   ```
 * **Tunnels:** For remote access (such as mobile browsing) without exposing ports, you can utilize secure SSH tunnels:
   ```bash

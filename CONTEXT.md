@@ -55,8 +55,9 @@ Wherever is a TypeScript extension for the [pi coding agent](https://pi.dev) tha
   - ES2022 target, ESNext modules
   - Strict mode enabled
   - Output to `dist/`
-- **`~/.wherever/drafts.json`** - Saved drafts (see "Saved drafts" below). Same directory as `config.json`, so `WHEREVER_CONFIG_DIR` isolates it too.
+- **`~/.wherever/drafts.json`** - Saved drafts (see "Saved drafts" below). Lives in the STATE dir (`WHEREVER_STATE_DIR`), which DEFAULTS to the config dir, so `WHEREVER_CONFIG_DIR` alone still isolates it exactly as before.
 - **`~/.wherever/config.json`** - Server-side runtime config (`getWhereverConfig()`): `sessions.ignore` / `sessions.readOnly`, `uploads`, `downloads`, `beep`, `searchFolder`, `conversationSearch` (autoSync / syncIntervalMs for `GET /search`), remote-repo rules. `WHEREVER_CONFIG_DIR` overrides the directory it is read from; the test harness sets it so an isolated server never picks up the developer's real config (a personal `sessions.ignore: ["/tmp/**"]` would otherwise hide the harness's own temp-dir sessions).
+- **`~/.wherever/certs/localhost.{key,crt}`** - The auto-generated self-signed TLS pair, written only when the key and cert are NOT BOTH supplied (exactly one half is discarded with a warning). Also in the STATE dir (see below); it used to be built from `os.homedir()` directly, ignoring `WHEREVER_CONFIG_DIR` entirely.
 
 ### Documentation
 
@@ -120,6 +121,32 @@ Wherever is a TypeScript extension for the [pi coding agent](https://pi.dev) tha
 - `POST /session/upload` - Upload a file from the client to the server
 - `GET /session/download` - Download an agent-produced file to the client (see "File Download / Attachments" below)
 
+### Config dir (read) vs state dir (written)
+
+The server distinguishes the directory it READS configuration from and the directory it WRITES to, because the deployment target (a declarative NixOS system service) renders `config.json` through sops-nix into a root-owned `0400` file the service can never write next to. ADR `0006-config-dir-is-read-only-state-lives-in-a-separate-state-dir`.
+
+- `getWhereverConfigDir()` (`WHEREVER_CONFIG_DIR`, default `~/.wherever`) - READ only. `getWhereverConfig()`'s attempt to seed a default `config.json` when none exists is best-effort and warns rather than erroring, because an unwritable config dir is a supported deployment.
+- `getWhereverStateDir()` (`WHEREVER_STATE_DIR`, **default: the resolved config dir**) - everything WRITTEN. The default is what makes the split purely additive: with the variable unset, and with only `WHEREVER_CONFIG_DIR` set (as every existing test does), every path is byte-identical to what it was before. There is no migration.
+- `getWhereverCertsDir()` = `<state dir>/certs`.
+
+**The complete list of config-dir writers, which is also the `StateDirectory` / backup set:** `drafts.json` (+ its `.tmp` sibling during the atomic write) and `certs/localhost.{key,crt}`. Nothing else. In particular **uploads are NOT under the config dir** despite `uploads.subDir` defaulting to `.wherever/uploads`: `resolveUploadDir()` resolves that against the SESSION's `cwd` (`path.resolve(cwd, subDir)`), so it is a per-project folder; the other two modes are `os.tmpdir()` (the default) and an explicit `uploads.dir`.
+
+A future writer belongs in the state dir. If something genuinely has to be written next to the config, that is a design problem to solve, not a reason to reopen the config dir for writing.
+
+### Auth token resolution (no secret need ever be in argv)
+
+`/proc/<pid>/cmdline` is world-readable, so `--token <secret>` publishes the token to every local user via `ps`. `resolveToken()` in `server/src/index.ts` takes the first non-empty of, highest first: `--token` -> `WHEREVER_TOKEN` -> `WHEREVER_TOKEN_FILE` (a path whose trimmed CONTENT is the token, the shape sops-nix / `LoadCredential=` produce) -> `PI_REMOTE_TOKEN` (pre-existing, still honoured). Argv ranks first because precedence should follow EXPLICITNESS, not safety; safety is handled by warning at startup when the flag is used. The startup banner reports the SOURCE, never the token, since it lands in the journal.
+
+**A set-but-unreadable/empty `WHEREVER_TOKEN_FILE` is FATAL** (`process.exit(1)`), deliberately choosing unavailability: falling through to "no token" would bring up a healthy-looking server on `0.0.0.0` with authentication silently off, which is the one failure that must never be quiet. ADR `0007-secrets-never-in-argv-token-resolution-order`.
+
+TLS material is resolved as two INDEPENDENT absolute paths (`--ssl-key` / `WHEREVER_SSL_KEY` / `PI_REMOTE_SSL_KEY`, and the `*_CERT` triple), so a sops-mounted key and an ACME certificate in different places both work. Supplying exactly one half now WARNS instead of silently discarding it (the behaviour, falling back to the self-signed pair, is unchanged).
+
+### Nix packaging (`package.nix` + `flake.nix`)
+
+`package.nix` is a plain function of `pkgs` and IS the interface: the deployment repo evaluates several nixpkgs pins and does `import .../package.nix { pkgs = <its pin>; }`, so a flake-only output would drag a third nixpkgs into its closure. `flake.nix` merely calls it, and exists for `nix develop` (the exact node/pnpm toolchain, replacing the hardcoded volta path the old user service ran) and `nix build`. Verified: given the same nixpkgs and the same `buildVersion`, the flake path and a bare `import` produce the same store path. (In a git checkout the flake additionally stamps `buildVersion` with the commit rev, which a plain `import` leaves at the package version, so the two then differ by exactly that one build id.) The `src` filter is an ALLOWLIST of the workspace members plus the root manifests, not a denylist: `package.nix` is imported BY PATH as well as through the flake, and a path import of a working checkout would otherwise copy this repo's gitignored scratch (`tmp/`, `.kilo/`, ~160 MB) into the store and make the two paths disagree. ADR `0008-nix-packaging-package-nix-is-the-interface-flake-is-a-wrapper`.
+
+`pnpmDepsHash` in `package.nix` pins the resolved dependency set and MUST be regenerated whenever `pnpm-lock.yaml` changes. A stale hash does not break the build; it silently builds against the OLD lockfile's dependencies. Hence `nix/update-pnpm-deps-hash.sh` (regenerate) and `nix/check-pnpm-deps-hash.sh` (CI guard that fails loudly). `web/svelte.config.js` honours `WHEREVER_BUILD_VERSION` so an out-of-tree build with no `.git` does not fall back to a `timestamp_<ms>` build id and lose reproducibility.
+
 ### Service Install (`wherever install`)
 
 The standalone server (`server/`, bin `wherever`) uses explicit verbs. `server/src/index.ts` dispatches on the first argv: `start` runs the server (server flags follow it; the `start` token is stripped from `process.argv` before `main()` so the existing flag parser is unchanged), `install` / `uninstall` / `service-status` (aliased `status`) route to `server/src/commands/install.ts`, and a bare `wherever` (or `help`) prints usage. An unknown verb prints usage and exits 1. The generated service unit invokes `wherever start ...`.
@@ -127,7 +154,8 @@ The standalone server (`server/`, bin `wherever`) uses explicit verbs. `server/s
 - **Linux**: systemd unit. Per-user (`~/.config/systemd/user/wherever.service`) by default, or system-wide (`/etc/systemd/system/wherever.service`) with `--system` (needs root). Enabled + started via `systemctl [--user] enable --now wherever`.
 - **macOS**: per-user launchd LaunchAgent at `~/Library/LaunchAgents/dev.wherever.server.plist`, loaded via `launchctl`. `--system` is not supported.
 - **Windows**: not supported yet; the command prints the manual steps.
-- Server flags `--port` / `--host` / `--token` are baked into the service's `ExecStart` / `ProgramArguments`.
+- Server flags `--port` / `--host` / `--token` are baked into the service's `ExecStart` / `ProgramArguments`. That is precisely why `--token` should not be used for a real deployment: the flag lands verbatim in `ExecStart` and therefore in `ps`. Pass `WHEREVER_TOKEN` / `WHEREVER_TOKEN_FILE` in the unit's environment instead.
+- **`install` is NOT the model for a declarative host.** It writes a unit imperatively, which is the thing NixOS replaces; see `docs/deployment-nixos.md` for the module that supersedes it there.
 - **Pi config injection**: unless `--no-pi-config`, install adds `"npm:@wherever-dev/pi"` to the `packages` array in `~/.pi/agent/settings.json` (creating the file if missing) when not already present, backing up to `settings.json.bak` first.
 - `--dry-run` prints the generated unit/plist and intended actions without writing anything.
 
@@ -168,7 +196,7 @@ The 📎 button in the composer (`web/src/lib/components/ChatInput.svelte`) uplo
 The composer can keep a message the user does not want to send yet, and load it back later, from any device. Two DIFFERENT things are called "draft" and they must not be conflated:
 
 - **The per-session auto-draft** (`wherever-draft:<sessionId>` in localStorage, one entry per session plus a shared `search` key): invisible crash protection for the ONE text currently in the box, written on every keystroke, swapped on session switch and cleared by a send. Client-side on purpose: round-tripping a keystroke buffer to the server would be absurd, and its only job is surviving an unmount (a resync, a transient disconnect).
-- **Saved drafts** (`server/src/drafts.ts`, `<config dir>/drafts.json`): explicit, durable, many-at-once messages the user chose to KEEP. Saving one clears the box, exactly as a send would ("instead of sending" is the whole point) but only AFTER the server has it, so a failed save leaves the message in the box with the error rather than swallowing it. Attachment chips are deliberately NOT cleared: an uploaded file is a server-side path and a draft is text only, so dropping the chips would lose a file the user still means to send.
+- **Saved drafts** (`server/src/drafts.ts`, `<state dir>/drafts.json`): explicit, durable, many-at-once messages the user chose to KEEP. Saving one clears the box, exactly as a send would ("instead of sending" is the whole point) but only AFTER the server has it, so a failed save leaves the message in the box with the error rather than swallowing it. Attachment chips are deliberately NOT cleared: an uploaded file is a server-side path and a draft is text only, so dropping the chips would lose a file the user still means to send.
 
 - **The store is the SERVER, not the browser.** That is the whole point of wherever: the machine holds the state and any device picks it up. A draft written on a phone must be there on the laptop, and must survive the browser losing its site data. `GET /drafts` lists, `POST /drafts` `{text, sessionId?, cwd?}` saves, `POST /drafts/delete` `{id}` deletes (POST, mirroring `/session/delete`, so a proxy dropping DELETE cannot break it). All three are behind the same token gate as the other API routes (the `/drafts` prefix is in `isApiRequest`), because drafts are the user's unsent words.
 - **The server is the ONLY writer.** It owns the id, dedupe, cap and ordering, and every mutation answers with the WHOLE new list, which the client adopts verbatim. The client never merges, caps or dedupes a list of its own: that would be a second writer with no conflict rule, and the two copies would drift. localStorage keeps a MIRROR (`wherever-drafts-cache`) used only to render the panel while disconnected; saving/deleting always need the server, and the Save button is disabled without a connection.
@@ -365,6 +393,9 @@ wherever/
 ├── vscode/               # VS Code Companion extension (Sidebar Chat GUI)
 ├── client/               # Isomorphic TS Client module
 ├── server/               # Multi-session standalone server
+├── package.nix           # the derivation, a plain function of `pkgs` (consumer interface)
+├── flake.nix             # `nix develop` (toolchain) + `nix build`, a wrapper over package.nix
+├── nix/                  # pnpmDepsHash update + staleness-check scripts
 ├── .github/
 │   └── workflows/
 │       └── deploy-gh-pages.yml  # CI/CD for marketing site

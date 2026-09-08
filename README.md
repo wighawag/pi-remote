@@ -151,6 +151,16 @@ Server flags are baked into the service, so you can pass them through at install
 wherever install --host 0.0.0.0 --token your-secure-token --port 31415
 ```
 
+> ⚠️ **`--token` puts the secret in the service's command line, and a command line is world-readable.** `wherever install` bakes the flags above verbatim into `ExecStart`, so the token ends up both in the unit file and in `/proc/<pid>/cmdline`, where any user on the machine can read it with a plain `ps`. That is acceptable on a personal single-user laptop and **not** on a shared or internet-facing box.
+>
+> For a real deployment supply it through the environment instead: set `WHEREVER_TOKEN` (or `WHEREVER_TOKEN_FILE`, pointing at a `0400` file that a secret manager renders) and install **without** `--token`. See [Supplying the token](#supplying-the-token-argv-is-world-readable). To add it to a unit that already exists:
+>
+> ```bash
+> systemctl --user edit wherever    # add: [Service] / Environment="WHEREVER_TOKEN=..."
+> # better still, keep it out of the unit too:
+> #   EnvironmentFile=-/etc/wherever/token.env   (chmod 0400)
+> ```
+
 Other subcommands:
 
 ```bash
@@ -162,7 +172,7 @@ Install options:
 
 - `--system` — Install a system-wide service instead of a per-user one (Linux only, requires root).
 - `--no-pi-config` — Do not modify `~/.pi/agent/settings.json`.
-- `--port` / `--host` / `--token` — Server flags to bake into the service invocation.
+- `--port` / `--host` / `--token` — Server flags to bake into the service invocation. (Prefer `WHEREVER_TOKEN` in the unit's environment over `--token`; see the warning above.)
 - `--dry-run` — Print the generated unit/plist and the intended actions without writing anything.
 
 ##### Memory limits (systemd)
@@ -262,6 +272,28 @@ cd wherever
 pnpm install
 ```
 
+<details>
+<summary><b>With Nix (exact toolchain, no global installs)</b></summary>
+
+```bash
+nix develop      # node + pnpm + openssl + git, pinned; nothing from your login shell
+pnpm install
+pnpm build
+```
+
+The shell provides the node and pnpm the lockfile expects, so there is no version-manager shim on `PATH` to go stale. `openssl` is in there because the server invokes it **by name** to mint its fallback self-signed certificate, and `git` because the web build reads a rev to stamp a build id.
+
+`nix build` produces a runnable server (`./result/bin/wherever`). The derivation itself lives in `package.nix`, a plain function of `pkgs`, so a deployment repo can build it against its own nixpkgs pin without taking this flake as an input — see [ADR 0008](docs/adr/0008-nix-packaging-package-nix-is-the-interface-flake-is-a-wrapper.md) and [Deploying declaratively](docs/deployment-nixos.md).
+
+> **Maintenance note.** `package.nix` pins `pnpmDepsHash`, which fixes the *content* of the resolved dependency set. **It must be regenerated whenever `pnpm-lock.yaml` changes.** A stale hash does not fail the build — Nix silently reuses the previous lockfile's dependency set — which is why there is a script and a CI check rather than just this paragraph:
+>
+> ```bash
+> ./nix/update-pnpm-deps-hash.sh   # or: nix run .#update-pnpm-deps-hash
+> ./nix/check-pnpm-deps-hash.sh    # what CI runs; fails loudly when stale
+> ```
+
+</details>
+
 #### 2. Build All Components
 
 Build the frontend, copy it to the server's public asset path, and compile both TypeScript packages (server & extension) using our unified build script:
@@ -315,12 +347,40 @@ Both the server and CLI bridge extension accept standard flags to customize port
 
 - `--port`, `PI_REMOTE_PORT` (Default: `31415`)
 - `--host`, `PI_REMOTE_HOST` (Default: `127.0.0.1`, set to `0.0.0.0` to expose to outside/local network)
-- `--token`, `PI_REMOTE_TOKEN` (Optional auth token)
-- `--idle-timeout`, `PI_IDLE_TIMEOUT` (Graceful shutdown timeout, default: `300000` = 5 minutes)
-- `--ssl-key`, `PI_REMOTE_SSL_KEY` (Path to SSL private key file for HTTPS/WSS)
-- `--ssl-cert`, `PI_REMOTE_SSL_CERT` (Path to SSL certificate file for HTTPS/WSS)
+- `--token`, `WHEREVER_TOKEN`, `WHEREVER_TOKEN_FILE`, `PI_REMOTE_TOKEN` (Optional auth token — see [Supplying the token](#supplying-the-token-argv-is-world-readable) for the precedence rules and why the flag is the wrong channel on a shared machine)
+- `--idle-timeout`, `PI_IDLE_TIMEOUT` (Idle-session eviction window, default: `1200000` = 20 minutes)
+- `--ssl-key`, `WHEREVER_SSL_KEY` / `PI_REMOTE_SSL_KEY` (Path to the SSL private key for HTTPS/WSS. May be an absolute path anywhere, including outside any home directory)
+- `--ssl-cert`, `WHEREVER_SSL_CERT` / `PI_REMOTE_SSL_CERT` (Path to the SSL certificate. Resolved independently of the key, so the two can live in different places — e.g. a key from a secret manager and a certificate from ACME)
 - `--no-ssl` / `--http`, `PI_REMOTE_NO_SSL` / `PI_REMOTE_HTTP` (Disables SSL, falling back to standard HTTP/WS)
 - `--debug`, `PI_DEBUG` / `WHEREVER_DEBUG` (Enables the eruda custom-plugin loader in the dashboard for local mobile debugging — see [Debugging](#debugging). Off by default; only enable locally, since it permits loading eruda plugins from a `?eruda=<pkg>` URL parameter)
+
+#### Directories: config (read) vs state (written)
+
+- `WHEREVER_CONFIG_DIR` (Default: `~/.wherever`) — where `config.json` is **read** from. It may be **read-only**: nothing the server writes goes here.
+- `WHEREVER_STATE_DIR` (Default: **the resolved config dir**) — where the server **writes**: `drafts.json` and the auto-generated self-signed pair in `certs/`.
+
+With `WHEREVER_STATE_DIR` unset the layout is exactly what it has always been (`~/.wherever/config.json`, `~/.wherever/drafts.json`, `~/.wherever/certs/`), so nothing changes for an existing install. Set it when the config directory is rendered by a deployment and cannot be written to — see [Deploying declaratively](docs/deployment-nixos.md).
+
+Of the two, only `drafts.json` is worth backing up (it is the only copy of text the user asked to keep); `certs/` regenerates itself. Note this is **not** the same as "back up the state directory": session transcripts are written by pi under `PI_CODING_AGENT_DIR`, not by wherever, and they are usually the most valuable data on the machine — see [what to back up](docs/deployment-nixos.md#what-to-back-up).
+
+> **If you already set `WHEREVER_CONFIG_DIR`**, note that the generated `certs/` directory now follows it (it used to be pinned to `~/.wherever/certs` regardless). Should you have placed a real certificate at `~/.wherever/certs/localhost.*` by hand, either move it under your config dir or set `WHEREVER_STATE_DIR=~/.wherever` to keep the old location.
+
+#### Supplying the token (argv is world-readable)
+
+`/proc/<pid>/cmdline` is readable by **every user on the machine**, so `--token <secret>` hands the token to anyone who runs `ps`. On a single-user laptop that is fine; on a shared or bare-metal host it is not. The token is resolved from the first of these that yields a value:
+
+| Precedence | Source | Notes |
+| --- | --- | --- |
+| 1 | `--token <value>` | Works as before, including `--token ""` to mean "no token" and override the environment. Taken verbatim. Visible via `ps` — the server warns at startup when it is used. |
+| 2 | `WHEREVER_TOKEN` | **Preferred for real deployments.** The environment block is readable only by the process owner and root. Trimmed. |
+| 3 | `WHEREVER_TOKEN_FILE` | Path to a file whose contents are the token (trimmed). The natural shape for a secret manager (sops-nix, systemd `LoadCredential=`): the secret is never in argv *or* in the environment, only its path is. |
+| 4 | `PI_REMOTE_TOKEN` | The original variable, still honoured. Taken verbatim. |
+
+The two **new** sources are whitespace-trimmed, because a secret file ends with a newline. The two **pre-existing** ones are taken byte-for-byte as they always were, since trimming them would change which string authenticates on an install that already works.
+
+If `WHEREVER_TOKEN_FILE` is the source in use and the file is missing, unreadable or empty, the server **refuses to start**. Falling through to "no token" would silently bring up an unauthenticated server that looks perfectly healthy — see [ADR 0007](docs/adr/0007-secrets-never-in-argv-token-resolution-order.md). For the same reason, a token variable that is set but blank warns loudly, and so does binding a non-loopback address with no token at all.
+
+TLS gets the same treatment: if you point `--ssl-key`/`--ssl-cert` (or the `WHEREVER_SSL_*` variables) at material that cannot be loaded, the server exits instead of quietly falling back to plaintext HTTP on the same address. Use `--no-ssl` if plaintext is what you want.
 
 ### CLI Bridge Settings
 

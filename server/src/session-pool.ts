@@ -530,6 +530,36 @@ export function getWhereverConfigDir(): string {
   return override && override.trim() ? path.resolve(override.trim()) : path.join(os.homedir(), '.wherever');
 }
 
+/**
+ * Directory holding everything the RUNNING SERVER WRITES (drafts, generated
+ * self-signed certs). Separate from the CONFIG directory because the two have
+ * opposite requirements once the server is deployed declaratively: config is
+ * rendered by the deployment (on NixOS, by sops-nix into a root-owned 0400 file
+ * under /run) and is READ-ONLY to the service, while state must be writable and
+ * must survive across activations. See docs/adr/0006.
+ *
+ * `WHEREVER_STATE_DIR` overrides it. It DEFAULTS to `getWhereverConfigDir()`,
+ * so every existing install (and every existing test that only sets
+ * `WHEREVER_CONFIG_DIR`) keeps writing exactly where it does today.
+ */
+export function getWhereverStateDir(): string {
+  const override = process.env.WHEREVER_STATE_DIR;
+  return override && override.trim() ? path.resolve(override.trim()) : getWhereverConfigDir();
+}
+
+/**
+ * Directory holding the AUTO-GENERATED self-signed TLS pair. It is under the
+ * STATE dir, not the config dir: these files are written by the server at boot.
+ * (It used to be built from `os.homedir()` directly, so `WHEREVER_CONFIG_DIR`
+ * did not move it and an isolated server still wrote into the developer's real
+ * `~/.wherever`. With both variables unset this resolves to the same
+ * `~/.wherever/certs` as before.) Explicit `--ssl-key`/`--ssl-cert` paths
+ * bypass this entirely.
+ */
+export function getWhereverCertsDir(): string {
+  return path.join(getWhereverStateDir(), 'certs');
+}
+
 export function getWhereverConfig(): WhereverConfig {
   const configDir = getWhereverConfigDir();
   const configPath = path.join(configDir, 'config.json');
@@ -544,7 +574,13 @@ export function getWhereverConfig(): WhereverConfig {
       fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2), 'utf8');
       return defaultConfig;
     } catch (err) {
-      console.error('Failed to create default wherever config:', err);
+      // A READ-ONLY config dir is a supported deployment (the config is rendered
+      // by the deployment and the service cannot write there), so seeding a
+      // default must never be fatal, and must not look like a crash in the log.
+      console.warn(
+        `[wherever] could not seed a default config at ${configPath} ` +
+          `(${(err as Error).message}); continuing with built-in defaults.`,
+      );
     }
   } else {
     try {

@@ -1,0 +1,73 @@
+name: test
+
+# Runs the server + web unit/integration suites on every push and PR.
+#
+# Added because nothing ran them: `release.yml` only builds and publishes, and
+# `nix.yml` only exercises the Nix packaging. The server suite is the acceptance
+# evidence for behaviour that cannot be checked by reading (a read-only config
+# directory, a token that never reaches argv, TLS from absolute paths), so it
+# needs to run somewhere other than a developer's laptop.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  server:
+    name: server suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # The deployment suite asserts that a directory the running user cannot
+      # write is genuinely unwritable, which is false for root. GitHub's
+      # ubuntu-latest runner is the non-root `runner` user, so those tests
+      # really execute here -- but assert it rather than assuming, because a
+      # silent skip would make the most important tests vanish unnoticed.
+      - name: Verify the runner is not root (else the read-only tests self-skip)
+        run: |
+          if [ "$(id -u)" = "0" ]; then
+            echo "::error::CI is running as root; the read-only config-dir tests would silently skip."
+            exit 1
+          fi
+          id
+
+      - name: Run server tests
+        run: pnpm --filter ./server test
+
+  web:
+    name: web suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Run web tests
+        run: pnpm --filter ./web test

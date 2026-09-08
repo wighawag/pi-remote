@@ -3,25 +3,34 @@ import {execSync} from 'node:child_process';
 import {vitePreprocess} from '@sveltejs/vite-plugin-svelte';
 
 let VERSION = `timestamp_${Date.now()}`;
-try {
-	VERSION = execSync('git rev-parse --short HEAD', {
-		stdio: ['ignore', 'pipe', 'ignore'],
-	})
-		.toString()
-		.trim();
+// An out-of-tree builder (Nix, CI from a tarball) has no .git to ask, and the
+// timestamp fallback would make every build produce a different artifact. Let it
+// state the version it is building instead, so the build stays reproducible and
+// the dashboard still reports a meaningful build id.
+const STAMPED_VERSION = process.env.WHEREVER_BUILD_VERSION?.trim();
+if (STAMPED_VERSION) {
+	VERSION = STAMPED_VERSION;
+} else {
 	try {
-		// This command returns empty string if no changes
-		const output = execSync('git status --porcelain', {encoding: 'utf8'});
-		if (output.trim().length > 0) {
-			VERSION += '-dirty';
-			console.warn(`[!] repo has some uncommited changes...`);
+		VERSION = execSync('git rev-parse --short HEAD', {
+			stdio: ['ignore', 'pipe', 'ignore'],
+		})
+			.toString()
+			.trim();
+		try {
+			// This command returns empty string if no changes
+			const output = execSync('git status --porcelain', {encoding: 'utf8'});
+			if (output.trim().length > 0) {
+				VERSION += '-dirty';
+				console.warn(`[!] repo has some uncommited changes...`);
+			}
+		} catch (error) {
+			console.error('Error checking git status:', error);
+			process.exit(1);
 		}
-	} catch (error) {
-		console.error('Error checking git status:', error);
-		process.exit(1);
+	} catch (e) {
+		console.error(e);
 	}
-} catch (e) {
-	console.error(e);
 }
 
 /** @type {import('@sveltejs/kit').Config} */
